@@ -1053,9 +1053,7 @@ window.inactive.shadow.color: %s
 
     public void open_app_settings(string app_id) throws IOError {
         Idle.add(() => {
-            var app_info = Singularity.AppSystem.get_default().get_app_info(app_id);
-            if (app_info == null)
-                app_info = Singularity.AppSystem.get_default().get_app_info(app_id + ".desktop");
+            var app_info = Singularity.AppSystem.get_default().resolve_app_for_id(app_id);
             if (app_info != null) {
                 open_app_details(app_info);
             } else {

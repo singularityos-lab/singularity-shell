@@ -175,7 +175,7 @@ namespace Singularity {
                         app_title_label.label = "";
                         return;
                     }
-                    var app_info = app_system.get_app_info(app_id);
+                    var app_info = app_system.resolve_app_for_id(app_id);
                     if (app_info != null) {
                         app_title_label.label = app_info.get_name();
                     } else {

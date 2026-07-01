@@ -1718,12 +1718,12 @@ namespace Singularity {
             if (an == bn) return true;
             if (an.has_suffix("." + bn) || bn.has_suffix("." + an)) return true;
             // StartupWMClass - the standard desktop-entry way
-            var dinfo_a = app_system.get_app_info(id_a) as GLib.DesktopAppInfo;
+            var dinfo_a = app_system.resolve_app_for_id(id_a) as GLib.DesktopAppInfo;
             if (dinfo_a != null) {
                 string? wm = dinfo_a.get_startup_wm_class();
                 if (wm != null && wm.down() == b) return true;
             }
-            var dinfo_b = app_system.get_app_info(id_b) as GLib.DesktopAppInfo;
+            var dinfo_b = app_system.resolve_app_for_id(id_b) as GLib.DesktopAppInfo;
             if (dinfo_b != null) {
                 string? wm = dinfo_b.get_startup_wm_class();
                 if (wm != null && wm.down() == a) return true;

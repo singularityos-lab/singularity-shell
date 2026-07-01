@@ -8,6 +8,7 @@ namespace Singularity {
         private static AppSystem? _instance = null;
         private GLib.Settings settings;
         private HashTable<string, AppInfo> installed_apps_map;
+        private HashTable<string, AppInfo> steam_app_map;
         private List<AppInfo> installed_apps_list;
         // Keeps the GLib.AppInfo objects alive - AppInfo is a Vala interface so
         // neither HashTable nor List generates g_object_ref/unref for it automatically.
@@ -147,6 +148,7 @@ namespace Singularity {
 
         private AppSystem() {
             installed_apps_map = new HashTable<string, AppInfo>(str_hash, str_equal);
+            steam_app_map = new HashTable<string, AppInfo>(str_hash, str_equal);
             installed_apps_list = new List<AppInfo>();
             running_apps_list = new List<string>();
             workspaces = new List<Workspace>();
@@ -1005,6 +1007,78 @@ namespace Singularity {
             return null;
         }
 
+        private static bool is_digit_char(char c) {
+            return c >= '0' && c <= '9';
+        }
+
+        private static string? extract_digits_after(string text, string marker) {
+            int pos = text.index_of(marker);
+            if (pos < 0) return null;
+
+            int start = pos + marker.length;
+            if (start >= text.length || !is_digit_char(text[start])) return null;
+
+            int end = start;
+            while (end < text.length && is_digit_char(text[end])) end++;
+
+            return text[start:end];
+        }
+
+        private static string? extract_steam_appid_from_text(string? text) {
+            if (text == null || text == "") return null;
+
+            string lower = text.down();
+            string? appid = extract_digits_after(lower, "steam://rungameid/");
+            if (appid != null) return appid;
+
+            appid = extract_digits_after(lower, "steam://run/");
+            if (appid != null) return appid;
+
+            return extract_digits_after(lower, "steam_app_");
+        }
+
+        private static string? steam_runtime_id_from_app_id(string app_id) {
+            if (app_id == null || app_id == "") return null;
+
+            string lower = app_id.down();
+            if (lower.has_suffix(".desktop")) {
+                lower = lower[0:lower.length - 8];
+            }
+
+            if (!lower.has_prefix("steam_app_")) return null;
+            int start = "steam_app_".length;
+            if (start >= lower.length) return null;
+
+            for (int i = start; i < lower.length; i++) {
+                if (!is_digit_char(lower[i])) return null;
+            }
+
+            return lower;
+        }
+
+        private void index_steam_app(AppInfo app) {
+            var dapp = app as GLib.DesktopAppInfo;
+            if (dapp == null) return;
+
+            string? appid = extract_steam_appid_from_text(dapp.get_startup_wm_class());
+            if (appid == null) appid = extract_steam_appid_from_text(dapp.get_string("Exec"));
+            if (appid == null) appid = extract_steam_appid_from_text(app.get_id());
+            if (appid == null) appid = extract_steam_appid_from_text(dapp.get_filename());
+            if (appid == null) return;
+
+            string runtime_id = "steam_app_" + appid;
+            if (!steam_app_map.contains(runtime_id)) {
+                steam_app_map.insert(runtime_id, app);
+            }
+        }
+
+        private AppInfo? resolve_steam_app_for_id(string app_id) {
+            string? runtime_id = steam_runtime_id_from_app_id(app_id);
+            if (runtime_id == null) return null;
+            if (!steam_app_map.contains(runtime_id)) return null;
+            return steam_app_map.get(runtime_id);
+        }
+
         // Resolve an app_id to its installed AppInfo, trying progressively looser
         // matches. Shared by initial window resolution and the post-scan re-resolve.
         public AppInfo? resolve_app_for_id(string app_id) {
@@ -1015,21 +1089,27 @@ namespace Singularity {
             }
             if (app_info == null) {
                 foreach (var app in installed_apps_list) {
-                    string? raw_id = app.get_id();
-                    if (raw_id == null) continue;
-                    string id = raw_id.down();
-                    if (id.contains(icon_name) || icon_name.contains(id)) {
+                    var dapp = app as GLib.DesktopAppInfo;
+                    if (dapp == null) continue;
+                    string? wm = dapp.get_startup_wm_class();
+                    if (wm != null && wm.down() == icon_name) {
                         app_info = app;
                         break;
                     }
                 }
             }
             if (app_info == null) {
+                app_info = resolve_steam_app_for_id(app_id);
+            }
+            if (app_info == null && steam_runtime_id_from_app_id(app_id) != null) {
+                return null;
+            }
+            if (app_info == null) {
                 foreach (var app in installed_apps_list) {
-                    var dapp = app as GLib.DesktopAppInfo;
-                    if (dapp == null) continue;
-                    string? wm = dapp.get_startup_wm_class();
-                    if (wm != null && wm.down() == icon_name) {
+                    string? raw_id = app.get_id();
+                    if (raw_id == null) continue;
+                    string id = raw_id.down();
+                    if (id.contains(icon_name) || icon_name.contains(id)) {
                         app_info = app;
                         break;
                     }
@@ -1068,12 +1148,30 @@ namespace Singularity {
         // gicon. The dock re-resolves on refresh, but the overview/alt-tab read
         // win.gicon directly, so re-resolve them once the app list is ready.
         private void reresolve_window_icons() {
+            bool running_ids_changed = false;
             foreach (var win in windows) {
-                if (win.gicon != null) continue;
+                if (win.gicon != null && steam_runtime_id_from_app_id(win.app_id) == null) continue;
                 var app_info = resolve_app_for_id(win.app_id);
                 if (app_info == null) continue;
+                string old_app_id = win.app_id;
                 win.gicon = app_info.get_icon();
                 win.icon_name = icon_name_for(app_info, win.icon_name);
+                string? canonical_id = app_info.get_id();
+                if (canonical_id != null && canonical_id != "" && canonical_id != win.app_id) {
+                    win.app_id = canonical_id.dup();
+                    running_ids_changed = true;
+
+                    unowned List<string> old_running = running_apps_list.find_custom(old_app_id, strcmp);
+                    if (old_running != null) {
+                        running_apps_list.remove(old_running.data);
+                    }
+                    if (running_apps_list.find_custom(win.app_id, strcmp) == null) {
+                        running_apps_list.append(win.app_id.dup());
+                    }
+                }
+            }
+            if (running_ids_changed) {
+                schedule_running_apps_changed();
             }
         }
 
@@ -1296,12 +1394,14 @@ namespace Singularity {
             // Update owner FIRST so new objects are alive before old ones are released
             _app_info_owner = AppInfo.get_all();
             installed_apps_map.remove_all();
+            steam_app_map.remove_all();
             installed_apps_list = new List<AppInfo>();
             foreach (var app in _app_info_owner) {
                 string id = app.get_id();
                 if (id != null) {
                     installed_apps_map.insert(id, app);
                     installed_apps_list.append(app);
+                    index_steam_app(app);
                 }
             }
             scan_desktop_app_dirs();
@@ -1344,6 +1444,7 @@ namespace Singularity {
                         _app_info_owner.append(app);
                         installed_apps_map.insert(id, app);
                         installed_apps_list.append(app);
+                        index_steam_app(app);
                     }
                 } catch (Error e) {
                     // Missing or unreadable application dirs are normal for optional prefixes.
