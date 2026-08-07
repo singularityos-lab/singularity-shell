@@ -119,22 +119,8 @@ namespace Singularity.LockScreen {
             _clock_timer_id = GLib.Timeout.add_seconds(1, update_clock);
             update_clock();
 
-            var key_controller = new EventControllerKey();
-            key_controller.key_pressed.connect((keyval, keycode, state) => {
-                // Debug bypass: Ctrl + Alt + Shift + B
-                var mask = Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SHIFT_MASK;
-                if ((state & mask) == mask) {
-                    if (keyval == Gdk.Key.B || keyval == Gdk.Key.b) {
-                        message("LockScreen: DEBUG BYPASS TRIGGERED");
-                        Singularity.Lock.unlock_and_destroy();
-                        var ls_app = GLib.Application.get_default() as LockScreenApp;
-                        if (ls_app != null) ls_app.quit();
-                        return true;
-                    }
-                }
-                return false;
-            });
-            ((Gtk.Widget)this).add_controller(key_controller);
+            // SECURITY: the Ctrl+Alt+Shift+B debug bypass that unlocked the screen
+            // without a PIN was removed (it shipped in release = a backdoor).
 
             map.connect(() => {
                 _password_entry.grab_focus();
@@ -165,7 +151,7 @@ namespace Singularity.LockScreen {
             card.append(username_label);
 
             _password_entry = new PasswordEntry();
-            _password_entry.placeholder_text = _("Password");
+            _password_entry.placeholder_text = Singularity.Runtime.is_sinty_os() ? _("PIN") : _("Password");
             _password_entry.add_css_class("greeter-password-entry");
             _password_entry.halign = Align.FILL;
             _password_entry.activate.connect(try_auth);
@@ -197,6 +183,28 @@ namespace Singularity.LockScreen {
             return card_outer;
         }
 
+        // On Sinty OS the lockscreen runs as the SESSION USER and cannot read the
+        // root-only key blobs, so pam_sinty -> `sintykey unseal` gives EACCES and the
+        // PIN is wrongly rejected. The CE key is already in the keyring from login, so
+        // unlock only needs to VERIFY the PIN: ask the root sinty-recoverd daemon over
+        // its socket (SO_PEERCRED-gated to our own uid, rate-limited).
+        private int verify_via_daemon(string pin) {
+            try {
+                var sock = new GLib.Socket(GLib.SocketFamily.UNIX, GLib.SocketType.STREAM,
+                                           GLib.SocketProtocol.DEFAULT);
+                sock.connect(new GLib.UnixSocketAddress("/run/sinty-recoverd.sock"), null);
+                string req = "verify\n%u\n%s\n".printf((uint) Posix.getuid(), pin);
+                sock.send(req.data);
+                var buf = new uint8[16];
+                ssize_t n = sock.receive(buf);
+                sock.close();
+                return (n >= 2 && buf[0] == 'O' && buf[1] == 'K') ? 0 : 1;
+            } catch (GLib.Error e) {
+                warning("LockScreen: daemon verify failed: %s", e.message);
+                return 1;
+            }
+        }
+
         private void try_auth() {
             if (_authenticating) return;
             string password = _password_entry.text;
@@ -209,7 +217,9 @@ namespace Singularity.LockScreen {
 
             new Thread<void>("pam-auth", () => {
                 string username = GLib.Environment.get_user_name();
-                int result = Singularity.Pam.authenticate(username, password);
+                int result = Singularity.Runtime.is_sinty_os()
+                    ? verify_via_daemon(password)
+                    : Singularity.Pam.authenticate(username, password);
 
                 Idle.add(() => {
                     _authenticating = false;
@@ -220,7 +230,7 @@ namespace Singularity.LockScreen {
                         var app = GLib.Application.get_default() as LockScreenApp;
                         if (app != null) app.quit();
                     } else {
-                        _status_label.label = _("Incorrect password");
+                        _status_label.label = Singularity.Runtime.is_sinty_os() ? _("Incorrect PIN") : _("Incorrect password");
                         _status_label.visible = true;
                         _password_entry.text = "";
                         _password_entry.add_css_class("error");

@@ -88,10 +88,13 @@ namespace Singularity {
 
                         var audio = SystemMonitor.get_default().audio;
 
-                        var grid = new Grid();                        
+                        var grid = new FlowBox();
                         grid.column_spacing = 10;
                         grid.row_spacing = 10;
-                        grid.column_homogeneous = true;
+                        grid.homogeneous = true;
+                        grid.min_children_per_line = 2;
+                        grid.max_children_per_line = 2;
+                        grid.selection_mode = SelectionMode.NONE;
                         grid.margin_bottom = 12;
                         grid.add_css_class("quick-settings-grid");
 
@@ -316,40 +319,22 @@ namespace Singularity {
                         var hotspot_nav = make_tile_with_nav(hotspot_tile, "network");
                         hotspot_nav.visible = network.has_wifi;
 
-                        // Row 0: Wi-Fi & Bluetooth (only when the hardware exists)
+                        // Wi-Fi & Bluetooth (only when the hardware exists)
                         var wifi_nav = make_tile_with_nav(wifi_tile, "network");
                         var bt_nav = make_tile_with_nav(bt_tile, "bluetooth");
                         wifi_nav.visible = network.has_wifi;
                         bt_nav.visible = bluetooth.is_available;
                         bluetooth.state_changed.connect(() => { bt_nav.visible = bluetooth.is_available; });
-                        grid.attach(wifi_nav, 0, 0, 1, 1);
-                        grid.attach(bt_nav, 1, 0, 1, 1);
 
-                        // Row 1: Theme & Night Light
-                        grid.attach(make_tile_with_nav(theme_tile, "desktop"), 0, 1, 1, 1);
-                        grid.attach(make_tile_with_nav(night_tile, "displays"), 1, 1, 1, 1);
+                        // Keyboard-backlight tile only when the hardware exists (hide the whole
+                        // nav wrapper, not just the inner tile, so it leaves no slot).
+                        var kbd_nav = make_tile_with_nav(kbd_tile, "keyboard");
+                        kbd_nav.visible = kbd_mgr.available;
+                        kbd_mgr.changed.connect(() => { kbd_nav.visible = kbd_mgr.available; });
 
-                        // Row 2: Airplane Mode & Keyboard Backlight / Tiling
-                        grid.attach(make_tile_with_nav(airplane_tile, "network"), 0, 2, 1, 1);
-                        if (kbd_mgr.available) {
-                            grid.attach(make_tile_with_nav(kbd_tile, "keyboard"), 1, 2, 1, 1);
-                            grid.attach(audio_mute_wrapper, 0, 3, 1, 1);
-                            grid.attach(ppm_wrapper, 1, 3, 1, 1);
-                            grid.attach(make_tile_with_nav(dnd_tile, "notifications"), 0, 4, 1, 1);
-                            grid.attach(make_tile_with_nav(vpn_tile, "network"), 1, 4, 1, 1);
-                            grid.attach(tiling_wrapper, 0, 5, 1, 1);
-                            grid.attach(hotspot_nav, 1, 5, 1, 1);
-                        } else {
-                            grid.attach(tiling_wrapper, 1, 2, 1, 1);
-                            grid.attach(audio_mute_wrapper, 0, 3, 1, 1);
-                            grid.attach(ppm_wrapper, 1, 3, 1, 1);
-                            grid.attach(make_tile_with_nav(dnd_tile, "notifications"), 0, 4, 1, 1);
-                            grid.attach(make_tile_with_nav(vpn_tile, "network"), 1, 4, 1, 1);
-                            grid.attach(hotspot_nav, 0, 5, 1, 1);
-                        }
-
-                        // GameMode quick tile - only when gamemode daemon is available
+                        // GameMode quick tile - only when the gamemode daemon is available.
                         var gm2 = GameModeManager.get_default();
+                        Widget? gm_nav = null;
                         if (gm2.available) {
                             var gm_tile = new QuickSettingTile("Game Mode", "applications-games-symbolic", gm2.active);
                             gm_tile.subtitle = gm2.active ? _("Active") : _("Inactive");
@@ -361,9 +346,27 @@ namespace Singularity {
                                 gm_tile.active = gm2.active;
                                 gm_tile.subtitle = gm2.active ? _("Active") : _("Inactive");
                             });
-                            var gm_wrapper = make_tile_with_nav(gm_tile, "performance");
-                            if (kbd_mgr.available) grid.attach(gm_wrapper, 0, 6, 1, 1);
-                            else grid.attach(gm_wrapper, 1, 5, 1, 1);
+                            gm_nav = make_tile_with_nav(gm_tile, "performance");
+                        }
+
+                        Widget[] tiles = {
+                            wifi_nav, bt_nav,
+                            make_tile_with_nav(theme_tile, "desktop"),
+                            make_tile_with_nav(night_tile, "displays"),
+                            make_tile_with_nav(airplane_tile, "network"),
+                            kbd_nav,
+                            audio_mute_wrapper, ppm_wrapper,
+                            make_tile_with_nav(dnd_tile, "notifications"),
+                            make_tile_with_nav(vpn_tile, "network"),
+                            tiling_wrapper, hotspot_nav
+                        };
+                        foreach (var t in tiles) {
+                            grid.append(t);
+                            t.bind_property("visible", t.parent, "visible", BindingFlags.SYNC_CREATE);
+                        }
+                        if (gm_nav != null) {
+                            grid.append(gm_nav);
+                            gm_nav.bind_property("visible", gm_nav.parent, "visible", BindingFlags.SYNC_CREATE);
                         }
 
                         content.append(grid);

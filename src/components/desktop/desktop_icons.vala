@@ -257,12 +257,24 @@ namespace Singularity {
                 monitor = desktop.monitor_directory(FileMonitorFlags.NONE);
                 monitor.changed.connect((file, other, event) => {
                     if (_loading) return;
-                    Timeout.add(300, () => {
-                        _loading = true;
-                        load_desktop_icons();
-                        _loading = false;
-                        return false;
-                    });
+                    string? name = file.get_basename();
+                    if (name == null || name.has_prefix(".")) return;
+                    switch (event) {
+                        case FileMonitorEvent.DELETED:
+                        case FileMonitorEvent.MOVED_OUT:
+                            remove_single_icon(name);
+                            break;
+                        case FileMonitorEvent.CREATED:
+                        case FileMonitorEvent.MOVED_IN:
+                        case FileMonitorEvent.CHANGES_DONE_HINT:
+                        case FileMonitorEvent.ATTRIBUTE_CHANGED:
+                            update_single_icon(name);
+                            break;
+                        default:
+                            // CHANGED (mid-write) is coalesced into CHANGES_DONE_HINT;
+                            // ignore it so we do not re-decode on every write chunk.
+                            break;
+                    }
                 });
             } catch (Error e) {
                 warning("Failed to setup file monitor: %s", e.message);
@@ -311,6 +323,50 @@ namespace Singularity {
                 save_positions();
             } catch (Error e) {
                 warning("Failed to load desktop icons: %s", e.message);
+            }
+        }
+
+        private Widget? find_icon_item(string name) {
+            for (Widget? c = icon_container.get_first_child(); c != null; c = c.get_next_sibling()) {
+                if (c.get_data<string>("filename") == name) return c;
+            }
+            return null;
+        }
+
+        private void remove_single_icon(string name) {
+            var item = find_icon_item(name);
+            if (item != null) icon_container.remove(item);
+            icon_positions.remove(name);
+            save_positions();
+        }
+
+        // Add or refresh exactly one icon on a file-monitor event, leaving the
+        // other icons untouched (the full load_desktop_icons rebuild tears down
+        // and re-decodes every icon on each event, which is the hot path).
+        private void update_single_icon(string name) {
+            if (name.has_prefix(".")) return;
+            try {
+                var desktop = File.new_for_path(desktop_path);
+                var file = desktop.get_child(name);
+                if (!file.query_exists()) { remove_single_icon(name); return; }
+                var info = file.query_info("standard::*,time::modified", FileQueryInfoFlags.NONE);
+                var existing = find_icon_item(name);
+                if (existing != null) icon_container.remove(existing);
+                int x, y;
+                IconPosition? saved_pos = icon_positions.lookup(name);
+                if (saved_pos != null) {
+                    x = snap_axis(saved_pos.x, ORIGIN_X);
+                    y = snap_axis(saved_pos.y, ORIGIN_Y);
+                } else {
+                    x = ORIGIN_X;
+                    y = ORIGIN_Y;
+                    find_free_cell(ref x, ref y, null);
+                    icon_positions.insert(name, new IconPosition(x, y));
+                    save_positions();
+                }
+                add_icon(file, info, x, y);
+            } catch (Error e) {
+                warning("Failed to update desktop icon %s: %s", name, e.message);
             }
         }
 

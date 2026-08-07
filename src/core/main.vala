@@ -350,6 +350,22 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
                 warning("Failed to register Shell Service: %s", e.message);
             }
         }
+        Bus.own_name(
+            BusType.SESSION,
+            "io.github.singularityos_lab.ush.Portal",
+            BusNameOwnerFlags.NONE,
+            (c) => {
+                try {
+                    c.register_object<Singularity.Shell.UshPortalService>(
+                        "/io/github/singularityos_lab/ush/Portal",
+                        new Singularity.Shell.UshPortalService());
+                } catch (IOError e) {
+                    warning("Failed to register ush Portal: %s", e.message);
+                }
+            },
+            () => {},
+            () => { warning("Lost name io.github.singularityos_lab.ush.Portal"); }
+        );
         // Initialize Plugin Manager
         var plugin_manager = Singularity.PluginManager.get_default();
         var context = plugin_manager.get_context();

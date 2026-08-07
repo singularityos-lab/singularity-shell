@@ -18,6 +18,8 @@ namespace Singularity.SidebarPages {
         }
 
         private void build_ui() {
+            var os_identity = OsIdentity.load();
+
             // Copy-all-as-markdown action, far right in the page header.
             var spacer = new Box(Orientation.HORIZONTAL, 0);
             spacer.hexpand = true;
@@ -58,7 +60,11 @@ namespace Singularity.SidebarPages {
             add_group(hw_group);
             var sw_group = new PreferencesGroup(_("Software Information"));
             sw_group.add_row(create_info_row("Firmware Version", get_firmware_version()));
-            sw_group.add_row(create_info_row("OS Name", get_os_name()));
+            sw_group.add_row(create_info_row("OS Name", os_identity.name));
+            if (os_identity.version_id != "")
+                sw_group.add_row(create_info_row("OS Version", os_identity.version_id));
+            if (os_identity.build_id != "")
+                sw_group.add_row(create_info_row("OS Build", os_identity.build_id));
             sw_group.add_row(create_info_row("OS Type", sizeof(void*) == 8 ? "64-bit" : "32-bit"));
             sw_group.add_row(create_info_row("Singularity Desktop", SingularityApp.VERSION));
             sw_group.add_row(create_info_row("Windowing System", "Wayland"));
@@ -144,7 +150,10 @@ namespace Singularity.SidebarPages {
             var sb = new StringBuilder();
             sb.append("## Singularity report\n\n");
             sb.append_printf("- Singularity Desktop: %s\n", SingularityApp.VERSION);
-            sb.append_printf("- OS: %s\n", get_os_name());
+            var os_identity = OsIdentity.load();
+            sb.append_printf("- OS: %s\n", os_identity.pretty_name);
+            if (os_identity.build_id != "")
+                sb.append_printf("- OS build: %s\n", os_identity.build_id);
             sb.append_printf("- Kernel: %s\n", get_kernel_version());
             sb.append_printf("- Graphics: %s\n", get_graphics_info());
             sb.append_printf("- Processor: %s\n", get_processor_info());
@@ -201,10 +210,6 @@ namespace Singularity.SidebarPages {
                 return "emblem-singularity";
             }
             return "computer-symbolic";
-        }
-
-        private string get_os_name() {
-            return HardwareInfo.os_name();
         }
 
         private string get_hardware_model() {

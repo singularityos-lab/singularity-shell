@@ -7,6 +7,7 @@ namespace Singularity {
     public class SessionEntry : Object {
         public string app_id;
         public string name;
+        public string title;         // live window title, shown when the app name is unhelpful
         public string icon_name;     // fallback icon name
         public GLib.Icon? gicon;     // preferred icon
         public int x;
@@ -77,6 +78,7 @@ namespace Singularity {
                 builder.begin_object();
                 builder.set_member_name("app_id");   builder.add_string_value(win.app_id);
                 builder.set_member_name("name");     builder.add_string_value(info.get_display_name());
+                builder.set_member_name("title");    builder.add_string_value(win.title ?? "");
                 builder.set_member_name("x");        builder.add_int_value(x);
                 builder.set_member_name("y");        builder.add_int_value(y);
                 builder.set_member_name("w");        builder.add_int_value(w);
@@ -114,6 +116,7 @@ namespace Singularity {
                     var se = new SessionEntry();
                     se.app_id    = e.get_string_member_with_default("app_id", "");
                     se.name      = e.get_string_member_with_default("name", se.app_id);
+                    se.title     = e.get_string_member_with_default("title", "");
                     se.x = (int) e.get_int_member_with_default("x", 0);
                     se.y = (int) e.get_int_member_with_default("y", 0);
                     se.w = (int) e.get_int_member_with_default("w", 0);

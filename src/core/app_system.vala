@@ -159,8 +159,18 @@ namespace Singularity {
             if (FileUtils.test("/run/.containerenv", FileTest.EXISTS) || FileUtils.test("/.dockerenv", FileTest.EXISTS)) {
                 is_container = true;
             }
-            Idle.add(() => {
+            // Defer the startup app scan and AT-SPI init to low-priority idles so the
+            // first frame paints before AppInfo.get_all() (parsing every .desktop) and
+            // the AT-SPI bring-up run. Split into two idles so the main loop can service
+            // input and frames between them instead of stalling on one long callback.
+            // (A worker thread would be faster still, but scan_apps has a documented
+            // ownership hazard, see the note near installed_apps_map, so keep it on the
+            // main thread and just move it off the first-frame path.)
+            Idle.add_full(Priority.LOW, () => {
                 scan_apps();
+                return Source.REMOVE;
+            });
+            Idle.add_full(Priority.LOW, () => {
                 enable_atspi_if_needed();
                 return Source.REMOVE;
             });
@@ -254,9 +264,6 @@ namespace Singularity {
                     if (!was_minimized && win.is_minimized
                             && handle == self.current_focused_window_handle) {
                         self.notify_desktop_focused();
-                    }
-                    if (was_maximized != win.is_maximized || was_fullscreen != win.is_fullscreen) {
-                        PreviewCache.get_default().invalidate(handle);
                     }
                     // A maximized window that gets minimized stops covering the
                     // panel/dock, so re-evaluate maximize-driven state too.
@@ -564,12 +571,21 @@ namespace Singularity {
         }
 
         private void update_menu_model(string app_id) {
-            menu_generation++;
-            int gen = menu_generation;
             string safe_id = clean_string(app_id);
-            // Wayland app_id often has .desktop suffix – strip it for DBus lookup
+            // Wayland app_id often has a .desktop suffix, strip it for the DBus lookup
             if (safe_id.has_suffix(".desktop"))
                 safe_id = safe_id[0:safe_id.length - 8];
+
+            // Cache per app: focus-change fires update_menu_model repeatedly for the
+            // same app (multiple focus events per window switch, alt-tab back and forth).
+            // Skip the full teardown + DBus menu setup when the focused app is unchanged
+            // and a menu is already built for it. Done before bumping menu_generation so
+            // the live items_changed handlers from the first build keep matching (they
+            // gate on gen), keeping menu updates flowing for the still-focused app.
+            if (safe_id == current_menu_app_id && current_action_group != null) return;
+
+            menu_generation++;
+            int gen = menu_generation;
 
             current_action_group = null;
             current_app_action_group = null;
@@ -842,37 +858,8 @@ namespace Singularity {
             return false;
         }
 
-        private static string get_os_pretty_name() {
-            try {
-                string content;
-                FileUtils.get_contents("/etc/os-release", out content);
-                string? os_name = null;
-                string? codename = null;
-                foreach (string line in content.split("\n")) {
-                    string strip = line.strip();
-                    if (strip.has_prefix("NAME=")) {
-                        os_name = strip.substring("NAME=".length).strip();
-                        if (os_name.has_prefix("\"") && os_name.has_suffix("\""))
-                            os_name = os_name[1:os_name.length - 1];
-                    } else if (strip.has_prefix("VERSION_CODENAME=")) {
-                        codename = strip.substring("VERSION_CODENAME=".length).strip();
-                        if (codename.has_prefix("\"") && codename.has_suffix("\""))
-                            codename = codename[1:codename.length - 1];
-                        // Capitalise first letter
-                        if (codename.length > 0)
-                            codename = codename[0:1].up() + codename[1:codename.length];
-                    }
-                }
-                if (os_name != null && codename != null && codename.length > 0)
-                    return "%s %s".printf(os_name, codename);
-                if (os_name != null)
-                    return os_name;
-            } catch {}
-            return "Linux";
-        }
-
         private void build_desktop_os_menu(GLib.Menu final_menu, SimpleActionGroup group) {
-            string os_name = get_os_pretty_name();
+            string os_name = OsIdentity.load().menu_label();
             var os_menu = new GLib.Menu();
 
             // Section 1: About + System Preferences
@@ -1134,7 +1121,6 @@ namespace Singularity {
             }
             if (found != null) {
                 string app_id = found.app_id;
-                PreviewCache.get_default().invalidate(handle);
                 windows.remove(found);
                 if (mru_windows.find(found) != null) mru_windows.remove(found);
                 app_closed(handle);

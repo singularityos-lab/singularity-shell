@@ -258,6 +258,7 @@ singularity_core_sources = files(
     'src/core/atspi_menu_provider.vala',
     'src/core/gtk_actions_menu_provider.vala',
     'src/core/app_system.vala',
+    'src/core/os_identity.vala',
     'src/core/compositor_backend.vala',
     'src/core/system_monitor.vala',
     'src/core/preview_cache.vala',
@@ -265,10 +266,12 @@ singularity_core_sources = files(
     'src/core/wallpaper_manager.vala',
     'src/core/wayland_gamma_backend.vala',
     'src/core/shortcut_manager.vala',
+    'src/core/ush_portal.vala',
     'src/core/screenshot_portal.vala',
     'src/core/screenshot_tool.vala',
     'src/core/plugin_manager.vala',
     'src/components/dock/dock.vala',
+    'src/components/dock/update_indicator.vala',
     'src/components/dock/dock_resources.vala',
     'src/components/dock/dock_dbus_service.vala',
     'src/components/background/background.vala',
@@ -394,3 +397,15 @@ executable('singularity-screenshot',
   include_directories: [include_directories('.')],
   install: true
 )
+
+os_identity_test = executable('os-identity-test',
+  sources: ['src/core/os_identity.vala', 'tests/os_identity_test.vala'],
+  dependencies: [dependency('gobject-2.0')],
+)
+test('os-identity', os_identity_test)
+
+update_indicator_test = executable('update-indicator-test',
+  sources: ['src/components/dock/update_indicator.vala', 'tests/update_indicator_test.vala'],
+  dependencies: core_deps + [json_dep],
+)
+test('update-indicator', update_indicator_test)

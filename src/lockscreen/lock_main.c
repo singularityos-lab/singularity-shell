@@ -275,6 +275,9 @@ static void render_output(struct lock_output *o) {
     st.password_dots = (int)password_len;
     st.status_text = status_text[0] ? status_text : NULL;
     st.status_error = status_error;
+    /* On Sinty OS the unlock field takes a PIN, not a password (the recoverd
+     * broker socket is the tell that we authenticate via the PIN daemon). */
+    st.auth_label = (access("/run/sinty-recoverd.sock", F_OK) == 0) ? "PIN" : NULL;
 
     double card_x, card_y, card_w, card_h;
     loginui_render(cr, &st, &card_x, &card_y, &card_w, &card_h);
@@ -342,7 +345,8 @@ static void submit_password(void) {
         wl_display_roundtrip(display);
         running = false;
     } else {
-        snprintf(status_text, sizeof status_text, "%s", "Incorrect password");
+        snprintf(status_text, sizeof status_text, "%s",
+                 (access("/run/sinty-recoverd.sock", F_OK) == 0) ? "Incorrect PIN" : "Incorrect password");
         status_error = true;
         render_all();
     }

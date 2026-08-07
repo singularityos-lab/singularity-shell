@@ -213,7 +213,14 @@ namespace Singularity {
                 }
             });
 
-            _sig_apps_changed = app_system.apps_changed.connect(schedule_refresh);
+            _sig_apps_changed = app_system.apps_changed.connect(() => {
+                // The app list is populated by a deferred idle scan, so a pin/run item
+                // built before the scan resolved with a null AppInfo (raw id, no launch)
+                // and the cache froze it. Drop the app-backed entries so the refresh
+                // rebuilds them once the apps resolve (#81).
+                invalidate_app_items();
+                schedule_refresh();
+            });
             _sig_running_apps_changed = app_system.running_apps_changed.connect(schedule_refresh);
             _sig_app_focused = app_system.app_focused.connect(update_active_app);
             _sig_window_focused = app_system.window_focused.connect((handle) => {
@@ -1194,6 +1201,17 @@ namespace Singularity {
             }
         }
 
+        private void invalidate_app_items() {
+            var drop = new ArrayList<string>();
+            foreach (var k in _item_cache.keys)
+                if (k.has_prefix("pin:") || k.has_prefix("run:")) drop.add(k);
+            foreach (var k in drop) {
+                var w = _item_cache[k];
+                if (w != null) dock_box.remove(w);
+                _item_cache.unset(k);
+            }
+        }
+
         private void schedule_refresh() {
             if (_refresh_timeout_id != 0) GLib.Source.remove(_refresh_timeout_id);
             _refresh_timeout_id = GLib.Timeout.add(150, () => {
@@ -1481,6 +1499,9 @@ namespace Singularity {
                     }
                 }
             }
+
+            if (is_primary && Singularity.Runtime.is_sinty_os())
+                desired_keys.add("__update__");
 
             // Remove stale cached items
             var desired_set = new HashSet<string>();
@@ -1785,6 +1806,29 @@ namespace Singularity {
         }
 
         private Gtk.Widget? create_item_for_key(string key, string[] pinned, int icon_size) {
+            if (key == "__update__") {
+                Gtk.Box wrapper, pill;
+                build_shell_geometry(out wrapper, out pill, icon_size);
+                var indicator = new UpdateIndicator(icon_size);
+                indicator.restart_requested.connect((version) => {
+                    var app = (Gtk.Application) GLib.Application.get_default();
+                    var dialog = new PowerConfirmDialog(
+                        app,
+                        version,
+                        "sinty",
+                        _("The update was downloaded and verified. Restart to apply it. Your session will close."),
+                        _("Restart now"),
+                        () => indicator.apply_update()
+                    );
+                    dialog.open_dialog();
+                });
+                pill.append(indicator);
+                wrapper.visible = indicator.visible;
+                indicator.notify["visible"].connect(() => {
+                    wrapper.visible = indicator.visible;
+                });
+                return wrapper;
+            }
             if (key == "__activities__") {
                 Gtk.Box wrapper, pill;
                 build_shell_geometry(out wrapper, out pill, icon_size);

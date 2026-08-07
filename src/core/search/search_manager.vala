@@ -150,17 +150,9 @@ namespace Singularity {
                     script_path, query
                 );
 
-                yield launcher.wait_check_async(cancellable);
-
-                var data_stream = new DataInputStream(launcher.get_stdout_pipe());
-                var builder = new StringBuilder();
-                string? line;
-                while ((line = yield data_stream.read_line_async(Priority.DEFAULT, cancellable)) != null) {
-                    builder.append(line);
-                }
-
-                string stdout_data = builder.str;
-                if (stdout_data.strip().length == 0) return results;
+                string stdout_data;
+                yield launcher.communicate_utf8_async(null, cancellable, out stdout_data, null);
+                if (stdout_data == null || stdout_data.strip().length == 0) return results;
 
                 var parser = new Json.Parser();
                 parser.load_from_data(stdout_data);

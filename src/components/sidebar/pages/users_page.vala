@@ -70,7 +70,8 @@ namespace Singularity.SidebarPages {
                 var del_btn = row.get_data<Button>("del_btn");
                 if (del_btn != null) del_btn.visible = !is_locked;
                 var chevron = row.get_data<Image>("chevron");
-                if (chevron != null) chevron.visible = !is_locked;
+                bool self = row.get_data<bool>("is_self");
+                if (chevron != null) chevron.visible = self || !is_locked;
             }
         }
 
@@ -114,18 +115,27 @@ namespace Singularity.SidebarPages {
             row.activatable = true;
             user_rows[user.uid.to_string()] = row;
 
-            // Chevron - only visible when unlocked (row leads to detail)
+            // Changing your OWN PIN needs no admin unlock: the change-pin polkit action
+            // is allow_active=yes and the dialog re-authenticates with the current PIN.
+            // Keep the current user's row reachable even while locked so a forgotten
+            // unlock never forces the recovery-key path just to set a new PIN.
+            bool is_self = user.user_name == Environment.get_user_name();
+            row.set_data("is_self", is_self);
+
+            // Chevron - visible when unlocked, or always for the current user (self-service).
             var chevron = new Image.from_icon_name("go-next-symbolic");
             chevron.pixel_size = 12;
             chevron.add_css_class("dim-label");
-            chevron.visible = !is_locked;
+            chevron.visible = is_self || !is_locked;
             chevron.valign = Align.CENTER;
             row.set_data("chevron", chevron);
             row.add_suffix(chevron);
 
             row.activated.connect(() => {
-                if (is_locked) return;
+                if (is_locked && !is_self) return;
                 var detail = new UserDetailPage(view, user, service, this);
+                detail.admin_unlocked = !is_locked;
+                detail.self_account = is_self;
                 view.open_subpage(detail, "user-detail-%s".printf(user.uid.to_string()));
             });
 
@@ -154,6 +164,12 @@ namespace Singularity.SidebarPages {
         private AccountsService service;
         private UsersPage parent_page;
         private Gee.ArrayList<Avatar> avatar_widgets;
+
+        // admin_unlocked: the admin padlock is open, so administrative controls
+        // (account type, account lock, remove) are shown. self_account: this is the
+        // signed-in user, who can always change their own PIN without that unlock.
+        public bool admin_unlocked = false;
+        public bool self_account = false;
 
         public UserDetailPage(SettingsView view, AccountUser user,
                                AccountsService service, UsersPage parent) {
@@ -186,30 +202,51 @@ namespace Singularity.SidebarPages {
             info_group.add_row(shell_row);
             add_group(info_group);
 
-            // Type
-            var type_group = new PreferencesGroup(_("Account"));
-            string[] type_labels = { "Standard", "Administrator" };
-            var type_row = new SelectionRow(_("Account Type"), type_labels, type_labels[(int)user.account_type]);
-            type_row.selected.connect((item) => {
-                set_account_type.begin(item == "Administrator" ? 1 : 0);
-            });
-            type_group.add_row(type_row);
+            // Account type and the login-lock switch are administrative operations:
+            // shown only when the admin padlock is open (self-service PIN change below
+            // never needs it).
+            if (admin_unlocked) {
+                var type_group = new PreferencesGroup(_("Account"));
+                string[] type_labels = { "Standard", "Administrator" };
+                var type_row = new SelectionRow(_("Account Type"), type_labels, type_labels[(int)user.account_type]);
+                type_row.selected.connect((item) => {
+                    set_account_type.begin(item == "Administrator" ? 1 : 0);
+                });
+                type_group.add_row(type_row);
 
-            var lock_row = new SwitchRow(_("Account Locked"), _("Prevent login"), user.locked);
-            lock_row.switch_btn.notify["active"].connect(() => {
-                set_locked.begin(lock_row.switch_btn.active);
-            });
-            type_group.add_row(lock_row);
-            add_group(type_group);
+                var lock_row = new SwitchRow(_("Account Locked"), _("Prevent login"), user.locked);
+                lock_row.switch_btn.notify["active"].connect(() => {
+                    set_locked.begin(lock_row.switch_btn.active);
+                });
+                type_group.add_row(lock_row);
+                add_group(type_group);
+            }
 
-            // Danger zone
-            var danger_group = new PreferencesGroup(_("Danger Zone"));
-            var del_row = new ActionRow(_("Remove User"), _("Permanently delete this account and home folder"), "user-trash-symbolic");
-            del_row.activatable = true;
-            del_row.add_css_class("destructive-action-row");
-            del_row.activated.connect(show_delete_confirm);
-            danger_group.add_row(del_row);
-            add_group(danger_group);
+            // Security: change the login credential. On Sinty OS this re-seals the
+            // per-user CE key under a new PIN via the sinty-pind broker (a subpage,
+            // consistent with the rest of Settings -- no floating dialog).
+            var sec_group = new PreferencesGroup(_("Security"));
+            string cred = Singularity.Runtime.is_sinty_os() ? _("PIN") : _("Password");
+            var pin_row = new ActionRow(_("Change %s").printf(cred),
+                _("Set a new %s for this account").printf(cred), "channel-secure-symbolic");
+            pin_row.activatable = true;
+            pin_row.activated.connect(() => {
+                var page = new ChangePinPage(view, user);
+                view.open_subpage(page, "change-pin-%s".printf(user.uid.to_string()));
+            });
+            sec_group.add_row(pin_row);
+            add_group(sec_group);
+
+            // Danger zone: removing an account is administrative -> admin unlock only.
+            if (admin_unlocked) {
+                var danger_group = new PreferencesGroup(_("Danger Zone"));
+                var del_row = new ActionRow(_("Remove User"), _("Permanently delete this account and home folder"), "user-trash-symbolic");
+                del_row.activatable = true;
+                del_row.add_css_class("destructive-action-row");
+                del_row.activated.connect(show_delete_confirm);
+                danger_group.add_row(del_row);
+                add_group(danger_group);
+            }
         }
 
         private static string? avatars_dir() {
@@ -481,6 +518,107 @@ namespace Singularity.SidebarPages {
             salt.append_c('$');
             unowned string? hashed = c_crypt(plain, salt.str);
             return hashed;
+        }
+    }
+
+    // Change the signed-in user's PIN as an in-shell subpage (consistent with the
+    // rest of Settings), using the same libsingularity rows as everywhere else.
+    // The re-seal goes through the sinty-pind broker over a peercred socket, so it
+    // needs no admin unlock and no polkit -- the current PIN is the authorisation.
+    public class ChangePinPage : SettingsPage {
+        private SettingsView view;
+        private AccountUser user;
+        private PasswordRow cur_row;
+        private PasswordRow new_row;
+        private PasswordRow con_row;
+        private Label error_label;
+        private Button change_btn;
+
+        public ChangePinPage(SettingsView view, AccountUser user) {
+            base(_("Change %s").printf(Singularity.Runtime.is_sinty_os() ? _("PIN") : _("Password")));
+            this.view = view;
+            this.user = user;
+            back_clicked.connect(() => view.navigate_to("user-detail-%s".printf(user.uid.to_string())));
+            build_ui();
+        }
+
+        private void build_ui() {
+            string cred = Singularity.Runtime.is_sinty_os() ? _("PIN") : _("Password");
+            var group = new PreferencesGroup(_("Security"));
+            cur_row = new PasswordRow(_("Current %s").printf(cred));
+            new_row = new PasswordRow(_("New %s").printf(cred));
+            con_row = new PasswordRow(_("Confirm new %s").printf(cred));
+            group.add_row(cur_row);
+            group.add_row(new_row);
+            group.add_row(con_row);
+            add_group(group);
+
+            error_label = new Label("");
+            error_label.add_css_class("error");
+            error_label.wrap = true;
+            error_label.visible = false;
+            error_label.margin_start = 16;
+            error_label.margin_end = 16;
+            error_label.halign = Align.START;
+            var err_wrapper = new Box(Orientation.VERTICAL, 0);
+            err_wrapper.append(error_label);
+            add_widget(err_wrapper);
+
+            change_btn = new Button.with_label(_("Change %s").printf(cred));
+            change_btn.add_css_class("suggested-action");
+            change_btn.add_css_class("pill");
+            change_btn.halign = Align.CENTER;
+            change_btn.margin_top = 8;
+            change_btn.clicked.connect(on_change);
+            add_widget(change_btn);
+
+            con_row.entry_activated.connect(on_change);
+        }
+
+        private void on_change() {
+            bool is_pin = Singularity.Runtime.is_sinty_os();
+            string cur = cur_row.text, neu = new_row.text, con = con_row.text;
+            if (cur == "" || neu == "") {
+                error_label.label = _("Fill in all fields");
+                error_label.visible = true;
+                return;
+            }
+            if (neu != con) {
+                error_label.label = is_pin ? _("The new PINs do not match")
+                                           : _("The new passwords do not match");
+                error_label.visible = true;
+                return;
+            }
+            change_btn.sensitive = false;
+            error_label.visible = false;
+            try {
+                // sinty-pind: identity comes from SO_PEERCRED (our own uid), the current
+                // PIN is the authorisation. No admin unlock, no polkit, no logind-active.
+                var sock = new Socket(SocketFamily.UNIX, SocketType.STREAM, SocketProtocol.DEFAULT);
+                sock.set_timeout(5);
+                sock.connect(new UnixSocketAddress("/run/sinty-pind.sock"), null);
+                var conn = SocketConnection.factory_create_connection(sock);
+                size_t written;
+                conn.output_stream.write_all("%s\n%s\n".printf(cur, neu).data, out written, null);
+                var reply = new DataInputStream(conn.input_stream);
+                string? line = reply.read_line_utf8(null, null);
+                conn.close();
+                if (line != null && line.strip() == "OK") {
+                    view.navigate_to("user-detail-%s".printf(user.uid.to_string()));
+                } else {
+                    string reason = (line ?? "").strip();
+                    if (reason.has_prefix("FAIL:")) reason = reason.substring(5).strip();
+                    error_label.label = reason != "" ? reason
+                        : (is_pin ? _("Could not change the PIN. Is the current PIN correct?")
+                                  : _("Could not change the password. Is the current password correct?"));
+                    error_label.visible = true;
+                    change_btn.sensitive = true;
+                }
+            } catch (GLib.Error e) {
+                error_label.label = e.message;
+                error_label.visible = true;
+                change_btn.sensitive = true;
+            }
         }
     }
 }
