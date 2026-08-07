@@ -21,6 +21,8 @@ namespace Singularity {
     public class ShortcutManager : Object {
         public List<Shortcut> shortcuts;
         private GLib.Settings settings;
+        private string? last_synced_xkb_layout = null;
+        private string? last_synced_xkb_variant = null;
         private GLib.Settings? wm_settings;
         private GLib.FileMonitor? capslock_monitor = null;
         private GLib.FileMonitor? numlock_monitor = null;
@@ -216,8 +218,14 @@ namespace Singularity {
                             xkb_layout = i.substring(0, i.index_of("+"));
                             xkb_variant = i.substring(i.index_of("+") + 1);
                         }
-                        settings.set_string("xkb-layout", xkb_layout);
-                        settings.set_string("xkb-variant", xkb_variant);
+                        bool sync_layout = last_synced_xkb_layout != xkb_layout;
+                        bool sync_variant = last_synced_xkb_variant != xkb_variant;
+                        last_synced_xkb_layout = xkb_layout;
+                        last_synced_xkb_variant = xkb_variant;
+                        if (sync_layout)
+                            settings.set_string("xkb-layout", xkb_layout);
+                        if (sync_variant)
+                            settings.set_string("xkb-variant", xkb_variant);
                         break;
                     }
                 }
