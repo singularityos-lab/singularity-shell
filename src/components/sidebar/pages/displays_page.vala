@@ -3,6 +3,8 @@ using Singularity.Widgets;
 
 namespace Singularity.SidebarPages {
 
+    private delegate void TimeChanged(string time);
+
     public class DisplaysPage : SettingsPage {
         private DisplayManager display_manager;
         private Singularity.Shell.MonitorPreview preview;
@@ -19,6 +21,17 @@ namespace Singularity.SidebarPages {
         private bool is_dirty = false;
         private DisplayManager.Monitor? selected_monitor = null;
         private MonitorOsd _osd;
+
+        private NightLightManager night_light;
+        private GLib.Settings nl_settings;
+        private SwitchRow night_light_row;
+        private SwitchRow adaptive_row;
+        private PreferencesRow temp_row;
+        private Scale temp_scale;
+        private PreferencesRow from_row;
+        private TimePicker from_picker;
+        private PreferencesRow to_row;
+        private TimePicker to_picker;
 
         public DisplaysPage(SettingsView view) {
             base(_("Displays"));
@@ -60,6 +73,7 @@ namespace Singularity.SidebarPages {
             add_group(settings_group);
             build_settings_ui();
             build_hot_corners_ui();
+            build_night_light_ui();
             on_monitors_changed();
             map.connect(() => {
                 var app = GLib.Application.get_default() as Gtk.Application;
@@ -396,6 +410,100 @@ namespace Singularity.SidebarPages {
 
             corners_row.set_child(outer);
             hot_corners_group.add_row(corners_row);
+        }
+
+        private void build_night_light_ui() {
+            night_light = SystemMonitor.get_default().night_light;
+            nl_settings = new GLib.Settings("dev.sinty.desktop");
+            var group = new PreferencesGroup(_("Night Light"));
+            add_group(group);
+
+            night_light_row = new SwitchRow(_("Night Light"), _("Warm the screen color temperature in the evening"));
+            nl_settings.bind("night-light-enabled", night_light_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            group.add_row(night_light_row);
+
+            adaptive_row = new SwitchRow(_("Adaptive Schedule"), _("Turn on automatically on a daily schedule"));
+            nl_settings.bind("night-light-adaptive", adaptive_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            adaptive_row.switch_btn.notify["active"].connect(() => update_night_light_controls());
+            group.add_row(adaptive_row);
+
+            from_row = make_time_row(_("From"), "weather-clear-night-symbolic",
+                nl_settings.get_string("night-light-adaptive-from"), (t) => night_light.set_schedule_from(t), out from_picker);
+            group.add_row(from_row);
+
+            to_row = make_time_row(_("To"), "weather-clear-symbolic",
+                nl_settings.get_string("night-light-adaptive-to"), (t) => night_light.set_schedule_to(t), out to_picker);
+            group.add_row(to_row);
+
+            temp_row = new PreferencesRow();
+            var temp_box = new Box(Orientation.VERTICAL, 12);
+            temp_box.margin_top = 12;
+            temp_box.margin_bottom = 12;
+            temp_box.margin_start = 12;
+            temp_box.margin_end = 12;
+            var temp_lbl = new Label(_("Temperature"));
+            temp_lbl.add_css_class("title");
+            temp_lbl.halign = Align.START;
+            temp_box.append(temp_lbl);
+            temp_scale = new Scale.with_range(Orientation.HORIZONTAL,
+                (double) NightLightManager.TEMP_MIN, (double) NightLightManager.TEMP_MAX, 100);
+            temp_scale.draw_value = true;
+            temp_scale.hexpand = true;
+            temp_scale.value_changed.connect(() => {
+                night_light.set_temperature((int) temp_scale.get_value());
+            });
+            temp_box.append(temp_scale);
+            var temp_hint = new Label(_("Color temperature in Kelvin — lower values are warmer"));
+            temp_hint.add_css_class("dim-label");
+            temp_hint.halign = Align.START;
+            temp_hint.wrap = true;
+            temp_box.append(temp_hint);
+            temp_row.set_child(temp_box);
+            group.add_row(temp_row);
+
+            night_light.changed.connect(() => update_night_light_controls());
+            update_night_light_controls();
+        }
+
+        private PreferencesRow make_time_row(string title, string icon_name, string initial,
+                                             TimeChanged on_changed, out TimePicker picker) {
+            var row = new PreferencesRow();
+            var box = new Box(Orientation.HORIZONTAL, 12);
+            box.margin_top = 8;
+            box.margin_bottom = 8;
+            box.margin_start = 12;
+            box.margin_end = 12;
+            var icon = new Image.from_icon_name(icon_name);
+            box.append(icon);
+            var lbl = new Label(title);
+            lbl.add_css_class("title");
+            lbl.halign = Align.START;
+            lbl.hexpand = true;
+            box.append(lbl);
+            picker = new TimePicker(initial);
+            var p = picker;
+            p.changed.connect(() => on_changed(p.time));
+            box.append(picker);
+            row.set_child(box);
+            return row;
+        }
+
+        private void update_night_light_controls() {
+            if (temp_scale == null) return;
+            SignalHandler.block_matched(temp_scale, SignalMatchType.DATA, 0, 0, null, null, null);
+            temp_scale.set_value((double) nl_settings.get_int("night-light-temperature"));
+            SignalHandler.unblock_matched(temp_scale, SignalMatchType.DATA, 0, 0, null, null, null);
+            from_picker.time = nl_settings.get_string("night-light-adaptive-from");
+            to_picker.time = nl_settings.get_string("night-light-adaptive-to");
+            from_row.visible = adaptive_row.active;
+            to_row.visible = adaptive_row.active;
+            if (night_light.enabled) {
+                night_light_row.subtitle = _("On");
+            } else if (night_light_row.active && adaptive_row.active) {
+                night_light_row.subtitle = _("Off until %s").printf(from_picker.time);
+            } else {
+                night_light_row.subtitle = _("Off");
+            }
         }
     }
 }
