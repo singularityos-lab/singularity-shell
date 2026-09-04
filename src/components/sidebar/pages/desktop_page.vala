@@ -88,9 +88,20 @@ namespace Singularity {
                 var recovery_group = new PreferencesGroup(
                     _("Safe Mode"),
                     _("The desktop recovered from repeated startup crashes. Your settings were not erased; optional startup features are temporarily inactive."));
-                recovery_group.add_row(new ActionRow(
-                    _("Recovery session active"), safe_mode.reason,
-                    "dialog-warning-symbolic"));
+                var recovery_row = new ActionRow(
+                    _("Recovery session active"),
+                    safe_mode.reason + ". " + _("Click to report a crash on GitHub if this seems relevant."),
+                    "dialog-warning-symbolic");
+                recovery_row.activated.connect(() => {
+                    try {
+                        AppInfo.launch_default_for_uri(
+                            "https://github.com/singularityos-lab/singularity-desktop/issues",
+                            null);
+                    } catch (Error e) {
+                        warning("Could not open the issue tracker: %s", e.message);
+                    }
+                });
+                recovery_group.add_row(recovery_row);
                 var restart_normal = new ActionRow(
                     _("Restart Normal Session"),
                     _("Use your repaired settings on the next login"),
