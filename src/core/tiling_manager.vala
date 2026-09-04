@@ -99,6 +99,7 @@ namespace Singularity {
         private static TilingManager? instance;
         private AppSystem app_system;
         private GLib.Settings settings;
+        private SafeMode safe_mode;
         private bool enabled = true;
         private bool shell_overview_active = false;
         private uint apply_timeout_id = 0;
@@ -140,9 +141,11 @@ namespace Singularity {
         public TilingManager(AppSystem app_system) {
             instance = this;
             this.app_system = app_system;
+            safe_mode = SafeMode.get_default();
             settings = new GLib.Settings("dev.sinty.desktop");
             setup_close_gesture_indicator();
-            enabled = settings.get_boolean("tiling-enabled");
+            enabled = settings.get_boolean("tiling-enabled")
+                && safe_mode.allows(SafeFeature.TILING);
             if (scrolling_active()) {
                 foreach (var win in app_system.get_windows())
                     startup_windows.add(win);
@@ -180,7 +183,7 @@ namespace Singularity {
                 on_tiling_interaction, this);
             Singularity.wayland_set_cursor_position_callback(
                 on_cursor_position, this);
-            sync_compositor_mode();
+            if (safe_mode.allows(SafeFeature.TILING)) sync_compositor_mode();
             if (enabled) schedule_apply_layout();
         }
 
@@ -238,11 +241,16 @@ namespace Singularity {
         }
 
         private void sync_compositor_mode() {
+            if (!safe_mode.allows(SafeFeature.TILING)) return;
             Singularity.wayland_set_scrolling_mode(scrolling_active() ? 1u : 0u);
         }
 
         private void on_mode_changed() {
-            enabled = settings.get_boolean("tiling-enabled");
+            enabled = settings.get_boolean("tiling-enabled")
+                && safe_mode.allows(SafeFeature.TILING);
+            // Persist configuration changes in recovery mode, but do not send
+            // any tiling protocol requests while the feature is blocked.
+            if (!safe_mode.allows(SafeFeature.TILING)) return;
             bool is_scrolling = scrolling_active();
             sync_compositor_mode();
             hide_drop_preview();
@@ -395,6 +403,7 @@ namespace Singularity {
         }
 
         private void hide_drop_preview() {
+            if (!safe_mode.allows(SafeFeature.TILING)) return;
             Singularity.wayland_set_tiling_drop_preview(0, 0, 0, 0, 0);
         }
 
@@ -1709,6 +1718,7 @@ namespace Singularity {
         }
 
         public void apply_layout() {
+            if (!safe_mode.allows(SafeFeature.TILING)) return;
             if (scrolling_active() && shell_overview_active) return;
             var tileable = get_tileable_windows();
             if (scrolling_active()) {

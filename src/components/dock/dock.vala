@@ -817,7 +817,8 @@ namespace Singularity {
         public signal void dock_visibility_changed(bool hidden);
 
         private bool scrolling_tiling_active() {
-            return _settings.get_boolean("tiling-enabled")
+            return SafeMode.get_default().allows(SafeFeature.TILING)
+                && _settings.get_boolean("tiling-enabled")
                 && _settings.get_string("tiling-layout") == "scrolling";
         }
 

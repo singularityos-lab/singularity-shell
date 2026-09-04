@@ -133,7 +133,8 @@ namespace Singularity {
             // Listen to widget registry changes (in case a plugin or manifest
             // arrives after the overview is built).
             OverviewWidgetRegistry.get_default().changed.connect(on_apps_changed);
-            OverviewWidgetRegistry.get_default().load_manifests();
+            if (SafeMode.get_default().allows(SafeFeature.CUSTOM_WIDGETS))
+                OverviewWidgetRegistry.get_default().load_manifests();
 
             // Container-level drop: dragged item is reordered relative to
             // whatever child is under the pointer.

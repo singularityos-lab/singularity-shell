@@ -33,6 +33,7 @@ namespace Singularity {
         }
 
         public void calibrate() {
+            if (!SafeMode.get_default().allows(SafeFeature.HAND_CONTROL)) return;
             if (!available) return;
             launch_command({ resolve_binary(), "--calibrate" });
         }
@@ -47,6 +48,12 @@ namespace Singularity {
         }
 
         private void sync() {
+            if (!SafeMode.get_default().allows(SafeFeature.HAND_CONTROL)) {
+                if (process != null) process.force_exit();
+                process = null;
+                availability_changed();
+                return;
+            }
             if (settings.get_boolean("hand-control-enabled")) {
                 start();
             } else {
@@ -79,7 +86,8 @@ namespace Singularity {
                          started.get_exit_status() != 0);
                     bool was_primary = GLib.get_monotonic_time() - started_at >
                         1000000;
-                    if (settings.get_boolean("hand-control-enabled") &&
+                    if (SafeMode.get_default().allows(SafeFeature.HAND_CONTROL)
+                        && settings.get_boolean("hand-control-enabled") &&
                         (failed || was_primary)) {
                         Timeout.add_seconds(1, () => {
                             start();

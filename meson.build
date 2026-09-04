@@ -325,6 +325,7 @@ singularity_core_sources = files(
     'src/components/sidebar/pages/performance_page.vala',
     'src/core/display_manager.vala',
     'src/core/hot_corner_manager.vala',
+    'src/core/safe_mode.vala',
     'src/core/hand_control_manager.vala',
     'src/core/layer_window.vala',
     'src/core/monitor_osd.vala',
@@ -435,3 +436,9 @@ bar_layout_test = executable('bar-layout-test',
   dependencies: [dependency('gobject-2.0'), gee_dep],
 )
 test('bar-layout', bar_layout_test)
+
+safe_mode_test = executable('safe-mode-test',
+  sources: ['src/core/safe_mode.vala', 'tests/safe_mode_test.vala'],
+  dependencies: [dependency('gobject-2.0')],
+)
+test('safe-mode', safe_mode_test)

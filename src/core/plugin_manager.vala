@@ -24,7 +24,8 @@ namespace Singularity {
             context = new PluginContext();
             settings = new GLib.Settings("dev.sinty.desktop");
             settings.changed["enabled-plugins"].connect(() => {
-                enable_configured_plugins();
+                if (SafeMode.get_default().allows(SafeFeature.PLUGINS))
+                    enable_configured_plugins();
             });
         }
 
@@ -78,6 +79,7 @@ namespace Singularity {
          */
 
         public void load_plugins() {
+            if (!SafeMode.get_default().allows(SafeFeature.PLUGINS)) return;
             if (settings.get_strv("enabled-plugins").length == 0 &&
                 Environment.get_variable("SINGULARITY_PLUGIN_PATH") == null) {
                 return;
@@ -180,6 +182,7 @@ namespace Singularity {
         }
 
         private void enable_configured_plugins() {
+            if (!SafeMode.get_default().allows(SafeFeature.PLUGINS)) return;
             if (settings.get_strv("enabled-plugins").length == 0 && !engine_ready) return;
             ensure_engine();
             var model = (GLib.ListModel)engine;
@@ -204,6 +207,7 @@ namespace Singularity {
         }
 
         private void update_plugin_state(string module_name, bool enabled) {
+            if (!SafeMode.get_default().allows(SafeFeature.PLUGINS)) return;
             ensure_engine();
             var info = engine.get_plugin_info(module_name);
             if (info == null) return;

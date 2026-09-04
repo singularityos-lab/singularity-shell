@@ -82,6 +82,29 @@ namespace Singularity {
             back_clicked.connect(() => {
                 view.go_home();
             });
+
+            var safe_mode = SafeMode.get_default();
+            if (safe_mode.active) {
+                var recovery_group = new PreferencesGroup(
+                    _("Safe Mode"),
+                    _("The desktop recovered from repeated startup crashes. Your settings were not erased; optional startup features are temporarily inactive."));
+                recovery_group.add_row(new ActionRow(
+                    _("Recovery session active"), safe_mode.reason,
+                    "dialog-warning-symbolic"));
+                var restart_normal = new ActionRow(
+                    _("Restart Normal Session"),
+                    _("Use your repaired settings on the next login"),
+                    "view-refresh-symbolic");
+                restart_normal.activated.connect(() => {
+                    if (safe_mode.clear_marker()) {
+                        SessionManager.get_default().logout();
+                    } else {
+                        restart_normal.subtitle = _("Could not clear the Safe Mode marker; see the desktop log");
+                    }
+                });
+                recovery_group.add_row(restart_normal);
+                add_group(recovery_group);
+            }
             var reset_btn = new Button.from_icon_name("edit-undo-symbolic");
             reset_btn.has_frame = false;
             reset_btn.tooltip_text = _("Reset to Default");
@@ -950,7 +973,11 @@ namespace Singularity {
             });
             wm_group.add_row(rounded_row);
 
-            var tile_row = new SwitchRow(_("Tiling"), _("Automatically arrange windows using the selected layout"), settings.get_boolean("tiling-enabled"));
+            string tiling_description = safe_mode.active
+                ? _("Configured value is shown here, but tiling is inactive until you restart normally")
+                : _("Automatically arrange windows using the selected layout");
+            var tile_row = new SwitchRow(_("Tiling"), tiling_description,
+                settings.get_boolean("tiling-enabled"));
             tile_row.switch_btn.notify["active"].connect(() => {
                 settings.set_boolean("tiling-enabled", tile_row.switch_btn.active);
             });

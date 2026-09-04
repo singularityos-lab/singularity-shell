@@ -184,7 +184,13 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             on_desktop_gesture, this);
         // Launch the user's autostart entries once the session has settled
         // (bus, portals); nothing else in the shell did this before (#170).
-        Timeout.add_seconds(1, () => { launch_autostart_apps(); return Source.REMOVE; });
+        if (Singularity.SafeMode.get_default().allows(
+                Singularity.SafeFeature.AUTOSTART)) {
+            Timeout.add_seconds(1, () => {
+                launch_autostart_apps();
+                return Source.REMOVE;
+            });
+        }
         var cal_manager = Singularity.Calendar.CalendarManager.get_default();
         cal_manager.register_provider(new Singularity.Calendar.LocalProvider());
         Bus.own_name(
@@ -279,11 +285,14 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
 
         // Session recovery: snapshot windows on session end; offer to reopen
         // them (via a dialog) at the next login.
-        session_recovery = new Singularity.SessionRecovery();
-        Singularity.SessionManager.get_default().session_ending.connect(() => {
-            session_recovery.capture();
-        });
-        maybe_offer_session_restore();
+        if (Singularity.SafeMode.get_default().allows(
+                Singularity.SafeFeature.SESSION_RESTORE)) {
+            session_recovery = new Singularity.SessionRecovery();
+            Singularity.SessionManager.get_default().session_ending.connect(() => {
+                session_recovery.capture();
+            });
+            maybe_offer_session_restore();
+        }
 
         // Deferred non-critical module creation
         Idle.add(() => {
@@ -298,7 +307,9 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             _resources.start();
             // Pre-warm widget modules (dlopen) at login so the first overview
             // open isn't stalled loading them.
-            Singularity.OverviewWidgetRegistry.get_default().load_manifests();
+            if (Singularity.SafeMode.get_default().allows(
+                    Singularity.SafeFeature.CUSTOM_WIDGETS))
+                Singularity.OverviewWidgetRegistry.get_default().load_manifests();
             // Pre-create the search manager so the file provider's Tracker
             // connection is established at login, not on the first search.
             Singularity.SearchManager.get_default();
@@ -498,6 +509,17 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             plugin_manager.load_plugins();
             return Source.REMOVE;
         });
+
+        if (Singularity.SafeMode.get_default().active) {
+            warning("Safe mode active: %s",
+                Singularity.SafeMode.get_default().reason);
+            // Open the repair surface once the panel/sidebar has settled. This
+            // is non-modal and remains available through the Settings entry.
+            Timeout.add(800, () => {
+                open_settings_page("desktop");
+                return Source.REMOVE;
+            });
+        }
 
     }
 
