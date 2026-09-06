@@ -5,16 +5,6 @@ using Singularity.Widgets;
 
 namespace Singularity {
 
-    internal class WallpaperCandidate : Object {
-        public string uri { get; private set; }
-        public bool is_recent { get; private set; }
-
-        public WallpaperCandidate(string uri, bool is_recent) {
-            this.uri = uri;
-            this.is_recent = is_recent;
-        }
-    }
-
     public class DesktopPage : SettingsPage {
         private GLib.Settings settings;
         private GLib.Settings? wm_settings;
@@ -31,6 +21,9 @@ namespace Singularity {
         private SelectionRow? decorations_side_row;
         private WallpaperPreviewWidget preview_widget;
         private FlowBox wallpaper_grid;
+        private Gee.ArrayList<WallpaperCollectionInfo> wallpaper_collections = new Gee.ArrayList<WallpaperCollectionInfo>();
+        private WallpaperRotationState rotation_state = new WallpaperRotationState(
+            GLib.Path.build_filename(GLib.Environment.get_user_config_dir(), "ncz-wallpaper"));
         private int wallpaper_grid_generation = 0;
         private int wallpaper_accent_generation = 0;
         private string cached_wallpaper_accent = "#3584e4";
@@ -178,6 +171,37 @@ namespace Singularity {
             preview_group.add_row(preview_row);
             add_group(preview_group);
             var grid_group = new PreferencesGroup(_("Wallpapers"));
+
+            var collection_roots = new Gee.ArrayList<string>();
+            foreach (unowned string d in GLib.Environment.get_system_data_dirs())
+                collection_roots.add(GLib.Path.build_filename(d, "ncz-wallpapers", "collections"));
+            collection_roots.add(GLib.Path.build_filename(
+                GLib.Environment.get_user_data_dir(), "ncz-wallpapers", "collections"));
+            wallpaper_collections = WallpaperCollections.parse(collection_roots.to_array());
+
+            var source_options = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
+            foreach (var collection in wallpaper_collections) {
+                string label = (collection.artist != null && collection.artist != "" && collection.artist != collection.name)
+                    ? "%s — %s".printf(collection.name, collection.artist)
+                    : collection.name;
+                source_options.add(new Singularity.Core.AppSettingOption() {
+                    id = collection.id, label = label
+                });
+            }
+            string initial_collection_id = rotation_state.get_selected_collection("ncz");
+            bool have_initial = false;
+            foreach (var opt in source_options) if (opt.id == initial_collection_id) have_initial = true;
+            if (!have_initial && source_options.size > 0) initial_collection_id = source_options[0].id;
+
+            var source_row = new SelectionRow.with_options(
+                _("Wallpaper Source"), source_options, initial_collection_id);
+            source_row.subtitle = _("Which installed collection the gallery below shows");
+            source_row.selected.connect((id) => {
+                rotation_state.set_selected_collection(id);
+                populate_grid();
+            });
+            grid_group.add_row(source_row);
+
             wallpaper_grid = new FlowBox();
             wallpaper_grid.add_css_class("wallpaper-gallery");
             wallpaper_grid.valign = Align.START;
@@ -195,6 +219,40 @@ namespace Singularity {
             var grid_row = new PreferencesRow();
             grid_row.set_child(wallpaper_grid);
             grid_group.add_row(grid_row);
+
+            var rotate_row = new SwitchRow(_("Rotate Wallpapers"),
+                _("Automatically change the wallpaper on a timer"),
+                rotation_state.get_rotate_enabled());
+            grid_group.add_row(rotate_row);
+
+            var interval_options = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
+            interval_options.add(new Singularity.Core.AppSettingOption() { id = "600", label = _("Every 10 minutes") });
+            interval_options.add(new Singularity.Core.AppSettingOption() { id = "1800", label = _("Every 30 minutes") });
+            interval_options.add(new Singularity.Core.AppSettingOption() { id = "3600", label = _("Every hour") });
+            interval_options.add(new Singularity.Core.AppSettingOption() { id = "14400", label = _("Every 4 hours") });
+            interval_options.add(new Singularity.Core.AppSettingOption() { id = "86400", label = _("Every day") });
+
+            int current_interval = rotation_state.get_rotate_interval_seconds();
+            string current_interval_id = current_interval.to_string();
+            bool have_interval_match = false;
+            foreach (var opt in interval_options) if (opt.id == current_interval_id) have_interval_match = true;
+            if (!have_interval_match) current_interval_id = "600"; // a custom/legacy value collapses to the closest preset shown
+
+            var interval_row = new SelectionRow.with_options(
+                _("Rotation Interval"), interval_options, current_interval_id);
+            interval_row.visible = rotation_state.get_rotate_enabled();
+            interval_row.selected.connect((id) => {
+                int seconds;
+                if (int.try_parse(id, out seconds)) rotation_state.set_rotate_interval_seconds(seconds);
+            });
+            grid_group.add_row(interval_row);
+
+            rotate_row.switch_btn.notify["active"].connect(() => {
+                bool enabled = rotate_row.switch_btn.active;
+                rotation_state.set_rotate_enabled(enabled);
+                interval_row.visible = enabled;
+            });
+
             add_group(grid_group);
             GLib.Idle.add(() => { populate_grid(); return GLib.Source.REMOVE; });
             refresh_wallpaper_accent_async();
@@ -1828,170 +1886,38 @@ namespace Singularity {
             });
         }
 
-        // How deep to walk below a scan root. /usr/share/backgrounds holds
-        // ncz/, and a pack sits one further down (ncz/brandon-perlow), so two
-        // levels is what the shipped layout needs. The bound exists because
-        // $XDG_DATA_HOME/backgrounds is user-writable: someone who points it at
-        // a deep tree should not stall the picker.
-        private const int WALLPAPER_SCAN_MAX_DEPTH = 3;
-
-        // Directories declared by installed wallpaper packs.
-        //
-        // Reading the registry rather than guessing paths is what surfaces the
-        // Bing provider at all: its Dir= is /var/cache/ncz-wallpapers/bing,
-        // which is not under any backgrounds path and is unreachable by
-        // directory walking alone.
-        //
-        // .collection is the current on-disk format (KeyFile). The design in
-        // docs/WALLPAPER-PACKS.md moves to .pack.json and accepts both for one
-        // release; when that lands, parse *.pack.json here too rather than
-        // replacing this, or packs installed by the older deb disappear from
-        // the picker on upgrade.
-        private static Gee.ArrayList<string> collection_dirs() {
-            var dirs = new ArrayList<string>();
-            var roots = new ArrayList<string>();
-            foreach (unowned string d in GLib.Environment.get_system_data_dirs())
-                roots.add(GLib.Path.build_filename(d, "ncz-wallpapers", "collections"));
-            roots.add(GLib.Path.build_filename(GLib.Environment.get_user_data_dir(),
-                                               "ncz-wallpapers", "collections"));
-
-            foreach (string root in roots) {
-                try {
-                    var dir = File.new_for_path(root);
-                    if (!dir.query_exists()) continue;
-                    var en = dir.enumerate_children("standard::name", FileQueryInfoFlags.NONE, null);
-                    FileInfo info;
-                    while ((info = en.next_file(null)) != null) {
-                        if (!info.get_name().has_suffix(".collection")) continue;
-                        var kf = new GLib.KeyFile();
-                        try {
-                            kf.load_from_file(GLib.Path.build_filename(root, info.get_name()),
-                                              GLib.KeyFileFlags.NONE);
-                            string d = kf.get_string("Collection", "Dir");
-                            if (d != null && d != "" && !dirs.contains(d)) dirs.add(d);
-                        } catch (Error e) {
-                            // A malformed or Dir-less collection is skipped, not
-                            // fatal: one bad pack must not empty the picker.
-                        }
-                    }
-                } catch (Error e) {
-                }
-            }
-            return dirs;
-        }
-
-        // Walk one scan root, collecting images.
-        //
-        // The previous implementation enumerated a single level and kept only
-        // entries whose content-type began with image/. /usr/share/backgrounds
-        // contains no images at all -- only ncz/ and singularity/ -- and a
-        // directory's content-type is inode/directory, so every shipped
-        // wallpaper was silently skipped. The picker had never displayed them.
-        private static void scan_wallpaper_dir(string path,
-                                               ArrayList<WallpaperCandidate> candidates,
-                                               HashSet<string> thread_seen,
-                                               HashSet<string> visited_dirs,
-                                               int depth) {
-            if (depth > WALLPAPER_SCAN_MAX_DEPTH) return;
-            // The scan roots overlap by construction (/usr/share/backgrounds and
-            // /usr/share/backgrounds/singularity are both roots) and a pack may
-            // declare a Dir already reachable from one of them. Without this,
-            // those directories are walked more than once.
-            if (visited_dirs.contains(path)) return;
-            visited_dirs.add(path);
-
-            try {
-                var dir = File.new_for_path(path);
-                if (!dir.query_exists()) return;
-                var enumerator = dir.enumerate_children(
-                    "standard::name,standard::content-type,standard::type,standard::is-symlink,standard::symlink-target",
-                    FileQueryInfoFlags.NONE, null);
-                FileInfo info;
-                while ((info = enumerator.next_file(null)) != null) {
-                    var child = dir.get_child(info.get_name());
-
-                    if (info.get_file_type() == FileType.DIRECTORY) {
-                        // Not followed as a directory either: a symlinked
-                        // directory is the easy way to walk in a circle.
-                        if (info.get_is_symlink()) continue;
-                        scan_wallpaper_dir(child.get_path(), candidates, thread_seen,
-                                           visited_dirs, depth + 1);
-                        continue;
-                    }
-
-                    // default.jpg is a symlink the rotator repoints at whichever
-                    // wallpaper is current, at a target enumerated in this same
-                    // directory -- following it would list one image twice, once
-                    // under its own name and once as "default". Only elide a
-                    // same-directory pointer like that one: a pack that ships an
-                    // image as a symlink to a shared asset OUTSIDE this directory
-                    // is real content, and the previous scanner listed it fine
-                    // (content-type resolves through the link either way, since
-                    // enumerate_children above passes no NOFOLLOW flag).
-                    if (info.get_is_symlink()) {
-                        string? target = info.get_symlink_target();
-                        if (target != null) {
-                            string resolved = Path.is_absolute(target)
-                                ? target
-                                : Path.build_filename(path, target);
-                            if (Path.get_dirname(resolved) == path) continue;
-                        }
-                    }
-
-                    string mime = info.get_content_type();
-                    if (mime == null || !mime.has_prefix("image/")) continue;
-
-                    string uri = child.get_uri();
-                    if (thread_seen.contains(uri)) continue;
-                    thread_seen.add(uri);
-                    candidates.add(new WallpaperCandidate(uri, false));
-                }
-            } catch (Error e) {
-            }
-        }
-
         private void populate_grid() {
             int gen = ++wallpaper_grid_generation;
             wallpaper_grid.remove_all();
-            var uris = new ArrayList<string>();
             string[] recent = settings.get_strv("recent-wallpapers");
-            foreach (string uri in recent) {
-                if (!uris.contains(uri)) {
-                    uris.add(uri);
-                    add_wallpaper_card(uri, true);
-                }
+
+            string selected_id = rotation_state.get_selected_collection("ncz");
+            string? scan_dir = null;
+            foreach (var collection in wallpaper_collections) {
+                if (collection.id == selected_id) { scan_dir = collection.dir; break; }
+            }
+            // A selection with no matching collection (deleted pack, stale
+            // state file) must not empty the grid silently -- fall back to
+            // whatever the first known collection is, same "never leave the
+            // desktop with no wallpaper" principle the rotator script itself
+            // follows. Persist the fallback so the source row and the state
+            // file agree with what's actually on screen instead of re-falling
+            // back (and re-logging the same mismatch) on every refresh.
+            if (scan_dir == null && wallpaper_collections.size > 0) {
+                selected_id = wallpaper_collections[0].id;
+                scan_dir = wallpaper_collections[0].dir;
+                rotation_state.set_selected_collection(selected_id);
             }
 
-            var seen = new HashSet<string>();
-            foreach (string uri in recent) seen.add(uri);
-
-            var path_list = new ArrayList<string>();
-            foreach (unowned string d in GLib.Environment.get_system_data_dirs())
-                path_list.add(GLib.Path.build_filename(d, "backgrounds", "singularity"));
-            path_list.add(GLib.Path.build_filename(GLib.Environment.get_user_data_dir(), "backgrounds", "singularity"));
-            foreach (unowned string d in GLib.Environment.get_system_data_dirs())
-                path_list.add(GLib.Path.build_filename(d, "backgrounds"));
-            path_list.add(GLib.Path.build_filename(GLib.Environment.get_user_data_dir(), "backgrounds"));
-
-            // Packs declare their own directory, and it need not live under any
-            // backgrounds path. The Bing provider caches into
-            // /var/cache/ncz-wallpapers/bing, which nothing above would ever
-            // reach, so the registry is the only way those images are found.
-            foreach (string dir in collection_dirs())
-                path_list.add(dir);
-
-            string[] scan_paths = path_list.to_array();
+            var collection_dirs = new ArrayList<string>();
+            foreach (var collection in wallpaper_collections) collection_dirs.add(collection.dir);
             new GLib.Thread<void>("wallpaper-scan", () => {
-                var candidates = new ArrayList<WallpaperCandidate>();
-                var thread_seen = new HashSet<string>();
-                foreach (string uri in seen) thread_seen.add(uri);
-
-                var visited_dirs = new HashSet<string>();
-                foreach (string path in scan_paths)
-                    scan_wallpaper_dir(path, candidates, thread_seen, visited_dirs, 0);
+                var candidates = WallpaperGallery.scan(scan_dir, collection_dirs.to_array(), recent);
 
                 GLib.Idle.add(() => {
                     if (gen != wallpaper_grid_generation) return GLib.Source.REMOVE;
+                    debug("Wallpaper gallery: source=%s root=%s images=%d",
+                          selected_id, scan_dir ?? "(none)", candidates.size);
                     append_wallpaper_candidates(candidates, gen, 0);
                     return GLib.Source.REMOVE;
                 });
