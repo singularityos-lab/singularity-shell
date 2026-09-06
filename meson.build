@@ -282,6 +282,10 @@ singularity_core_sources = files(
     'src/core/preview_cache.vala',
     'src/core/extreme_mode_manager.vala',
     'src/core/wallpaper_manager.vala',
+    'src/core/wallpaper_collections.vala',
+    'src/core/wallpaper_gallery.vala',
+    'src/core/wallpaper_rotation_state.vala',
+    'src/core/wallpaper_ocs.vala',
     'src/core/wayland_gamma_backend.vala',
     'src/core/shortcut_manager.vala',
     'src/core/ush_portal.vala',
@@ -308,6 +312,7 @@ singularity_core_sources = files(
     'src/components/sidebar/views/settings_view.vala',
     'src/components/sidebar/pages/network_page.vala',
     'src/components/sidebar/pages/desktop_page.vala',
+    'src/components/sidebar/pages/wallpaper_ocs_browser.vala',
     'src/components/sidebar/pages/sound_page.vala',
     'src/components/sidebar/pages/keyboard_page.vala',
     'src/components/sidebar/pages/accessibility_page.vala',
@@ -442,3 +447,27 @@ safe_mode_test = executable('safe-mode-test',
   dependencies: [dependency('gobject-2.0')],
 )
 test('safe-mode', safe_mode_test)
+
+wallpaper_collections_test = executable('wallpaper-collections-test',
+  sources: ['src/core/wallpaper_collections.vala', 'tests/wallpaper_collections_test.vala'],
+  dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0'), gee_dep],
+)
+test('wallpaper-collections', wallpaper_collections_test)
+
+wallpaper_rotation_state_test = executable('wallpaper-rotation-state-test',
+  sources: ['src/core/wallpaper_rotation_state.vala', 'tests/wallpaper_rotation_state_test.vala'],
+  dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0')],
+)
+test('wallpaper-rotation-state', wallpaper_rotation_state_test)
+
+wallpaper_gallery_test = executable('wallpaper-gallery-test',
+  sources: ['src/core/wallpaper_gallery.vala', 'tests/wallpaper_gallery_test.vala'],
+  dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), gee_dep],
+)
+test('wallpaper-gallery', wallpaper_gallery_test)
+
+wallpaper_ocs_test = executable('wallpaper-ocs-test',
+  sources: ['src/core/wallpaper_ocs.vala', 'src/core/wallpaper_collections.vala', 'tests/wallpaper_ocs_test.vala'],
+  dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), gee_dep, json_dep],
+)
+test('wallpaper-ocs', wallpaper_ocs_test)
