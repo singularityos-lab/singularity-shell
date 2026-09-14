@@ -1,0 +1,55 @@
+#!/bin/sh
+# singularity-artist-pack-install -- privileged Artist Pack installer.
+#
+# Invoked via pkexec (dev.sinty.desktop.artist-pack-install), so it runs as
+# root with the CALLER's argv but none of the caller's session state -- no
+# GSettings/dconf, no desktop D-Bus session. It therefore never trusts the
+# `source` argument at face value: it re-derives the set of currently
+# configured apt sources itself (root-owned, on disk) and refuses to act
+# unless PACKAGE's live apt candidate actually comes from a URI in that set.
+# This is what makes the contract safe even though a pkexec-elevated process
+# cannot re-read the desktop user's artist-pack-apt-sources GSettings key the
+# way the unprivileged inventory script does.
+#
+# Usage: singularity-artist-pack-install PACKAGE SOURCE_URI
+# Idempotent: installing an already-installed package at the current
+# candidate version is a safe no-op (apt-get install's own behaviour);
+# re-running this against the same PACKAGE/SOURCE_URI never duplicates state.
+set -eu
+
+PACKAGE="${1:-}"
+SOURCE_URI="${2:-}"
+[ -n "$PACKAGE" ] && [ -n "$SOURCE_URI" ] || {
+    echo "usage: $0 PACKAGE SOURCE_URI" >&2
+    exit 2
+}
+# Package names are a fixed, narrow charset -- reject anything else outright
+# rather than letting it reach apt-get as a crafted argument.
+case "$PACKAGE" in
+    *[!a-zA-Z0-9.+-]*|"")
+        echo "refusing: '$PACKAGE' is not a valid package name" >&2
+        exit 1
+        ;;
+esac
+
+command -v apt-cache >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1 || {
+    echo "apt is not available on this system" >&2
+    exit 1
+}
+
+POLICY=$(apt-cache policy "$PACKAGE" 2>/dev/null || true)
+CANDIDATE=$(printf '%s' "$POLICY" | awk '/Candidate:/{print $2; exit}')
+[ -n "$CANDIDATE" ] && [ "$CANDIDATE" != "(none)" ] || {
+    echo "refusing: '$PACKAGE' has no installation candidate" >&2
+    exit 1
+}
+# The policy block lists one "<priority> <URI> <suite>/<component> ..." line
+# per source carrying a version of this package; the candidate's own origin
+# must be present among them, and it must match the URI the caller supplied --
+# not merely "some configured source carries this package somewhere".
+printf '%s' "$POLICY" | grep -F "$SOURCE_URI" >/dev/null || {
+    echo "refusing: '$PACKAGE' candidate $CANDIDATE is not associated with source $SOURCE_URI" >&2
+    exit 1
+}
+
+exec apt-get install -y --no-install-recommends "$PACKAGE"

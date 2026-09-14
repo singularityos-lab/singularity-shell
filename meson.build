@@ -286,6 +286,7 @@ singularity_core_sources = files(
     'src/core/wallpaper_gallery.vala',
     'src/core/wallpaper_rotation_state.vala',
     'src/core/wallpaper_rotator.vala',
+    'src/core/artist_pack_manager.vala',
     'src/core/wayland_gamma_backend.vala',
     'src/core/shortcut_manager.vala',
     'src/core/ush_portal.vala',
@@ -480,6 +481,19 @@ configure_file(
 install_data('data/fan-control/dev.sinty.FanControl.conf',
   install_dir: get_option('datadir') / 'dbus-1' / 'system.d')
 install_data('data/fan-control/dev.sinty.fan-control.policy',
+  install_dir: get_option('datadir') / 'polkit-1' / 'actions')
+
+# Reference Artist Pack backend (apt-based). ArtistPackManager resolves its
+# two helpers at FIXED /usr/local/bin paths, never via PATH (privilege-
+# escalation reasons documented in artist_pack_manager.vala), so this
+# installs there directly rather than through get_option('bindir') -- a
+# distro on a different package manager supplies its own pair of binaries
+# satisfying the same contract at the same two paths instead of using these.
+install_data('data/artist-packs/singularity-artist-pack-inventory',
+  install_dir: '/usr/local/bin', install_mode: 'rwxr-xr-x')
+install_data('data/artist-packs/singularity-artist-pack-install',
+  install_dir: '/usr/local/bin', install_mode: 'rwxr-xr-x')
+install_data('data/artist-packs/dev.sinty.desktop.artist-pack-install.policy',
   install_dir: get_option('datadir') / 'polkit-1' / 'actions')
 
 wallpaper_collections_test = executable('wallpaper-collections-test',

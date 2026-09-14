@@ -28,6 +28,12 @@ namespace Singularity {
         private int wallpaper_accent_generation = 0;
         private string cached_wallpaper_accent = "#3584e4";
         private static bool wallpaper_css_loaded = false;
+        private PreferencesGroup? artist_pack_group = null;
+        private int artist_pack_refresh_generation = 0;
+        // Packages whose apt transaction is in flight. Survives the row
+        // teardown that a refresh performs, so a rebuilt row can render the
+        // install state the freshly-fetched inventory does not know about yet.
+        private HashSet<string> artist_packs_installing = new HashSet<string>();
 
         // Label for a stored rotate-interval that doesn't match a fixed
         // preset. Hours when it divides evenly, else minutes, else seconds
@@ -286,6 +292,25 @@ namespace Singularity {
 
             add_group(grid_group);
             GLib.Idle.add(() => { populate_grid(); return GLib.Source.REMOVE; });
+
+            // Artist Packs: curated wallpaper packs installed via the
+            // distro's package manager. Entirely opt-in -- it only appears
+            // when the distro ships the complete backend contract (see
+            // ArtistPackManager), which is where the trusted apt source(s)
+            // live (dev.sinty.desktop artist-pack-apt-sources). Nothing here
+            // hardcodes a repository.
+            if (ArtistPackManager.get_default().is_available()) {
+                artist_pack_group = new PreferencesGroup(
+                    _("Artist Packs"),
+                    _("Curated wallpaper packs, installed through the system package manager."));
+                var artist_pack_refresh_btn = new Button.from_icon_name("view-refresh-symbolic");
+                artist_pack_refresh_btn.has_frame = false;
+                artist_pack_refresh_btn.tooltip_text = _("Refresh");
+                artist_pack_refresh_btn.clicked.connect(() => { populate_artist_packs_async.begin(); });
+                artist_pack_group.add_header_suffix(artist_pack_refresh_btn);
+                add_group(artist_pack_group);
+                populate_artist_packs_async.begin();
+            }
             refresh_wallpaper_accent_async();
             update_preview_async();
             var wm = WallpaperManager.get_default();
@@ -1914,6 +1939,228 @@ namespace Singularity {
                     }
                     return GLib.Source.REMOVE;
                 });
+            });
+        }
+
+        // How deep to walk below a scan root. /usr/share/backgrounds holds
+        // ncz/, and a pack sits one further down (ncz/brandon-perlow), so two
+        // levels is what the shipped layout needs. The bound exists because
+        // $XDG_DATA_HOME/backgrounds is user-writable: someone who points it at
+        // a deep tree should not stall the picker.
+        private const int WALLPAPER_SCAN_MAX_DEPTH = 3;
+
+        // Directories declared by installed wallpaper packs.
+        //
+        // Reading the registry rather than guessing paths is what surfaces the
+        // Bing provider at all: its Dir= is /var/cache/ncz-wallpapers/bing,
+        // which is not under any backgrounds path and is unreachable by
+        // directory walking alone.
+        //
+        // .collection is the current on-disk format (KeyFile). The design in
+        // docs/WALLPAPER-PACKS.md moves to .pack.json and accepts both for one
+        // release; when that lands, parse *.pack.json here too rather than
+        // replacing this, or packs installed by the older deb disappear from
+        // the picker on upgrade.
+        private static Gee.ArrayList<string> collection_dirs() {
+            var dirs = new ArrayList<string>();
+            var roots = new ArrayList<string>();
+            foreach (unowned string d in GLib.Environment.get_system_data_dirs())
+                roots.add(GLib.Path.build_filename(d, "ncz-wallpapers", "collections"));
+            roots.add(GLib.Path.build_filename(GLib.Environment.get_user_data_dir(),
+                                               "ncz-wallpapers", "collections"));
+
+            foreach (string root in roots) {
+                try {
+                    var dir = File.new_for_path(root);
+                    if (!dir.query_exists()) continue;
+                    var en = dir.enumerate_children("standard::name", FileQueryInfoFlags.NONE, null);
+                    FileInfo info;
+                    while ((info = en.next_file(null)) != null) {
+                        if (!info.get_name().has_suffix(".collection")) continue;
+                        var kf = new GLib.KeyFile();
+                        try {
+                            kf.load_from_file(GLib.Path.build_filename(root, info.get_name()),
+                                              GLib.KeyFileFlags.NONE);
+                            string d = kf.get_string("Collection", "Dir");
+                            if (d != null && d != "" && !dirs.contains(d)) dirs.add(d);
+                        } catch (Error e) {
+                            // A malformed or Dir-less collection is skipped, not
+                            // fatal: one bad pack must not empty the picker.
+                        }
+                    }
+                } catch (Error e) {
+                }
+            }
+            return dirs;
+        }
+
+        // Walk one scan root, collecting images.
+        //
+        // The previous implementation enumerated a single level and kept only
+        // entries whose content-type began with image/. /usr/share/backgrounds
+        // contains no images at all -- only ncz/ and singularity/ -- and a
+        // directory's content-type is inode/directory, so every shipped
+        // wallpaper was silently skipped. The picker had never displayed them.
+        private static void scan_wallpaper_dir(string path,
+                                               ArrayList<WallpaperCandidate> candidates,
+                                               HashSet<string> thread_seen,
+                                               HashSet<string> visited_dirs,
+                                               int depth) {
+            if (depth > WALLPAPER_SCAN_MAX_DEPTH) return;
+            // The scan roots overlap by construction (/usr/share/backgrounds and
+            // /usr/share/backgrounds/singularity are both roots) and a pack may
+            // declare a Dir already reachable from one of them. Without this,
+            // those directories are walked more than once.
+            if (visited_dirs.contains(path)) return;
+            visited_dirs.add(path);
+
+            try {
+                var dir = File.new_for_path(path);
+                if (!dir.query_exists()) return;
+                var enumerator = dir.enumerate_children(
+                    "standard::name,standard::content-type,standard::type,standard::is-symlink,standard::symlink-target",
+                    FileQueryInfoFlags.NONE, null);
+                FileInfo info;
+                while ((info = enumerator.next_file(null)) != null) {
+                    var child = dir.get_child(info.get_name());
+
+                    if (info.get_file_type() == FileType.DIRECTORY) {
+                        // Not followed as a directory either: a symlinked
+                        // directory is the easy way to walk in a circle.
+                        if (info.get_is_symlink()) continue;
+                        scan_wallpaper_dir(child.get_path(), candidates, thread_seen,
+                                           visited_dirs, depth + 1);
+                        continue;
+                    }
+
+                    // default.jpg is a symlink the rotator repoints at whichever
+                    // wallpaper is current, at a target enumerated in this same
+                    // directory -- following it would list one image twice, once
+                    // under its own name and once as "default". Only elide a
+                    // same-directory pointer like that one: a pack that ships an
+                    // image as a symlink to a shared asset OUTSIDE this directory
+                    // is real content, and the previous scanner listed it fine
+                    // (content-type resolves through the link either way, since
+                    // enumerate_children above passes no NOFOLLOW flag).
+                    if (info.get_is_symlink()) {
+                        string? target = info.get_symlink_target();
+                        if (target != null) {
+                            string resolved = Path.is_absolute(target)
+                                ? target
+                                : Path.build_filename(path, target);
+                            if (Path.get_dirname(resolved) == path) continue;
+                        }
+                    }
+
+                    string mime = info.get_content_type();
+                    if (mime == null || !mime.has_prefix("image/")) continue;
+
+                    string uri = child.get_uri();
+                    if (thread_seen.contains(uri)) continue;
+                    thread_seen.add(uri);
+                    candidates.add(new WallpaperCandidate(uri, false));
+                }
+            } catch (Error e) {
+            }
+        }
+
+        // Lists the Artist Packs available/installed from the distro's
+        // configured apt source(s) and renders one row per pack with an
+        // Install/Installed action. Safe to call repeatedly (e.g. from the
+        // refresh button): a generation counter discards a stale response
+        // that lands after a newer refresh has already started, the same
+        // pattern populate_grid() uses for the wallpaper grid.
+        private async void populate_artist_packs_async() {
+            if (artist_pack_group == null) return;
+            int gen = ++artist_pack_refresh_generation;
+
+            artist_pack_group.clear();
+            var loading_row = new ActionRow(_("Loading..."));
+            loading_row.activatable = false;
+            artist_pack_group.add_row(loading_row);
+
+            Gee.ArrayList<ArtistPackInfo> packs;
+            try {
+                packs = yield ArtistPackManager.get_default().fetch_inventory_async();
+            } catch (Error e) {
+                if (gen != artist_pack_refresh_generation) return;
+                artist_pack_group.clear();
+                var error_row = new ActionRow(_("Could not list Artist Packs"), e.message, "dialog-error-symbolic");
+                error_row.activatable = false;
+                artist_pack_group.add_row(error_row);
+                return;
+            }
+            if (gen != artist_pack_refresh_generation) return;
+
+            artist_pack_group.clear();
+            if (packs.size == 0) {
+                var empty_row = new ActionRow(
+                    _("No Artist Packs available"),
+                    _("None of the configured apt sources currently offer one, or none are configured."));
+                empty_row.activatable = false;
+                artist_pack_group.add_row(empty_row);
+                return;
+            }
+
+            foreach (var pack in packs) {
+                var row = new ActionRow(pack.title, pack.summary);
+                row.activatable = false;
+                // installing overrides pack.installed: a transaction started
+                // before this refresh predates it, so the fresh inventory
+                // still reports "not installed".
+                bool installing = artist_packs_installing.contains(pack.package);
+                var install_btn = new Button.with_label(
+                    installing ? _("Installing...") : (pack.installed ? _("Installed") : _("Install")));
+                install_btn.sensitive = !installing && !pack.installed;
+                string captured_package = pack.package;
+                string captured_source = pack.source;
+                Button captured_btn = install_btn;
+                install_btn.clicked.connect(() => {
+                    start_artist_pack_install(captured_package, captured_source, captured_btn);
+                });
+                row.add_suffix(install_btn);
+                artist_pack_group.add_row(row);
+            }
+        }
+
+        // A Refresh click during an install destroys `btn`'s row, so track
+        // the generation we started under: if it moved, repopulate instead
+        // of relabelling a detached button.
+        private void start_artist_pack_install(string package, string source, Button btn) {
+            if (!artist_packs_installing.add(package)) return;
+            int gen = artist_pack_refresh_generation;
+            btn.sensitive = false;
+            btn.label = _("Installing...");
+            ArtistPackManager.get_default().install_async.begin(package, source, null, (obj, res) => {
+                artist_packs_installing.remove(package);
+                bool row_alive = (gen == artist_pack_refresh_generation);
+                try {
+                    ArtistPackManager.get_default().install_async.end(res);
+                    if (row_alive) {
+                        btn.label = _("Installed");
+                    } else {
+                        populate_artist_packs_async.begin();
+                    }
+                    // A freshly-installed pack drops a new .collection file,
+                    // which collection_dirs() only re-reads when
+                    // populate_grid() runs. Settings pages are cached, so
+                    // without this the new wallpapers stay invisible until the
+                    // user navigates away and back.
+                    populate_grid();
+                } catch (Error e) {
+                    warning("Artist Pack install of %s failed: %s", package, e.message);
+                    if (!row_alive) {
+                        populate_artist_packs_async.begin();
+                        return;
+                    }
+                    btn.label = _("Install Failed");
+                    GLib.Timeout.add_seconds(4, () => {
+                        if (gen != artist_pack_refresh_generation) return GLib.Source.REMOVE;
+                        btn.label = _("Install");
+                        btn.sensitive = true;
+                        return GLib.Source.REMOVE;
+                    });
+                }
             });
         }
 

@@ -1,0 +1,89 @@
+#!/bin/sh
+# singularity-artist-pack-inventory -- list Artist Packs available from the
+# distro-configured apt source(s), plus which are already installed.
+#
+# Unprivileged. Reads dev.sinty.desktop's `artist-pack-apt-sources` key: a
+# list of one-line apt sources ("deb URI SUITE COMPONENT..."). ANY package
+# published by a configured source counts as an Artist Pack -- this script
+# never filters on package name, so a distro (or a third-party repo) is free
+# to name its packages however it likes; the configured source IS the trust
+# boundary. An empty/unset key means no configured sources, so an empty JSON
+# array is printed, not an error -- ArtistPackManager.is_available() already
+# gates whether this section is shown at all.
+#
+# Package-manager specific by necessity (this build targets apt), but the
+# CONTRACT is not: fixed stdout schema, no apt-specific fields leak into it.
+# A distro on a different package manager supplies its own binary satisfying
+# this same contract at the same fixed path (see ArtistPackManager).
+#
+# Output: a JSON array of {package, title, summary, version, source, installed}
+# on stdout, one line at most per package. Exit 0 even when there is nothing
+# to report; non-zero is reserved for a genuine failure to query apt.
+set -eu
+
+json_escape() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e ':a;N;$!ba;s/\n/\\n/g'
+}
+
+SOURCES_RAW=$(gsettings get dev.sinty.desktop artist-pack-apt-sources 2>/dev/null || printf '@as []')
+# gsettings prints a GVariant array literal, e.g. ['deb https://...', ...] --
+# one source line per output line.
+SOURCE_LINES=$(printf '%s\n' "$SOURCES_RAW" \
+    | sed -e "s/^@as //" -e "s/^\[//" -e "s/\]\s*$//" \
+    | tr ',' '\n' \
+    | sed -e "s/^[[:space:]]*'//" -e "s/'[[:space:]]*$//" \
+    | grep -v '^[[:space:]]*$' || true)
+
+[ -n "$SOURCE_LINES" ] || { printf '[]\n'; exit 0; }
+command -v apt-cache >/dev/null 2>&1 || { printf '[]\n'; exit 0; }
+command -v apt-get >/dev/null 2>&1 || { printf '[]\n'; exit 0; }
+
+first=1
+printf '['
+printf '%s\n' "$SOURCE_LINES" | while IFS= read -r source_line; do
+    [ -n "$source_line" ] || continue
+    uri=$(printf '%s' "$source_line" | awk '{print $2}')
+    suite=$(printf '%s' "$source_line" | awk '{print $3}')
+    [ -n "$uri" ] && [ -n "$suite" ] || continue
+
+    # The index file apt actually resolved for this source, so we read
+    # exactly what apt itself considers to belong to it -- not a re-derived
+    # guess at the on-disk lists/ filename.
+    index_file=$(apt-get indextargets --format '$(FILENAME)' \
+        "Repo-URI: $uri" "Codename: $suite" 2>/dev/null | head -1)
+    [ -n "$index_file" ] && [ -r "$index_file" ] || continue
+
+    pkg=""
+    version=""
+    summary=""
+    while IFS= read -r line; do
+        case "$line" in
+            "Package: "*) pkg=${line#Package: } ;;
+            "Version: "*) version=${line#Version: } ;;
+            "Description: "*|"Description-en: "*) summary=${line#*: } ;;
+            "")
+                [ -n "$pkg" ] || continue
+                installed=false
+                dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q '^install ok installed$' && installed=true
+                [ "$first" = 1 ] || printf ','
+                first=0
+                printf '{"package":"%s","title":"%s","summary":"%s","version":"%s","source":"%s","installed":%s}' \
+                    "$(json_escape "$pkg")" "$(json_escape "$pkg")" "$(json_escape "$summary")" \
+                    "$(json_escape "$version")" "$(json_escape "$uri")" "$installed"
+                pkg=""; version=""; summary=""
+                ;;
+        esac
+    done < "$index_file"
+    # A Packages file with no trailing blank line leaves the last stanza
+    # unflushed by the loop above.
+    if [ -n "$pkg" ]; then
+        installed=false
+        dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q '^install ok installed$' && installed=true
+        [ "$first" = 1 ] || printf ','
+        first=0
+        printf '{"package":"%s","title":"%s","summary":"%s","version":"%s","source":"%s","installed":%s}' \
+            "$(json_escape "$pkg")" "$(json_escape "$pkg")" "$(json_escape "$summary")" \
+            "$(json_escape "$version")" "$(json_escape "$uri")" "$installed"
+    fi
+done
+printf ']\n'
