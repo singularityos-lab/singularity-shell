@@ -22,7 +22,7 @@ if get_option('buildtype').startswith('release')
 endif
 
 core_deps = [
-  dependency('gtk4'),
+  dependency('gtk4', version: '>= 4.10'),
   dependency('gio-2.0'),
   dependency('gio-unix-2.0'),
   dependency('vte-2.91-gtk4'),
@@ -286,6 +286,12 @@ singularity_core_sources = files(
     'src/core/wallpaper_gallery.vala',
     'src/core/wallpaper_rotation_state.vala',
     'src/core/wallpaper_rotator.vala',
+    'src/core/wallpaper_sidecar.vala',
+    'src/core/wallpaper_ocs.vala',
+    'src/core/wallpaper_browse_cache.vala',
+    'src/core/wallpaper_thumbnail_cache.vala',
+    'src/core/wallpaper_provider.vala',
+    'src/core/settings_safety.vala',
     'src/core/wayland_gamma_backend.vala',
     'src/core/shortcut_manager.vala',
     'src/core/ush_portal.vala',
@@ -313,6 +319,8 @@ singularity_core_sources = files(
     'src/components/sidebar/views/settings_view.vala',
     'src/components/sidebar/pages/network_page.vala',
     'src/components/sidebar/pages/desktop_page.vala',
+    'src/components/sidebar/pages/wallpaper_ocs_browser.vala',
+    'src/components/sidebar/pages/provider_credential_group.vala',
     'src/components/sidebar/pages/sound_page.vala',
     'src/components/sidebar/pages/keyboard_page.vala',
     'src/components/sidebar/pages/accessibility_page.vala',
@@ -484,7 +492,7 @@ install_data('data/fan-control/dev.sinty.fan-control.policy',
 
 wallpaper_collections_test = executable('wallpaper-collections-test',
   sources: ['src/core/wallpaper_collections.vala', 'tests/wallpaper_collections_test.vala'],
-  dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0'), gee_dep],
+  dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0'), gee_dep, json_dep],
 )
 test('wallpaper-collections', wallpaper_collections_test)
 
@@ -499,11 +507,28 @@ wallpaper_gallery_test = executable('wallpaper-gallery-test',
   dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), gee_dep],
 )
 test('wallpaper-gallery', wallpaper_gallery_test)
-
 wallpaper_rotator_test = executable('wallpaper-rotator-test',
   sources: ['src/core/wallpaper_collections.vala', 'src/core/wallpaper_gallery.vala',
             'src/core/wallpaper_rotation_state.vala', 'src/core/wallpaper_rotator.vala',
             'tests/wallpaper_rotator_test.vala'],
-  dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0'), gee_dep],
+  dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0'), gee_dep, json_dep],
 )
 test('wallpaper-rotator', wallpaper_rotator_test)
+
+wallpaper_ocs_test = executable('wallpaper-ocs-test',
+  sources: ['src/core/wallpaper_ocs.vala', 'src/core/wallpaper_browse_cache.vala', 'src/core/wallpaper_thumbnail_cache.vala', 'src/core/wallpaper_provider.vala', 'src/core/wallpaper_collections.vala', 'tests/wallpaper_ocs_test.vala'],
+  dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), gee_dep, json_dep],
+)
+test('wallpaper-ocs', wallpaper_ocs_test)
+
+wallpaper_sidecar_test = executable('wallpaper-sidecar-test',
+  sources: ['src/core/wallpaper_sidecar.vala', 'tests/wallpaper_sidecar_test.vala'],
+  dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), gee_dep, json_dep],
+)
+test('wallpaper-sidecar', wallpaper_sidecar_test)
+
+settings_safety_test = executable('settings-safety-test',
+  sources: ['src/core/settings_safety.vala', 'tests/settings_safety_test.vala'],
+  dependencies: [dependency('gobject-2.0'), dependency('gio-2.0')],
+)
+test('settings-safety', settings_safety_test)

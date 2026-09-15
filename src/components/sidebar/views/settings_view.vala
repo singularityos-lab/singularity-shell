@@ -400,6 +400,13 @@ namespace Singularity {
             return row;
         }
 
+        private void notify_wallpaper_imported() {
+            if (_page_cache.has_key("desktop")) {
+                var desktop_page = _page_cache["desktop"] as DesktopPage;
+                if (desktop_page != null) desktop_page.refresh_after_import();
+            }
+        }
+
         private Widget? build_page(string page_name, bool connect_navigation) {
             Widget? page = null;
             switch (page_name) {
@@ -420,6 +427,13 @@ namespace Singularity {
                 case "plugins": page = new Singularity.PluginsPage(this); break;
                 case "performance": page = new Singularity.SidebarPages.PerformancePage(this); break;
                 case "system": page = new Singularity.SidebarPages.SystemPage(this); break;
+                case "wallpaper-browser":
+                    string[] roots = DesktopPage.compute_collection_roots();
+                    page = new Singularity.Shell.WallpaperOcsBrowserPage(this, roots);
+                    var browser = page as Singularity.Shell.WallpaperOcsBrowserPage;
+                    if (browser != null)
+                        browser.imported.connect(notify_wallpaper_imported);
+                    break;
             }
 
             if (page == null) return null;
@@ -431,7 +445,10 @@ namespace Singularity {
                     sp.back_btn.visible = false;
                 } else {
                     sp.back_btn.visible = true;
-                    sp.back_clicked.connect(() => { go_home(); });
+                    // This drill-down page returns to Desktop, not Settings home.
+                    if (page_name != "wallpaper-browser") {
+                        sp.back_clicked.connect(() => { go_home(); });
+                    }
                 }
                 sp.adaptive_back_btn.clicked.connect(() => {
                     main_stack.visible_child_name = "sidebar";
