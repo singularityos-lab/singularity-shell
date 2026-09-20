@@ -556,8 +556,10 @@ namespace Singularity {
                 // Snap to discrete hardware levels
                 double kbd_step = 100.0 / kbd_brightness.levels;
                 kbd_scale.set_increments(kbd_step, kbd_step);
-                for (int i = 0; i <= kbd_brightness.levels; i++) {
-                    double v = (i * 100.0) / kbd_brightness.levels;
+                // Bound decorative marks; one per raw level can exceed GPU surface limits.
+                int mark_intervals = int.min(kbd_brightness.levels, 10);
+                for (int i = 0; i <= mark_intervals; i++) {
+                    double v = (i * 100.0) / mark_intervals;
                     kbd_scale.add_mark(v, PositionType.BOTTOM, null);
                 }
                 kbd_scale.set_value(kbd_brightness.brightness);
