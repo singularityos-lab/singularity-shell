@@ -32,6 +32,7 @@ namespace Singularity.SidebarPages {
         private TimePicker from_picker;
         private PreferencesRow to_row;
         private TimePicker to_picker;
+        private SwitchRow dark_theme_row;
 
         public DisplaysPage(SettingsView view) {
             base(_("Displays"));
@@ -435,6 +436,10 @@ namespace Singularity.SidebarPages {
                 nl_settings.get_string("night-light-adaptive-to"), (t) => night_light.set_schedule_to(t), out to_picker);
             group.add_row(to_row);
 
+            dark_theme_row = new SwitchRow(_("Dark Theme"), _("Switch to the dark appearance during the schedule"));
+            nl_settings.bind("night-light-dark-theme", dark_theme_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            group.add_row(dark_theme_row);
+
             temp_row = new PreferencesRow();
             var temp_box = new Box(Orientation.VERTICAL, 12);
             temp_box.margin_top = 12;
@@ -497,6 +502,7 @@ namespace Singularity.SidebarPages {
             to_picker.time = nl_settings.get_string("night-light-adaptive-to");
             from_row.visible = adaptive_row.active;
             to_row.visible = adaptive_row.active;
+            dark_theme_row.visible = adaptive_row.active;
             if (night_light.enabled) {
                 night_light_row.subtitle = _("On");
             } else if (night_light_row.active && adaptive_row.active) {
