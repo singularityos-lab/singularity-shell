@@ -374,9 +374,8 @@ namespace Singularity {
 
         public void open_app_details(AppInfo info) {
             ensure_settings_view();
-            main_stack.visible_child_name = "settings";
             settings_view.open_app_details(info);
-            present();
+            animated_open("settings");
         }
 
         // Pick a file through the XDG Desktop Portal FileChooser instead of an
