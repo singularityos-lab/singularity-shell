@@ -59,6 +59,29 @@ namespace Singularity {
             refresh_input_sources(view);
 
             var settings = new GLib.Settings("dev.sinty.desktop");
+            var typing_group = new PreferencesGroup(_("Typing"));
+            var spell_row = new SwitchRow(_("Check Spelling"),
+                _("Underline misspelled words and suggest corrections"),
+                settings.get_boolean("spell-check-enabled"));
+            settings.bind("spell-check-enabled", spell_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            typing_group.add_row(spell_row);
+            var autocorrect_row = new SwitchRow(_("Correct Spelling Automatically"),
+                _("Fix misspelled words on Space, press Backspace to undo"),
+                settings.get_boolean("spell-autocorrect"));
+            settings.bind("spell-autocorrect", autocorrect_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            typing_group.add_row(autocorrect_row);
+            var suggestions_row = new SwitchRow(_("Show Suggestions"),
+                _("Offer corrections under the word or above the screen keyboard"),
+                settings.get_boolean("spell-suggestions"));
+            settings.bind("spell-suggestions", suggestions_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            typing_group.add_row(suggestions_row);
+            var accents_row = new SwitchRow(_("Hold Keys for Accents"),
+                _("Hold a letter to pick an accented variant instead of repeating it"),
+                settings.get_boolean("press-hold-accents"));
+            settings.bind("press-hold-accents", accents_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            typing_group.add_row(accents_row);
+            add_group(typing_group);
+
             var pointer_group = new PreferencesGroup(_("Mouse & Touchpad"));
             var accel_row = new SwitchRow(_("Mouse Acceleration"),
                 _("Turn off for a flat 1:1 pointer profile"),
@@ -99,28 +122,34 @@ namespace Singularity {
             settings.bind("touchpad-edge-scroll", circular_row, "visible", SettingsBindFlags.GET);
             pointer_group.add_row(circular_row);
 
-            var scroll_speed_row = new ActionRow(_("Touchpad Scroll Speed"),
-                _("How far content moves as your fingers scroll"));
-            scroll_speed_row.activatable = false;
-            var scroll_speed_scale = new Scale.with_range(Orientation.HORIZONTAL, 25, 175, 5);
-            scroll_speed_scale.width_request = 170;
-            scroll_speed_scale.draw_value = true;
-            scroll_speed_scale.value_pos = PositionType.RIGHT;
-            scroll_speed_scale.add_mark(100, PositionType.BOTTOM, null);
-            scroll_speed_scale.set_format_value_func((scale, value) => "%.0f%%".printf(value));
-            scroll_speed_scale.set_value(settings.get_double("touchpad-scroll-speed") * 100);
-            uint scroll_speed_timeout = 0;
-            scroll_speed_scale.value_changed.connect(() => {
-                if (scroll_speed_timeout != 0) Source.remove(scroll_speed_timeout);
-                scroll_speed_timeout = Timeout.add(200, () => {
-                    scroll_speed_timeout = 0;
-                    settings.set_double("touchpad-scroll-speed", scroll_speed_scale.get_value() / 100);
+            pointer_group.add_row(scroll_speed_row(settings, "touchpad-scroll-speed",
+                _("Touchpad Scroll Speed"), _("How far content moves as your fingers scroll")));
+            pointer_group.add_row(scroll_speed_row(settings, "mouse-scroll-speed",
+                _("Mouse Scroll Speed"), _("How far content moves for each wheel step")));
+            add_group(pointer_group);
+        }
+
+        private ActionRow scroll_speed_row(GLib.Settings settings, string key, string title, string subtitle) {
+            var row = new ActionRow(title, subtitle);
+            row.activatable = false;
+            var scale = new Scale.with_range(Orientation.HORIZONTAL, 25, 175, 5);
+            scale.width_request = 170;
+            scale.draw_value = true;
+            scale.value_pos = PositionType.RIGHT;
+            scale.add_mark(100, PositionType.BOTTOM, null);
+            scale.set_format_value_func((s, value) => "%.0f%%".printf(value));
+            scale.set_value(settings.get_double(key) * 100);
+            uint timeout = 0;
+            scale.value_changed.connect(() => {
+                if (timeout != 0) Source.remove(timeout);
+                timeout = Timeout.add(200, () => {
+                    timeout = 0;
+                    settings.set_double(key, scale.get_value() / 100);
                     return Source.REMOVE;
                 });
             });
-            scroll_speed_row.add_suffix(scroll_speed_scale);
-            pointer_group.add_row(scroll_speed_row);
-            add_group(pointer_group);
+            row.add_suffix(scale);
+            return row;
         }
 
         private void rebuild_shortcuts() {

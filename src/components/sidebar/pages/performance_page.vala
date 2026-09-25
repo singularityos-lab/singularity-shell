@@ -48,6 +48,12 @@ namespace Singularity.SidebarPages {
             });
             gm_group.add_row(manual_row);
 
+            var tearing_row = new SwitchRow(_("Allow Tearing"),
+                _("Lower input lag for fullscreen games that request it"),
+                _settings.get_boolean("allow-tearing"));
+            _settings.bind("allow-tearing", tearing_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            gm_group.add_row(tearing_row);
+
             gm.state_changed.connect(() => {
                 manual_row.active = gm.active;
                 auto_row.sensitive = gm.available;

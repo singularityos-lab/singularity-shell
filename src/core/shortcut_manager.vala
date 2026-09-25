@@ -103,9 +103,12 @@ namespace Singularity {
             settings.changed["natural-scrolling"].connect(() => {
                 write_labwc_rc_xml();
             });
-            settings.changed["touchpad-scroll-speed"].connect(() => {
-                write_labwc_rc_xml();
-            });
+            foreach (string key in new string[] {"touchpad-scroll-speed", "mouse-scroll-speed", "allow-tearing",
+                    "xwayland-native-scaling"}) {
+                settings.changed[key].connect(() => {
+                    write_labwc_rc_xml();
+                });
+            }
             settings.changed["workspaces-per-monitor"].connect(() => {
                 write_labwc_rc_xml();
             });
@@ -292,6 +295,10 @@ namespace Singularity {
             bool animations = Gtk.Settings.get_default().gtk_enable_animations;
             xml.append("  <core>\n    <decoration>server</decoration>\n");
             xml.append_printf("    <windowAnimations>%s</windowAnimations>\n", animations ? "yes" : "no");
+            xml.append_printf("    <allowTearing>%s</allowTearing>\n",
+                settings.get_boolean("allow-tearing") ? "fullscreen" : "no");
+            xml.append_printf("    <xwaylandNativeScaling>%s</xwaylandNativeScaling>\n",
+                settings.get_boolean("xwayland-native-scaling") ? "yes" : "no");
             xml.append("  </core>\n");
 
             // Show the snap/tile preview overlay immediately instead of after
@@ -305,9 +312,13 @@ namespace Singularity {
             unowned string scroll_speed = settings.get_double("touchpad-scroll-speed")
                 .clamp(0.25, 1.75).format(scroll_buf, "%.2f");
             string accel_profile = mouse_accel ? "adaptive" : "flat";
+            char[] mouse_scroll_buf = new char[double.DTOSTR_BUF_SIZE];
+            unowned string mouse_scroll_speed = settings.get_double("mouse-scroll-speed")
+                .clamp(0.25, 1.75).format(mouse_scroll_buf, "%.2f");
             xml.append("  <libinput>\n");
             xml.append("    <device category=\"default\">\n");
             xml.append_printf("      <accelProfile>%s</accelProfile>\n", accel_profile);
+            xml.append_printf("      <scrollFactor>%s</scrollFactor>\n", mouse_scroll_speed);
             xml.append("    </device>\n");
             xml.append("    <device category=\"touchpad\">\n");
             xml.append_printf("      <accelProfile>%s</accelProfile>\n", accel_profile);
@@ -618,6 +629,9 @@ namespace Singularity {
                     case "snap_right": snap_focused(TilingLayout.SNAP_RIGHT); break;
                     case "snap_up":    snap_focused(TilingLayout.SNAP_TOP); break;
                     case "snap_down":  snap_focused(TilingLayout.SNAP_BOTTOM); break;
+                    case "toggle_screen_keyboard":
+                        settings.set_boolean("screen-keyboard-enabled", !settings.get_boolean("screen-keyboard-enabled"));
+                        break;
                     case "send_to_workspace_1": send_focused_to_workspace(0); break;
                     case "send_to_workspace_2": send_focused_to_workspace(1); break;
                     case "send_to_workspace_3": send_focused_to_workspace(2); break;

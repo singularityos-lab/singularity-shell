@@ -1143,7 +1143,33 @@ namespace Singularity {
                 }
             }
 
+            string[]? uninstall = AppSystem.uninstall_argv(app);
+            if (uninstall != null) {
+                menu.add_separator();
+                menu.add_item("Uninstall", "user-trash-symbolic", () => {
+                    confirm_uninstall(app, uninstall);
+                });
+            }
+
             menu.popup();
+        }
+
+        private void confirm_uninstall(AppInfo app, string[] argv) {
+            var dialog = new PowerConfirmDialog(
+                (Gtk.Application) GLib.Application.get_default(),
+                _("Uninstall %s?").printf(app.get_display_name()),
+                "user-trash-symbolic",
+                _("The app and its files will be removed from this device."),
+                _("Uninstall"),
+                () => {
+                    try {
+                        Process.spawn_async(null, argv, null, SpawnFlags.SEARCH_PATH, null, null);
+                    } catch (SpawnError e) {
+                        warning("Uninstall failed: %s", e.message);
+                    }
+                }
+            );
+            dialog.open_dialog();
         }
 
         // Widget picker (called from overview "+" button)

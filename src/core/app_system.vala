@@ -440,6 +440,31 @@ namespace Singularity {
             return false;
         }
 
+        public static string[]? uninstall_argv(AppInfo app) {
+            var entry = app as DesktopAppInfo;
+            if (entry == null) return null;
+            string? flatpak_id = entry.get_string("X-Flatpak");
+            if (flatpak_id != null && flatpak_id != "") {
+                string? path = entry.get_filename();
+                bool user = path != null && path.has_prefix(Environment.get_home_dir());
+                return { "flatpak", "uninstall", "-y", user ? "--user" : "--system", flatpak_id };
+            }
+            string? origin = entry.get_string("X-cpak-Origin");
+            if (origin == null || origin == "") return null;
+            string cpak = Environment.find_program_in_path("cpak")
+                ?? Path.build_filename(Environment.get_home_dir(), ".local", "bin", "cpak");
+            string[] argv = { cpak, "remove" };
+            string? id = entry.get_string("X-cpak-ID");
+            if (id != null) {
+                string[] parts = ((string) Base64.decode(id)).split(":");
+                if (parts.length >= 3 && parts[1] == "branch") argv += "--branch=" + parts[2];
+                else if (parts.length >= 3 && parts[1] == "release") argv += "--release=" + parts[2];
+                else if (parts.length >= 3 && parts[1] == "commit") argv += "--commit=" + parts[2];
+            }
+            argv += origin;
+            return argv;
+        }
+
         public static bool add_app_to_desktop(AppInfo app) {
             var entry = app as DesktopAppInfo;
             string? src = (entry != null) ? entry.get_filename() : null;

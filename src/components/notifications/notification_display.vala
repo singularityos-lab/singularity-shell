@@ -195,14 +195,25 @@ namespace Singularity {
             content.append(text_box);
             append(content);
 
-            if (actions.length > 0) {
+            int buttons = 0;
+            for (int i = 0; i + 1 < actions.length; i += 2) {
+                if (actions[i] == "default") {
+                    var open = new GestureClick();
+                    open.released.connect(() => { action_invoked("default"); });
+                    content.add_controller(open);
+                } else {
+                    buttons++;
+                }
+            }
+
+            if (buttons > 0) {
                 var sep = new Separator(Orientation.HORIZONTAL);
                 sep.add_css_class("notification-separator");
                 append(sep);
                 var actions_box = new Box(Orientation.HORIZONTAL, 0);
                 actions_box.homogeneous = true;
                 for (int i = 0; i < actions.length; i += 2) {
-                    if (i + 1 < actions.length) {
+                    if (i + 1 < actions.length && actions[i] != "default") {
                         string key = actions[i];
                         string lbl = actions[i+1];
                         var btn = new Button.with_label(lbl);
@@ -214,7 +225,7 @@ namespace Singularity {
                 append(actions_box);
             }
 
-            if (id != 999999u) {
+            if (id != 999999u && !SystemMonitor.get_default().notifications.is_critical(id)) {
                 _timeout_id = Timeout.add_seconds(5, () => {
                     _timeout_id = 0;
                     expired ();

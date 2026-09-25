@@ -233,7 +233,7 @@ namespace Singularity {
             action_prefix.visible = true;
             entry.primary_icon_name = null;
             entry.add_css_class("action-mode");
-            entry.placeholder_text = _("Search actions");
+            entry.placeholder_text = _("Search actions and settings");
             updating_text = true;
             entry.text = query;
             entry.set_position(-1);
@@ -357,11 +357,88 @@ namespace Singularity {
                 suggestions_list.append(row);
                 count++;
             }
+            if (needle.char_count() >= 2) count += append_setting_results(needle);
             set_results_visible(count > 0);
             if (count > 0) suggestions_list.select_row(suggestions_list.get_row_at_index(0));
         }
 
+        private Gee.List<SettingsEntry>? setting_entries = null;
+
+        private int append_setting_results(string needle) {
+            if (setting_entries == null) {
+                var app = GLib.Application.get_default() as SingularityApp;
+                if (app == null) return 0;
+                setting_entries = new Gee.ArrayList<SettingsEntry>();
+                setting_entries.add_all(app.settings_entries());
+            }
+            int count = 0;
+            foreach (var entry in setting_entries) {
+                string haystack = "%s %s %s %s".printf(entry.title, entry.subtitle, entry.group,
+                    entry.page_title).down();
+                if (!haystack.contains(needle)) continue;
+
+                var row = new ListBoxRow();
+                var row_box = new Box(Orientation.HORIZONTAL, 8);
+                row_box.margin_start = 8;
+                row_box.margin_end = 8;
+                row_box.margin_top = 6;
+                row_box.margin_bottom = 6;
+                var image = new Image.from_icon_name(entry.icon_name);
+                image.pixel_size = 20;
+                row_box.append(image);
+                var labels = new Box(Orientation.VERTICAL, 0);
+                labels.hexpand = true;
+                var title = new Label(entry.title);
+                title.halign = Align.START;
+                title.ellipsize = Pango.EllipsizeMode.END;
+                labels.append(title);
+                var path = new Label(entry.group != "" ? "%s / %s".printf(entry.page_title, entry.group)
+                    : entry.page_title);
+                path.add_css_class("dim-label");
+                path.add_css_class("caption");
+                path.halign = Align.START;
+                path.ellipsize = Pango.EllipsizeMode.END;
+                labels.append(path);
+                row_box.append(labels);
+                var state = new Label("");
+                state.add_css_class("dim-label");
+                state.add_css_class("caption");
+                row_box.append(state);
+                update_setting_state(entry, state);
+                row.set_child(row_box);
+                row.set_data<SettingsEntry>("setting-entry", entry);
+                row.set_data<Label>("setting-state", state);
+                suggestions_list.append(row);
+                if (++count >= 40) break;
+            }
+            return count;
+        }
+
+        private void update_setting_state(SettingsEntry entry, Label state) {
+            var toggle = entry.toggle();
+            if (toggle != null) {
+                state.label = toggle.active ? _("On") : _("Off");
+            } else if (entry.kind == SettingsEntryKind.LAUNCH) {
+                state.label = _("Open");
+            } else {
+                state.label = _("Show");
+            }
+        }
+
         private void on_suggestion_activated(ListBoxRow row) {
+            SettingsEntry? entry = row.get_data<SettingsEntry>("setting-entry");
+            if (entry != null) {
+                var toggle = entry.toggle();
+                if (toggle != null) {
+                    toggle.active = !toggle.active;
+                    update_setting_state(entry, row.get_data<Label>("setting-state"));
+                    return;
+                }
+                close_dialog();
+                var app = GLib.Application.get_default() as SingularityApp;
+                app?.reveal_setting(entry, entry.kind == SettingsEntryKind.LAUNCH);
+                return;
+            }
             string? action_id = row.get_data<string>("action-id");
             if (action_id != null) {
                 execute_palette_action(action_id);
@@ -665,6 +742,7 @@ exec dbus-run-session -- %s/bin/labwc -s "$S"
         }
 
         public override void open_dialog() {
+            setting_entries = null;
             load_history();
             _history_pos = -1;
             leave_action_mode();

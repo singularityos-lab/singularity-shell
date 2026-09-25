@@ -33,6 +33,7 @@ shell_deps = [
   dependency('poppler-glib'),
   dependency('gtksourceview-5'),
   dependency('wayland-client'),
+  meson.get_compiler('c').find_library('xkbcommon'),
   dependency('libnm', version: '>= 1.0.0'),
   dependency('upower-glib', version: '>= 0.99.0'),
   dependency('libpulse'),
@@ -250,6 +251,19 @@ vk_proto_h = custom_target(
   input: vk_proto_xml,
   command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@']
 )
+im_proto_xml = 'protocols/input-method-unstable-v2.xml'
+im_proto_c = custom_target(
+  'input-method-unstable-v2-protocol.c',
+  output: 'input-method-unstable-v2-protocol.c',
+  input: im_proto_xml,
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@']
+)
+im_proto_h = custom_target(
+  'input-method-unstable-v2-client-protocol.h',
+  output: 'input-method-unstable-v2-client-protocol.h',
+  input: im_proto_xml,
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@']
+)
 
 libsingularity_dep = dependency('singularity-1.0',
   fallback: ['libsingularity', 'libsingularity_dep']
@@ -384,6 +398,11 @@ singularity_core_sources = files(
     'src/wayland/wayland_integration.vapi',
     'src/wayland/blur_surface.c',
     'src/wayland/vkbd.c',
+    'src/wayland/osk.c',
+    'src/wayland/ime.c',
+    'src/core/input_method_service.vala',
+    'src/core/accent_table.vala',
+    'src/components/osk/on_screen_keyboard.vala',
     'src/wayland/xwl_icon.c',
 )
 
@@ -391,7 +410,7 @@ subdir('src/lockscreen')
 
 executable('singularity-desktop',
   sources: ['src/core/main.vala'] + singularity_core_sources + [
-    wl_proto_c, wl_proto_h, ws_proto_c, ws_proto_h, sp_proto_c, sp_proto_h, pip_proto_c, pip_proto_h, om_proto_c, om_proto_h, st_proto_c, st_proto_h, sg_proto_c, sg_proto_h, gc_proto_c, gc_proto_h, vk_proto_c, vk_proto_h
+    wl_proto_c, wl_proto_h, ws_proto_c, ws_proto_h, sp_proto_c, sp_proto_h, pip_proto_c, pip_proto_h, om_proto_c, om_proto_h, st_proto_c, st_proto_h, sg_proto_c, sg_proto_h, gc_proto_c, gc_proto_h, vk_proto_c, vk_proto_h, im_proto_c, im_proto_h
   ],
   dependencies: dependencies + [libsingularity_dep, system_dep, gee_dep, json_dep, cc.find_library('m'), cc.find_library('crypt'), dependency('xcb')],
   include_directories: [

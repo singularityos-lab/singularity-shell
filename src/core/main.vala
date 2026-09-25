@@ -28,6 +28,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
 
     protected override void startup() {
         base.startup();
+        Singularity.InputMethodService.keep_local_input();
         new GLib.Settings("dev.sinty.desktop").set_boolean("bar-layout-edit-mode", false);
     }
 
@@ -64,6 +65,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     private Singularity.NotificationDisplay? notification_display = null;
     private Singularity.RunDialog? run_dialog = null;
     private Singularity.EmojiPicker? emoji_picker = null;
+    private Singularity.OnScreenKeyboard? screen_keyboard = null;
     private Singularity.SettingsWindow? settings_window = null;
     private Singularity.BarLayoutEditOverlay? bar_layout_edit_overlay = null;
     private Singularity.AppSwitcher? app_switcher = null;
@@ -285,6 +287,9 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         }
         notification_display = new Singularity.NotificationDisplay(this);
         sync_workspace_switch_feedbacks();
+        settings.changed["screen-keyboard-enabled"].connect(sync_screen_keyboard);
+        sync_screen_keyboard();
+        Singularity.InputMethodService.get_default().start();
         Gdk.Display.get_default().get_monitors().items_changed.connect(() => {
             Idle.add(() => {
                 sync_workspace_switch_feedbacks();
@@ -569,6 +574,16 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
 
     public void ensure_goa_calendar() {
         init_goa.begin();
+    }
+
+    private void sync_screen_keyboard() {
+        if (settings.get_boolean("screen-keyboard-enabled")) {
+            if (screen_keyboard == null) screen_keyboard = new Singularity.OnScreenKeyboard(this);
+            screen_keyboard.present();
+        } else if (screen_keyboard != null) {
+            screen_keyboard.destroy();
+            screen_keyboard = null;
+        }
     }
 
     private void ensure_emoji_picker() {
@@ -1421,6 +1436,25 @@ window.inactive.shadow.color: %s
         sidebar.open_page(page);
     }
 
+    public Gee.List<Singularity.SettingsEntry> settings_entries() {
+        ensure_sidebar();
+        if (settings.get_boolean("settings-in-window")) {
+            ensure_settings_window();
+            return settings_window.get_settings_view().settings_entries();
+        }
+        return sidebar.get_settings_view().settings_entries();
+    }
+
+    public void reveal_setting(Singularity.SettingsEntry entry, bool activate) {
+        ensure_sidebar();
+        if (settings.get_boolean("settings-in-window")) {
+            ensure_settings_window();
+            settings_window.reveal_setting(entry, activate);
+            return;
+        }
+        sidebar.reveal_setting(entry, activate);
+    }
+
     public void open_app_details(AppInfo info) {
         if (settings != null && settings.get_boolean("settings-in-window")) {
             ensure_sidebar();
@@ -2043,6 +2077,7 @@ window.inactive.shadow.color: %s
     }
 
     public static int main(string[] args) {
+        Singularity.InputMethodService.prepare_environment();
         // Isolated AT-SPI helper modes: run the scan/activate in a throwaway
         // process so a fatal libatspi abort can never take down the shell.
         if (args.length >= 3 && args[1] == "--atspi-menu") {

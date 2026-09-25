@@ -16,30 +16,12 @@ namespace Singularity {
         private bool folded = false;
         private Singularity.SidebarPages.AppDetailsPage app_details_page;
         private Gee.HashMap<string, Widget> _page_cache;
-        private Gee.ArrayList<SettingsSearchItem> _search_items = new Gee.ArrayList<SettingsSearchItem>();
+        private Gee.ArrayList<SettingsEntry> _search_items = new Gee.ArrayList<SettingsEntry>();
         private GLib.Settings _desktop_settings;
         private Widget? _developer_nav_row = null;
         private Widget _keyboard_nav_row;
         public signal void back_to_system();
 
-        private class SettingsSearchItem : Object {
-            public string page_name;
-            public string page_title;
-            public string icon_name;
-            public string title;
-            public string subtitle;
-            public string group;
-
-            public SettingsSearchItem(string page_name, string page_title, string icon_name,
-                                      string title, string subtitle, string group) {
-                this.page_name = page_name;
-                this.page_title = page_title;
-                this.icon_name = icon_name;
-                this.title = title;
-                this.subtitle = subtitle;
-                this.group = group;
-            }
-        }
 
         public SettingsView(SingularityApp app, bool split_mode = false) {
             Object(orientation: Orientation.VERTICAL, spacing: 0);
@@ -279,6 +261,40 @@ namespace Singularity {
             });
         }
 
+        public Gee.List<SettingsEntry> settings_entries() {
+            ensure_search_index();
+            return _search_items.read_only_view;
+        }
+
+        public void reveal(SettingsEntry entry, bool activate) {
+            navigate_to(entry.page_name);
+            int attempts = 0;
+            Timeout.add(100, () => {
+                var page = _page_cache[entry.page_name] as SettingsPage;
+                Widget? target = entry.widget;
+                if (page == null || target == null) return Source.REMOVE;
+                Graphene.Point point = Graphene.Point() { x = 0, y = 0 };
+                bool placed = target.get_mapped()
+                    && target.compute_point(page.content_box, Graphene.Point() { x = 0, y = 0 }, out point);
+                var adjustment = page.scroller.vadjustment;
+                bool ready = placed && adjustment.page_size > 0 && adjustment.upper >= point.y;
+                if (!ready && ++attempts < 20) return Source.CONTINUE;
+                if (placed) {
+                    adjustment.value = double.min(double.max(point.y - 24, adjustment.lower),
+                        adjustment.upper - adjustment.page_size);
+                }
+                target.add_css_class("settings-highlight");
+                Timeout.add(1600, () => {
+                    target.remove_css_class("settings-highlight");
+                    return Source.REMOVE;
+                });
+                if (activate && target is Singularity.Widgets.ActionRow) {
+                    ((Singularity.Widgets.ActionRow) target).activated();
+                }
+                return Source.REMOVE;
+            });
+        }
+
         private void ensure_search_index() {
             _search_items.clear();
             foreach (string page_name in get_searchable_pages()) {
@@ -305,8 +321,8 @@ namespace Singularity {
                 string group_title = group.title;
                 if (group_title.down() == page.page_title.down()) has_same_title_child = true;
                 if (group_title != "" && group_title.down() != page.page_title.down()) {
-                    _search_items.add(new SettingsSearchItem(page_name, page.page_title, icon_name,
-                        group_title, group.description, ""));
+                    _search_items.add(new SettingsEntry(page_name, page.page_title, icon_name,
+                        group_title, group.description, "", group));
                 }
                 foreach (Widget row_widget in group.get_rows()) {
                     var row = row_widget as Singularity.Widgets.ActionRow;
@@ -314,18 +330,18 @@ namespace Singularity {
                     string row_title = row.title;
                     if (row_title == "") continue;
                     if (row_title.down() == page.page_title.down()) has_same_title_child = true;
-                    _search_items.add(new SettingsSearchItem(page_name, page.page_title, icon_name,
-                        row_title, row.subtitle, group_title));
+                    _search_items.add(new SettingsEntry(page_name, page.page_title, icon_name,
+                        row_title, row.subtitle, group_title, row));
                 }
             }
 
             if (!has_same_title_child) {
-                _search_items.add(new SettingsSearchItem(page_name, page.page_title, icon_name,
+                _search_items.add(new SettingsEntry(page_name, page.page_title, icon_name,
                     page.page_title, "", ""));
             }
         }
 
-        private bool search_matches(SettingsSearchItem item, string query) {
+        private bool search_matches(SettingsEntry item, string query) {
             string haystack = "%s %s %s %s".printf(item.title, item.subtitle, item.group, item.page_title).down();
             return haystack.contains(query);
         }
@@ -367,7 +383,7 @@ namespace Singularity {
             }
         }
 
-        private Widget create_search_result_row(SettingsSearchItem item) {
+        private Widget create_search_result_row(SettingsEntry item) {
             var row = new Box(Orientation.HORIZONTAL, 10);
             row.add_css_class("sidebar-row");
             row.add_css_class("settings-search-result");
@@ -545,4 +561,50 @@ namespace Singularity {
             return row;
         }
     }
+
+    public enum SettingsEntryKind {
+        TOGGLE,
+        LAUNCH,
+        REVEAL
+    }
+
+    public class SettingsEntry : Object {
+        public string page_name;
+        public string page_title;
+        public string icon_name;
+        public string title;
+        public string subtitle;
+        public string group;
+        public weak Widget? widget;
+        public SettingsEntryKind kind;
+
+        public SettingsEntry(string page_name, string page_title, string icon_name,
+                             string title, string subtitle, string group, Widget? widget = null) {
+            this.page_name = page_name;
+            this.page_title = page_title;
+            this.icon_name = icon_name;
+            this.title = title;
+            this.subtitle = subtitle;
+            this.group = group;
+            this.widget = widget;
+            kind = kind_of(widget);
+        }
+
+        private static SettingsEntryKind kind_of(Widget? widget) {
+            if (widget is Singularity.Widgets.SwitchRow) return SettingsEntryKind.TOGGLE;
+            if (widget is Singularity.Widgets.ExpanderRow || widget is Singularity.Widgets.SpinRow
+                    || widget is Singularity.Widgets.EntryRow || !(widget is Singularity.Widgets.ActionRow)) {
+                return SettingsEntryKind.REVEAL;
+            }
+            uint signal_id = Signal.lookup("activated", typeof(Singularity.Widgets.ActionRow));
+            ulong handler = SignalHandler.find(widget, SignalMatchType.ID, signal_id, 0, null, null, null);
+            return handler != 0 ? SettingsEntryKind.LAUNCH : SettingsEntryKind.REVEAL;
+        }
+
+        public Switch? toggle() {
+            var row = widget as Singularity.Widgets.SwitchRow;
+            return row != null ? row.switch_btn : null;
+        }
+    }
 }
+

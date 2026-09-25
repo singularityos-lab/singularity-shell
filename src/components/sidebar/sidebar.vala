@@ -332,6 +332,16 @@ namespace Singularity {
             }
         }
 
+        public SettingsView get_settings_view() {
+            ensure_settings_view();
+            return settings_view;
+        }
+
+        public void reveal_setting(SettingsEntry entry, bool activate) {
+            open_page(entry.page_name);
+            settings_view.reveal(entry, activate);
+        }
+
         private void ensure_settings_view() {
             if (settings_view == null) {
                 settings_view = new SettingsView((SingularityApp)application);

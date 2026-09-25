@@ -73,8 +73,10 @@ namespace Singularity.SidebarPages {
             settings_group = new PreferencesGroup(_("Settings"));
             add_group(settings_group);
             build_settings_ui();
+            build_brightness_ui();
             build_hot_corners_ui();
             build_night_light_ui();
+            build_legacy_apps_ui();
             on_monitors_changed();
             map.connect(() => {
                 var app = GLib.Application.get_default() as Gtk.Application;
@@ -241,7 +243,71 @@ namespace Singularity.SidebarPages {
             update_controls();
         }
 
+        private PreferencesGroup brightness_group;
+        private Scale brightness_scale;
+        private Scale brightness_min_scale;
+        private Scale brightness_max_scale;
+        private DisplayBrightness? shown_brightness = null;
+        private ulong shown_brightness_handler = 0;
+        private bool syncing_brightness = false;
+
+        private void build_brightness_ui() {
+            brightness_group = new PreferencesGroup(_("Brightness"));
+            brightness_scale = brightness_slider(_("Brightness"), _("Current brightness of this display"), 0, 100);
+            brightness_min_scale = brightness_slider(_("Minimum Brightness"), _("The darkest the display gets at 0%"), 0, 99);
+            brightness_max_scale = brightness_slider(_("Maximum Brightness"), _("The brightest the display gets at 100%"), 1, 100);
+            brightness_scale.value_changed.connect(() => {
+                if (!syncing_brightness && shown_brightness != null) shown_brightness.set_level(brightness_scale.get_value());
+            });
+            brightness_min_scale.value_changed.connect(store_brightness_limits);
+            brightness_max_scale.value_changed.connect(store_brightness_limits);
+            add_group(brightness_group);
+            BrightnessManager.get_default().displays_changed.connect(update_brightness_controls);
+        }
+
+        private Scale brightness_slider(string title, string subtitle, double min, double max) {
+            var row = new ActionRow(title, subtitle);
+            row.activatable = false;
+            var scale = new Scale.with_range(Orientation.HORIZONTAL, min, max, 1);
+            scale.width_request = 170;
+            scale.draw_value = true;
+            scale.value_pos = PositionType.RIGHT;
+            scale.set_format_value_func((s, value) => "%.0f%%".printf(value));
+            row.add_suffix(scale);
+            brightness_group.add_row(row);
+            return scale;
+        }
+
+        private void store_brightness_limits() {
+            if (syncing_brightness || shown_brightness == null) return;
+            double min = brightness_min_scale.get_value();
+            double max = double.max(brightness_max_scale.get_value(), min + 1);
+            shown_brightness.set_limits(min, max);
+        }
+
+        private void update_brightness_controls() {
+            if (shown_brightness != null && shown_brightness_handler != 0) {
+                shown_brightness.disconnect(shown_brightness_handler);
+                shown_brightness_handler = 0;
+            }
+            shown_brightness = selected_monitor != null
+                ? BrightnessManager.get_default().for_connector(selected_monitor.name) : null;
+            brightness_group.visible = shown_brightness != null;
+            if (shown_brightness == null) return;
+            sync_brightness_controls();
+            shown_brightness_handler = shown_brightness.changed.connect(sync_brightness_controls);
+        }
+
+        private void sync_brightness_controls() {
+            syncing_brightness = true;
+            brightness_scale.set_value(shown_brightness.percent);
+            brightness_min_scale.set_value(shown_brightness.min_percent);
+            brightness_max_scale.set_value(shown_brightness.max_percent);
+            syncing_brightness = false;
+        }
+
         private void update_controls() {
+            update_brightness_controls();
             if (selected_monitor == null) return;
             SignalHandler.block_matched(enabled_row.switch_btn, SignalMatchType.DATA, 0, 0, null, null, null);
             SignalHandler.block_matched(scale_scale, SignalMatchType.DATA, 0, 0, null, null, null);
@@ -411,6 +477,17 @@ namespace Singularity.SidebarPages {
 
             corners_row.set_child(outer);
             hot_corners_group.add_row(corners_row);
+        }
+
+        private void build_legacy_apps_ui() {
+            var group = new PreferencesGroup(_("Legacy Apps"));
+            add_group(group);
+            var s = new GLib.Settings("dev.sinty.desktop");
+            var row = new SwitchRow(_("Sharp Scaling"),
+                _("Render X11 apps at full resolution on scaled displays. Some apps may look smaller"),
+                s.get_boolean("xwayland-native-scaling"));
+            s.bind("xwayland-native-scaling", row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            group.add_row(row);
         }
 
         private void build_night_light_ui() {

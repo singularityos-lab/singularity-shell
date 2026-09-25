@@ -68,6 +68,12 @@ namespace Singularity {
             if (id == 0) {
                 id = next_id++;
             }
+            var urgency = hints.lookup("urgency");
+            if (urgency != null && urgency.is_of_type(VariantType.BYTE) && urgency.get_byte() == 2) {
+                critical_ids.add(id);
+            } else {
+                critical_ids.remove(id);
+            }
 
             // Per the freedesktop notifications spec, clients (Telegram, Slack,
             // browsers, ...) usually pass per-notification images via hints -
@@ -198,6 +204,13 @@ namespace Singularity {
                 warning("notify: save_image_data_to_tmp failed: %s", e.message);
                 return null;
             }
+        }
+
+        private Gee.HashSet<uint> critical_ids = new Gee.HashSet<uint>();
+
+        /** Whether notification `id` was sent with critical urgency and must stay until dismissed. */
+        public bool is_critical (uint id) {
+            return id in critical_ids;
         }
 
         public void close_notification (uint id) {

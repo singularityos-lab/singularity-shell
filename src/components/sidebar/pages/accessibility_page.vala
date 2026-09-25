@@ -171,6 +171,13 @@ namespace Singularity.SidebarPages {
             var keyboard_group = new PreferencesGroup(_("Keyboard"));
             add_group(keyboard_group);
 
+            var screen_keyboard_row = new SwitchRow(_("Screen Keyboard"),
+                _("Type with an on-screen keyboard with Ctrl, Alt, Super and Shift"));
+            var desktop_settings = new GLib.Settings("dev.sinty.desktop");
+            screen_keyboard_row.active = desktop_settings.get_boolean("screen-keyboard-enabled");
+            desktop_settings.bind("screen-keyboard-enabled", screen_keyboard_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            keyboard_group.add_row(screen_keyboard_row);
+
             // Sticky Keys
             var sticky_keys_row = new SwitchRow(_("Sticky Keys"), _("Hold modifier keys (Shift, Ctrl…) one at a time instead of simultaneously"));
             bind_a11y_keyboard_switch(sticky_keys_row, "stickykeys-enable");

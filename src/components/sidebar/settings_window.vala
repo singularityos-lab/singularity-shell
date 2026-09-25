@@ -31,6 +31,15 @@ namespace Singularity {
             present();
         }
 
+        public SettingsView get_settings_view() {
+            return settings_view;
+        }
+
+        public void reveal_setting(SettingsEntry entry, bool activate) {
+            present();
+            settings_view.reveal(entry, activate);
+        }
+
         public void open_app_details(AppInfo info) {
             settings_view.open_app_details(info);
             present();

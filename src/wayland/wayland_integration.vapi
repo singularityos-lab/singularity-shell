@@ -196,6 +196,32 @@ namespace Singularity {
     [CCode (cname = "singularity_type_text", cheader_filename = "vkbd.h")]
     public void type_text(string text);
 
+    [CCode (cname = "singularity_osk_set_layout", cheader_filename = "osk.h")]
+    public bool osk_set_layout(string layout, string variant);
+    [CCode (cname = "singularity_osk_press", cheader_filename = "osk.h")]
+    public void osk_press(uint evdev_code, uint modifiers);
+    [CCode (cname = "singularity_osk_label", cheader_filename = "osk.h")]
+    public string? osk_label(uint evdev_code, bool shifted);
+
+    [CCode (cname = "SingularityImeKeyFunc", cheader_filename = "ime.h")]
+    public delegate bool ImeKeyFunc(uint key, uint keysym, string text, bool pressed, uint modifiers);
+    [CCode (cname = "SingularityImeStateFunc", cheader_filename = "ime.h")]
+    public delegate void ImeStateFunc(bool active, string surrounding, uint cursor, uint purpose, uint hint);
+    [CCode (cname = "SingularityImePointerFunc", cheader_filename = "ime.h")]
+    public delegate void ImePointerFunc(double x, double y);
+    [CCode (cname = "singularity_ime_start", cheader_filename = "ime.h")]
+    public bool ime_start(ImeKeyFunc key_func, ImeStateFunc state_func, ImePointerFunc pointer_func);
+    [CCode (cname = "singularity_ime_set_grab", cheader_filename = "ime.h")]
+    public void ime_set_grab(bool grab);
+    [CCode (cname = "singularity_ime_forward_key", cheader_filename = "ime.h")]
+    public void ime_forward_key(uint key, bool pressed);
+    [CCode (cname = "singularity_ime_replace", cheader_filename = "ime.h")]
+    public void ime_replace(uint delete_before, uint delete_after, string? text);
+    [CCode (cname = "singularity_ime_popup_show", cheader_filename = "ime.h")]
+    public void ime_popup_show([CCode (array_length = false)] uint8[] pixels, int width, int height, int stride, int scale);
+    [CCode (cname = "singularity_ime_popup_hide", cheader_filename = "ime.h")]
+    public void ime_popup_hide();
+
     [CCode (cname = "singularity_xwayland_icon", cheader_filename = "xwl_icon.h")]
     public Gdk.Texture? xwayland_icon(string? app_id, string? title);
 
