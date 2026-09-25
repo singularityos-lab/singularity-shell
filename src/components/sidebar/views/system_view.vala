@@ -127,7 +127,7 @@ namespace Singularity {
             append(header);
                         var content = new Box(Orientation.VERTICAL, 0);
                         _content = content;
-                        content.margin_bottom = 0;
+                        content.margin_bottom = 8;
                         content.margin_start = 6;
                         content.margin_end = 6;
 
@@ -582,7 +582,7 @@ namespace Singularity {
             }
             content.append(sliders_group);
             var media_player = new MediaPlayerCard();
-            media_player.margin_bottom = 13;
+            media_player.margin_bottom = 10;
             content.append(media_player);
             _inactive_tile_grid.visible = false;
             _quick_settings_preferences.visible = false;
