@@ -101,6 +101,15 @@ namespace Singularity {
         public void start_rotation() {
             if (rotator != null) return;
             rotator = WallpaperRotator.get_default();
+            var display = Gdk.Display.get_default();
+            if (display != null && display.get_monitors().get_n_items() > 0) {
+                var monitor = display.get_monitors().get_item(0) as Gdk.Monitor;
+                if (monitor != null) {
+                    var geometry = monitor.get_geometry();
+                    if (geometry.height > 0)
+                        rotator.target_aspect_ratio = (double) geometry.width / (double) geometry.height;
+                }
+            }
             rotator.current_uri = settings.get_string("background-picture-uri");
             rotator.wallpaper_selected.connect((uri) => {
                 settings.set_string("background-picture-uri", uri);
@@ -110,6 +119,11 @@ namespace Singularity {
                 rotator.current_uri = settings.get_string("background-picture-uri");
             });
             rotator.start();
+        }
+
+        public void rotate_wallpaper_now() {
+            start_rotation();
+            rotator.rotate_async();
         }
 
         public void reload() {

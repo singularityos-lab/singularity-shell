@@ -252,6 +252,16 @@ namespace Singularity {
                 rotation_state.get_rotate_enabled());
             grid_group.add_row(rotate_row);
 
+            var next_wallpaper_row = new PreferencesRow();
+            var next_wallpaper_button = new Button.with_label(_("Next Wallpaper Now"));
+            next_wallpaper_button.margin_start = next_wallpaper_button.margin_end = 10;
+            next_wallpaper_button.margin_top = next_wallpaper_button.margin_bottom = 8;
+            next_wallpaper_button.clicked.connect(() => {
+                WallpaperManager.get_default().rotate_wallpaper_now();
+            });
+            next_wallpaper_row.set_child(next_wallpaper_button);
+            grid_group.add_row(next_wallpaper_row);
+
             // Wallpaper attribution overlay toggle. Background.vala listens
             // for settings.changed["show-wallpaper-attribution"] and hides
             // the overlay live; the gsettings key also gates the live
