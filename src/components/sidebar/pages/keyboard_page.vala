@@ -71,6 +71,28 @@ namespace Singularity {
                 settings.get_boolean("natural-scrolling"));
             settings.bind("natural-scrolling", natural_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
             pointer_group.add_row(natural_row);
+
+            var scroll_speed_row = new ActionRow(_("Touchpad Scroll Speed"),
+                _("How far content moves as your fingers scroll"));
+            scroll_speed_row.activatable = false;
+            var scroll_speed_scale = new Scale.with_range(Orientation.HORIZONTAL, 25, 300, 5);
+            scroll_speed_scale.width_request = 170;
+            scroll_speed_scale.draw_value = true;
+            scroll_speed_scale.value_pos = PositionType.RIGHT;
+            scroll_speed_scale.add_mark(100, PositionType.BOTTOM, null);
+            scroll_speed_scale.set_format_value_func((scale, value) => "%.0f%%".printf(value));
+            scroll_speed_scale.set_value(settings.get_double("touchpad-scroll-speed") * 100);
+            uint scroll_speed_timeout = 0;
+            scroll_speed_scale.value_changed.connect(() => {
+                if (scroll_speed_timeout != 0) Source.remove(scroll_speed_timeout);
+                scroll_speed_timeout = Timeout.add(200, () => {
+                    scroll_speed_timeout = 0;
+                    settings.set_double("touchpad-scroll-speed", scroll_speed_scale.get_value() / 100);
+                    return Source.REMOVE;
+                });
+            });
+            scroll_speed_row.add_suffix(scroll_speed_scale);
+            pointer_group.add_row(scroll_speed_row);
             add_group(pointer_group);
         }
 
