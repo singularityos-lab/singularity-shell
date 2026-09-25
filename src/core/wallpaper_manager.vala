@@ -16,6 +16,8 @@ namespace Singularity {
         private int _load_serial = 0;
         private Mutex _mutex = Mutex ();
         private WallpaperRotator? rotator = null;
+        private WallpaperEffects effects = new WallpaperEffects();
+        private string _cached_effect_signature = "";
 
         // Attribution metadata for the current wallpaper. Mirrors the
         // dev.sinty.desktop gschema keys background-attribution-title
@@ -94,6 +96,12 @@ namespace Singularity {
                     settings.changed["background-attribution-title"].connect(() => schedule_reload());
                 if (schema.has_key("background-attribution-author"))
                     settings.changed["background-attribution-author"].connect(() => schedule_reload());
+                if (schema.has_key("wallpaper-effect"))
+                    settings.changed["wallpaper-effect"].connect(() => schedule_reload());
+                if (schema.has_key("wallpaper-effect-blur-radius"))
+                    settings.changed["wallpaper-effect-blur-radius"].connect(() => schedule_reload());
+                if (schema.has_key("wallpaper-effect-quote-text"))
+                    settings.changed["wallpaper-effect-quote-text"].connect(() => schedule_reload());
             }
             reload();
         }
@@ -147,6 +155,13 @@ namespace Singularity {
 
             string custom_uri = settings.get_string("background-picture-uri");
             string? path = resolve_path(custom_uri);
+            string effect = schema != null && schema.has_key("wallpaper-effect")
+                ? settings.get_string("wallpaper-effect") : "none";
+            int blur_radius = schema != null && schema.has_key("wallpaper-effect-blur-radius")
+                ? settings.get_int("wallpaper-effect-blur-radius") : 8;
+            string quote_text = schema != null && schema.has_key("wallpaper-effect-quote-text")
+                ? settings.get_string("wallpaper-effect-quote-text") : "";
+            string effect_signature = "%s|%d|%s".printf(effect, blur_radius, quote_text);
             if (path == null) {
                 string[] fallbacks = {};
                 foreach (unowned string d in GLib.Environment.get_system_data_dirs()) {
@@ -177,7 +192,7 @@ namespace Singularity {
                 }
             }
             if (path != null) {
-                if (path == _cached_path) {
+                if (path == _cached_path && effect_signature == _cached_effect_signature) {
                     // Wallpaper file unchanged; if only the attribution
                     // metadata moved (URI stays the same but the keys
                     // were updated), the overlay widget still needs to
@@ -188,6 +203,7 @@ namespace Singularity {
                     return;
                 }
                 _cached_path = path;
+                _cached_effect_signature = effect_signature;
                 wallpaper_path = path;
 
                 int serial;
@@ -229,6 +245,12 @@ namespace Singularity {
                     pb_medium = ensure_alpha(pb_medium);
                     pb_small = ensure_alpha(pb_small);
 
+                    string source_key = source_cache_key(load_path);
+                    if (pb_display != null) pb_display = apply_effect(pb_display, source_key,
+                        effect, blur_radius, quote_text);
+                    if (pb_medium != null) pb_medium = apply_effect(pb_medium, source_key,
+                        effect, int.max(1, blur_radius / 4), quote_text, "Sans Bold 18");
+
                     _mutex.lock();
                     bool stale = (serial != _load_serial);
                     _mutex.unlock();
@@ -263,6 +285,27 @@ namespace Singularity {
             } catch (Error e) {
             }
             return null;
+        }
+
+        private static string source_cache_key(string path) {
+            try {
+                var info = File.new_for_path(path).query_info("time::modified,time::modified-usec,standard::size",
+                    FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
+                return "%s|%llu|%u|%llu".printf(path,
+                    info.get_attribute_uint64(FileAttribute.TIME_MODIFIED),
+                    info.get_attribute_uint32(FileAttribute.TIME_MODIFIED_USEC), info.get_size());
+            } catch (Error e) { return path; }
+        }
+
+        private Gdk.Pixbuf apply_effect(Gdk.Pixbuf source, string key, string effect,
+                                         int radius, string quote, string font = "Sans Bold 42") {
+            switch (effect) {
+            case "grayscale": return effects.apply_grayscale(source, key);
+            case "blur": return effects.apply_blur(source, key, radius);
+            case "oil-paint": return effects.apply_oil_paint(source, key, 4);
+            case "quote": return effects.apply_quote_overlay(source, key, quote, font);
+            default: return source;
+            }
         }
 
         public bool top_band_rect(double frac, out int x, out int y, out int w, out int h) {

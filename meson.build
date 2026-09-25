@@ -282,6 +282,7 @@ singularity_core_sources = files(
     'src/core/preview_cache.vala',
     'src/core/extreme_mode_manager.vala',
     'src/core/wallpaper_manager.vala',
+    'src/core/wallpaper_effects.vala',
     'src/core/wallpaper_collections.vala',
     'src/core/wallpaper_gallery.vala',
     'src/core/wallpaper_rotation_state.vala',
@@ -562,6 +563,14 @@ wallpaper_sidecar_test = executable('wallpaper-sidecar-test',
   dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), gee_dep, json_dep],
 )
 test('wallpaper-sidecar', wallpaper_sidecar_test)
+
+wallpaper_effects_test = executable('wallpaper-effects-test',
+  sources: ['src/core/wallpaper_effects.vala', 'tests/wallpaper_effects_test.vala'],
+  dependencies: core_deps + [gee_dep, cc.find_library('m')],
+)
+test('wallpaper-effects', wallpaper_effects_test,
+  depends: wallpaper_test_schema,
+  env: wallpaper_test_env)
 
 settings_safety_test = executable('settings-safety-test',
   sources: ['src/core/settings_safety.vala', 'tests/settings_safety_test.vala'],

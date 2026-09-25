@@ -5,5 +5,20 @@
     <key name="wallpaper-history-forward" type="as"><default>[]</default></key>
     <key name="wallpaper-history-current" type="s"><default>''</default></key>
     <key name="wallpaper-favorites" type="as"><default>[]</default></key>
+    <key name="wallpaper-effect" type="s">
+      <choices>
+        <choice value="none"/>
+        <choice value="grayscale"/>
+        <choice value="blur"/>
+        <choice value="oil-paint"/>
+        <choice value="quote"/>
+      </choices>
+      <default>'none'</default>
+    </key>
+    <key name="wallpaper-effect-blur-radius" type="i">
+      <range min="1" max="64"/>
+      <default>8</default>
+    </key>
+    <key name="wallpaper-effect-quote-text" type="s"><default>''</default></key>
   </schema>
 </schemalist>
