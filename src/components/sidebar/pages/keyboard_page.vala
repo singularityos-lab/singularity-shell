@@ -66,16 +66,43 @@ namespace Singularity {
             settings.bind("mouse-acceleration", accel_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
             pointer_group.add_row(accel_row);
 
+            var two_finger_row = new SwitchRow(_("Two-Finger Scrolling"),
+                _("Scroll with two fingers anywhere on the touchpad"),
+                settings.get_boolean("touchpad-two-finger-scroll"));
+            settings.bind("touchpad-two-finger-scroll", two_finger_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            pointer_group.add_row(two_finger_row);
+
             var natural_row = new SwitchRow(_("Natural Scrolling"),
-                _("Reverse the touchpad scroll direction"),
+                _("Reverse the two-finger scroll direction"),
                 settings.get_boolean("natural-scrolling"));
             settings.bind("natural-scrolling", natural_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            settings.bind("touchpad-two-finger-scroll", natural_row, "visible", SettingsBindFlags.GET);
             pointer_group.add_row(natural_row);
+
+            var edge_row = new SwitchRow(_("Edge Scrolling"),
+                _("Scroll with one finger along the right or bottom edge"),
+                settings.get_boolean("touchpad-edge-scroll"));
+            settings.bind("touchpad-edge-scroll", edge_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            pointer_group.add_row(edge_row);
+
+            var edge_natural_row = new SwitchRow(_("Natural Edge Scrolling"),
+                _("Reverse the edge scroll direction"),
+                settings.get_boolean("touchpad-edge-natural-scroll"));
+            settings.bind("touchpad-edge-natural-scroll", edge_natural_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            settings.bind("touchpad-edge-scroll", edge_natural_row, "visible", SettingsBindFlags.GET);
+            pointer_group.add_row(edge_natural_row);
+
+            var circular_row = new SwitchRow(_("Circular Scrolling"),
+                _("Start on an edge, then keep scrolling by moving in a circle"),
+                settings.get_boolean("touchpad-circular-scroll"));
+            settings.bind("touchpad-circular-scroll", circular_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            settings.bind("touchpad-edge-scroll", circular_row, "visible", SettingsBindFlags.GET);
+            pointer_group.add_row(circular_row);
 
             var scroll_speed_row = new ActionRow(_("Touchpad Scroll Speed"),
                 _("How far content moves as your fingers scroll"));
             scroll_speed_row.activatable = false;
-            var scroll_speed_scale = new Scale.with_range(Orientation.HORIZONTAL, 25, 300, 5);
+            var scroll_speed_scale = new Scale.with_range(Orientation.HORIZONTAL, 25, 175, 5);
             scroll_speed_scale.width_request = 170;
             scroll_speed_scale.draw_value = true;
             scroll_speed_scale.value_pos = PositionType.RIGHT;

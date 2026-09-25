@@ -106,6 +106,12 @@ namespace Singularity {
             settings.changed["touchpad-scroll-speed"].connect(() => {
                 write_labwc_rc_xml();
             });
+            foreach (string key in new string[] {"touchpad-two-finger-scroll", "touchpad-edge-scroll",
+                    "touchpad-edge-natural-scroll", "touchpad-circular-scroll"}) {
+                settings.changed[key].connect(() => {
+                    write_labwc_rc_xml();
+                });
+            }
             Gtk.Settings.get_default().notify["gtk-enable-animations"].connect(() => {
                 write_labwc_rc_xml();
             });
@@ -292,7 +298,7 @@ namespace Singularity {
             bool natural_scroll = settings.get_boolean("natural-scrolling");
             char[] scroll_buf = new char[double.DTOSTR_BUF_SIZE];
             unowned string scroll_speed = settings.get_double("touchpad-scroll-speed")
-                .clamp(0.25, 3.0).format(scroll_buf, "%.2f");
+                .clamp(0.25, 1.75).format(scroll_buf, "%.2f");
             string accel_profile = mouse_accel ? "adaptive" : "flat";
             xml.append("  <libinput>\n");
             xml.append("    <device category=\"default\">\n");
@@ -301,6 +307,15 @@ namespace Singularity {
             xml.append("    <device category=\"touchpad\">\n");
             xml.append_printf("      <accelProfile>%s</accelProfile>\n", accel_profile);
             xml.append_printf("      <naturalScroll>%s</naturalScroll>\n", natural_scroll ? "yes" : "no");
+            bool two_finger_scroll = settings.get_boolean("touchpad-two-finger-scroll");
+            bool edge_scroll = settings.get_boolean("touchpad-edge-scroll");
+            string scroll_method = two_finger_scroll && edge_scroll ? "twofingerAndEdge"
+                : two_finger_scroll ? "twofinger" : edge_scroll ? "edge" : "none";
+            xml.append_printf("      <scrollMethod>%s</scrollMethod>\n", scroll_method);
+            xml.append_printf("      <naturalScrollEdge>%s</naturalScrollEdge>\n",
+                settings.get_boolean("touchpad-edge-natural-scroll") ? "yes" : "no");
+            xml.append_printf("      <circularScroll>%s</circularScroll>\n",
+                edge_scroll && settings.get_boolean("touchpad-circular-scroll") ? "yes" : "no");
             xml.append_printf("      <scrollFactor>%s</scrollFactor>\n", scroll_speed);
             xml.append("    </device>\n");
             xml.append("  </libinput>\n");
