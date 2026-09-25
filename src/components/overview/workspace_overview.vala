@@ -19,14 +19,18 @@ namespace Singularity {
         private bool _gesture_opening = false;
         private AppSystem.Workspace? viewed_workspace = null;
         private int viewed_index = -1;
+        private Gdk.Monitor? pinned_monitor = null;
+
+        public bool closing { get; private set; default = false; }
 
         public signal void shown();
         public signal void hidden();
         public signal void hiding();
 
-        public WorkspaceOverview(Gtk.Application app) {
+        public WorkspaceOverview(Gtk.Application app, Gdk.Monitor? monitor = null) {
             Object(application: app);
             app_system = AppSystem.get_default();
+            pinned_monitor = monitor;
             init_for_window(this);
             set_layer(this, GtkLayerShell.Layer.TOP);
             set_anchor(this, GtkLayerShell.Edge.TOP, true);
@@ -152,7 +156,7 @@ namespace Singularity {
         }
 
         private void cycle_viewed_workspace(int direction) {
-            unowned List<AppSystem.Workspace> workspaces = app_system.get_workspaces();
+            var workspaces = app_system.get_workspaces_for_monitor(target_monitor);
             if (workspaces.length() == 0) return;
 
             int current = (viewed_workspace != null) ? workspaces.index(viewed_workspace) : 0;
@@ -172,7 +176,7 @@ namespace Singularity {
         public void set_viewed_workspace(AppSystem.Workspace ws) {
             if (this.viewed_workspace == ws) return;
 
-            unowned List<AppSystem.Workspace> workspaces = app_system.get_workspaces();
+            var workspaces = app_system.get_workspaces_for_monitor(target_monitor);
             int new_index = workspaces.index(ws);
             var transition = StackTransitionType.CROSSFADE;
 
@@ -275,7 +279,7 @@ namespace Singularity {
                 child = next;
             }
 
-            unowned List<Singularity.AppSystem.Workspace> workspaces = app_system.get_workspaces();
+            var workspaces = app_system.get_workspaces_for_monitor(target_monitor);
             int index = 1;
             AppSystem.Workspace? active_ws = null;
 
@@ -395,6 +399,16 @@ namespace Singularity {
             }
         }
 
+        private Gdk.Monitor? target_monitor = null;
+
+        private void pick_monitor() {
+            closing = false;
+            target_monitor = pinned_monitor;
+            if (target_monitor == null && app_system.workspaces_per_monitor())
+                target_monitor = app_system.get_active_monitor();
+            GtkLayerShell.set_monitor(this, target_monitor);
+        }
+
         public void toggle() {
             if (visible && Singularity.DebugManager.get_default().workspaces_pinned)
                 return; // dev aid: keep workspaces open for screenshots
@@ -415,6 +429,7 @@ namespace Singularity {
                 }
                 anim_box.remove_css_class("animating-in");
                 anim_box.add_css_class("animating-out");
+                closing = true;
                 hiding();
                 _anim_out_timer = GLib.Timeout.add(180, () => {
                     _anim_out_timer = 0;
@@ -427,6 +442,7 @@ namespace Singularity {
                     return GLib.Source.REMOVE;
                 });
             } else {
+                pick_monitor();
                 refresh();
                 if (_anim_out_timer != 0) {
                     GLib.Source.remove(_anim_out_timer);
@@ -474,6 +490,7 @@ namespace Singularity {
             window_stack.opacity = 1;
             window_stack.margin_top = 0;
             if (opening) {
+                pick_monitor();
                 refresh();
                 present();
                 shown();
@@ -496,7 +513,10 @@ namespace Singularity {
             _gesture_active = false;
             bool stay_open = _gesture_opening ? committed : !committed;
             double target = stay_open ? 1.0 : 0.0;
-            if (!stay_open) hiding();
+            if (!stay_open) {
+                closing = true;
+                hiding();
+            }
             double current = window_stack.opacity;
             if (!Gtk.Settings.get_default().gtk_enable_animations
                     || Math.fabs(current - target) < 0.001) {

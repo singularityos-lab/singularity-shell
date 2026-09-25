@@ -37,6 +37,11 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     private Singularity.Overview? overview = null;
     private Singularity.AppMenu? app_menu = null;
     private Singularity.WorkspaceOverview? workspace_overview = null;
+    private Gee.HashMap<Gdk.Monitor, Singularity.WorkspaceOverview> monitor_workspace_overviews =
+        new Gee.HashMap<Gdk.Monitor, Singularity.WorkspaceOverview>();
+    private Gee.ArrayList<Singularity.WorkspaceOverview> gesture_workspace_overviews =
+        new Gee.ArrayList<Singularity.WorkspaceOverview>();
+    private bool workspace_overviews_closing = false;
     private Singularity.Overview? gesture_launcher_overview = null;
     private bool gesture_launcher_menu = false;
     private Singularity.ShellSurfaceProvider? gesture_launcher_claim = null;
@@ -62,7 +67,8 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     private Singularity.SettingsWindow? settings_window = null;
     private Singularity.BarLayoutEditOverlay? bar_layout_edit_overlay = null;
     private Singularity.AppSwitcher? app_switcher = null;
-    private Singularity.WorkspaceSwitchFeedback? workspace_switch_feedback = null;
+    private Gee.HashMap<Gdk.Monitor, Singularity.WorkspaceSwitchFeedback> workspace_switch_feedbacks =
+        new Gee.HashMap<Gdk.Monitor, Singularity.WorkspaceSwitchFeedback>();
     private bool icon_theme_probe_done = false;
     public Singularity.DesktopIcons? desktop_icons = null;
     public Singularity.PreviewManager preview_manager;
@@ -278,7 +284,13 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             activate_shell_surface(Singularity.ShellRole.DOCK);
         }
         notification_display = new Singularity.NotificationDisplay(this);
-        workspace_switch_feedback = new Singularity.WorkspaceSwitchFeedback(this);
+        sync_workspace_switch_feedbacks();
+        Gdk.Display.get_default().get_monitors().items_changed.connect(() => {
+            Idle.add(() => {
+                sync_workspace_switch_feedbacks();
+                return Source.REMOVE;
+            });
+        });
         setup_shell_monitor_listener();
         setup_secondary_surfaces();
         setup_entrance();
@@ -375,9 +387,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             toggle_workspace_overview();
         });
         Singularity.SystemMonitor.get_default().shortcuts.workspace_overview_hide_triggered.connect(() => {
-            if (workspace_overview != null && workspace_overview.visible) {
-                workspace_overview.toggle();
-            }
+            close_workspace_overviews();
         });
         Singularity.SystemMonitor.get_default().shortcuts.run_command_triggered.connect(() => {
             ensure_run_dialog();
@@ -489,7 +499,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
                 _push_ws_pending = false;
                 var descs = new List<Singularity.WorkspaceDescriptor>();
                 int idx = 0;
-                foreach (var ws in app_sys.get_workspaces()) {
+                foreach (var ws in app_sys.get_workspaces_for_monitor(null)) {
                     descs.append(new Singularity.WorkspaceDescriptor(ws.name, ws.active, idx++));
                 }
                 context.update_workspaces(descs);
@@ -500,14 +510,14 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         {
             var descs = new List<Singularity.WorkspaceDescriptor>();
             int idx = 0;
-            foreach (var ws in app_sys.get_workspaces()) {
+            foreach (var ws in app_sys.get_workspaces_for_monitor(null)) {
                 descs.append(new Singularity.WorkspaceDescriptor(ws.name, ws.active, idx++));
             }
             context.update_workspaces(descs);
         }
         context.workspace_switch_requested.connect((index) => {
             int i = 0;
-            foreach (var ws in app_sys.get_workspaces()) {
+            foreach (var ws in app_sys.get_workspaces_for_monitor(null)) {
                 if (i++ == index) {
                     app_sys.activate_workspace(ws);
                     break;
@@ -839,9 +849,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     }
 
     private void toggle_overview_on_panel(Singularity.Panel anchor_panel) {
-        if (workspace_overview != null && workspace_overview.visible) {
-            workspace_overview.toggle();
-        }
+        close_workspace_overviews();
         string mode = settings.get_string("app-launcher-mode");
         if (mode == "menu") {
             if (overview != null && overview.showing) overview.toggle();
@@ -885,9 +893,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
                        ?? surfaces.claimant(Singularity.ShellRole.LAUNCHER);
         if (ov_claim != null) { ov_claim.toggle(); return; }
 
-        if (workspace_overview != null && workspace_overview.visible) {
-            workspace_overview.toggle();
-        }
+        close_workspace_overviews();
 
         // Detect which monitor the focused window is on and open overview there
         if (!secondary_panels.is_empty()) {
@@ -950,27 +956,107 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
                        .claimant(Singularity.ShellRole.WORKSPACES);
         if (ws_claim != null) return false;
         if (workspace_overview == null) {
-            workspace_overview = new Singularity.WorkspaceOverview(this);
-            workspace_overview.shown.connect(() => {
-                set_tiling_layout_hold(workspace_overview, true);
-                if (panel != null) {
-                    panel.set_workspace_overview_active(true);
-                }
-                if (dock != null) dock.set_overview_mode(true);
-                foreach (var p in secondary_panels) p.set_workspace_overview_active(true);
-                foreach (var d in secondary_docks) d.set_overview_mode(true);
-            });
-            workspace_overview.hidden.connect(() => {
-                if (dock != null) dock.set_overview_mode(false);
-                if (panel != null) {
-                    panel.set_workspace_overview_active(false);
-                }
-                foreach (var p in secondary_panels) p.set_workspace_overview_active(false);
-                foreach (var d in secondary_docks) d.set_overview_mode(false);
-                set_tiling_layout_hold(workspace_overview, false);
-            });
+            workspace_overview = create_workspace_overview(null);
         }
         return true;
+    }
+
+    private Singularity.WorkspaceOverview create_workspace_overview(Gdk.Monitor? monitor) {
+        var ws_overview = new Singularity.WorkspaceOverview(this, monitor);
+        ws_overview.shown.connect(() => {
+            set_tiling_layout_hold(ws_overview, true);
+            if (panel != null) {
+                panel.set_workspace_overview_active(true);
+            }
+            if (dock != null) dock.set_overview_mode(true);
+            foreach (var p in secondary_panels) p.set_workspace_overview_active(true);
+            foreach (var d in secondary_docks) d.set_overview_mode(true);
+        });
+        ws_overview.hiding.connect(() => close_workspace_overviews());
+        ws_overview.hidden.connect(() => {
+            set_tiling_layout_hold(ws_overview, false);
+            if (workspace_overviews_visible()) return;
+            if (dock != null) dock.set_overview_mode(false);
+            if (panel != null) {
+                panel.set_workspace_overview_active(false);
+            }
+            foreach (var p in secondary_panels) p.set_workspace_overview_active(false);
+            foreach (var d in secondary_docks) d.set_overview_mode(false);
+        });
+        return ws_overview;
+    }
+
+    private Gee.ArrayList<Singularity.WorkspaceOverview> workspace_overviews_to_open() {
+        var result = new Gee.ArrayList<Singularity.WorkspaceOverview>();
+        var app_system = Singularity.AppSystem.get_default();
+        var display = Gdk.Display.get_default();
+        if (!app_system.workspaces_per_monitor() || display == null) {
+            result.add(workspace_overview);
+            return result;
+        }
+        var stale = new Gee.ArrayList<Gdk.Monitor>();
+        foreach (var monitor in monitor_workspace_overviews.keys) {
+            if (!monitor.is_valid()) stale.add(monitor);
+        }
+        foreach (var monitor in stale) {
+            monitor_workspace_overviews[monitor].destroy();
+            monitor_workspace_overviews.unset(monitor);
+        }
+        var active = app_system.get_active_monitor();
+        var monitors = display.get_monitors();
+        for (uint i = 0; i < monitors.get_n_items(); i++) {
+            var monitor = (Gdk.Monitor)monitors.get_item(i);
+            if (!monitor_workspace_overviews.has_key(monitor)) {
+                monitor_workspace_overviews[monitor] = create_workspace_overview(monitor);
+            }
+            if (monitor != active) result.add(monitor_workspace_overviews[monitor]);
+        }
+        if (active != null && monitor_workspace_overviews.has_key(active)) {
+            result.add(monitor_workspace_overviews[active]);
+        }
+        return result;
+    }
+
+    private Gee.ArrayList<Singularity.WorkspaceOverview> visible_workspace_overviews() {
+        var result = new Gee.ArrayList<Singularity.WorkspaceOverview>();
+        if (workspace_overview != null && workspace_overview.visible) result.add(workspace_overview);
+        foreach (var ws_overview in monitor_workspace_overviews.values) {
+            if (ws_overview.visible) result.add(ws_overview);
+        }
+        return result;
+    }
+
+    private bool workspace_overviews_visible() {
+        return !visible_workspace_overviews().is_empty;
+    }
+
+    private void close_workspace_overviews() {
+        if (workspace_overviews_closing) return;
+        workspace_overviews_closing = true;
+        foreach (var ws_overview in visible_workspace_overviews()) {
+            if (!ws_overview.closing) ws_overview.toggle();
+        }
+        workspace_overviews_closing = false;
+    }
+
+    private void sync_workspace_switch_feedbacks() {
+        var display = Gdk.Display.get_default();
+        if (display == null) return;
+        var stale = new Gee.ArrayList<Gdk.Monitor>();
+        foreach (var monitor in workspace_switch_feedbacks.keys) {
+            if (!monitor.is_valid()) stale.add(monitor);
+        }
+        foreach (var monitor in stale) {
+            workspace_switch_feedbacks[monitor].destroy();
+            workspace_switch_feedbacks.unset(monitor);
+        }
+        var monitors = display.get_monitors();
+        for (uint i = 0; i < monitors.get_n_items(); i++) {
+            var monitor = (Gdk.Monitor)monitors.get_item(i);
+            if (!workspace_switch_feedbacks.has_key(monitor)) {
+                workspace_switch_feedbacks[monitor] = new Singularity.WorkspaceSwitchFeedback(this, monitor);
+            }
+        }
     }
 
     private void toggle_workspace_overview() {
@@ -982,7 +1068,11 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             overview.toggle();
         }
         if (!ensure_workspace_overview()) return;
-        workspace_overview.toggle();
+        if (workspace_overviews_visible()) {
+            close_workspace_overviews();
+            return;
+        }
+        foreach (var ws_overview in workspace_overviews_to_open()) ws_overview.toggle();
     }
 
     private static void on_desktop_gesture(uint32 phase, uint32 fingers,
@@ -1006,8 +1096,9 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             uint32 direction,
             double dx, double dy, bool cancelled, bool committed) {
         if (fingers == 4 && (direction == 1 || direction == 2)) {
-            workspace_switch_feedback?.handle_gesture(phase, direction, dx,
-                cancelled, committed);
+            foreach (var feedback in workspace_switch_feedbacks.values) {
+                feedback.handle_gesture(phase, direction, dx, cancelled, committed);
+            }
             return;
         }
         if (fingers == 3 && (direction == 1 || direction == 2)) {
@@ -1026,8 +1117,10 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             gesture_launcher_menu = false;
             gesture_launcher_overview = null;
 
-            if (workspace_overview != null && workspace_overview.visible) {
-                workspace_overview.begin_gesture(false);
+            gesture_workspace_overviews.clear();
+            if (workspace_overviews_visible()) {
+                gesture_workspace_overviews.add_all(visible_workspace_overviews());
+                foreach (var ws_overview in gesture_workspace_overviews) ws_overview.begin_gesture(false);
                 return;
             }
             if ((app_menu != null && app_menu.visible)
@@ -1042,8 +1135,11 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             }
             if (direction == 4) {
                 if (!ensure_workspace_overview()) return;
-                set_tiling_layout_hold(workspace_overview, true);
-                workspace_overview.begin_gesture(true);
+                gesture_workspace_overviews.add_all(workspace_overviews_to_open());
+                foreach (var ws_overview in gesture_workspace_overviews) {
+                    set_tiling_layout_hold(ws_overview, true);
+                    ws_overview.begin_gesture(true);
+                }
             } else {
                 toggle_overview();
                 gesture_launcher_menu = app_menu != null && app_menu.visible;
@@ -1059,7 +1155,9 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             if (gesture_launcher_menu) app_menu?.update_gesture(dy);
             else if (gesture_launcher_overview != null)
                 gesture_launcher_overview.update_gesture(dy);
-            else workspace_overview?.update_gesture(dy);
+            else {
+                foreach (var ws_overview in gesture_workspace_overviews) ws_overview.update_gesture(dy);
+            }
         } else if (phase == 2) {
             bool commit = !cancelled && committed;
             if (gesture_workspace_claim != null) {
@@ -1069,8 +1167,11 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             } else if (gesture_launcher_overview != null) {
                 gesture_launcher_overview.end_gesture(commit);
             } else {
-                workspace_overview?.end_gesture(commit);
+                workspace_overviews_closing = true;
+                foreach (var ws_overview in gesture_workspace_overviews) ws_overview.end_gesture(commit);
+                workspace_overviews_closing = false;
             }
+            gesture_workspace_overviews.clear();
             gesture_workspace_claim = null;
             gesture_launcher_overview = null;
             gesture_launcher_menu = false;

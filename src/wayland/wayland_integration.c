@@ -90,6 +90,8 @@ static int layout_output_workarea_count;
 static void invalidate_toplevel_tileable(void *handle);
 /* Maps wl_output* (our binding), connector name (heap string, owned) */
 static GHashTable *output_connector_map = NULL;
+static GHashTable *workspace_group_map = NULL;
+static GHashTable *group_outputs_map = NULL;
 /* Optional callback fired when a toplevel changes its output */
 static WindowOutputChangedCallback window_output_changed_cb = NULL;
 static void *window_output_changed_user_data = NULL;
@@ -821,6 +823,9 @@ static void workspace_handle_removed(void *data, struct ext_workspace_handle_v1 
     if (ctx.ws_destroyed_cb) {
         ctx.ws_destroyed_cb(handle, ctx.user_data);
     }
+    if (workspace_group_map) {
+        g_hash_table_remove(workspace_group_map, handle);
+    }
     ext_workspace_handle_v1_destroy(handle);
 }
 static const struct ext_workspace_handle_v1_listener workspace_handle_listener = {
@@ -832,13 +837,44 @@ static const struct ext_workspace_handle_v1_listener workspace_handle_listener =
     .removed = workspace_handle_removed,
 };
 static void workspace_group_capabilities(void *data, struct ext_workspace_group_handle_v1 *group, uint32_t capabilities) {}
-static void workspace_group_output_enter(void *data, struct ext_workspace_group_handle_v1 *group, struct wl_output *output) {}
-static void workspace_group_output_leave(void *data, struct ext_workspace_group_handle_v1 *group, struct wl_output *output) {}
-static void workspace_group_workspace_enter(void *data, struct ext_workspace_group_handle_v1 *group, struct ext_workspace_handle_v1 *workspace) {}
-static void workspace_group_workspace_leave(void *data, struct ext_workspace_group_handle_v1 *group, struct ext_workspace_handle_v1 *workspace) {}
+static GPtrArray *group_outputs(struct ext_workspace_group_handle_v1 *group) {
+    if (!group_outputs_map) {
+        group_outputs_map = g_hash_table_new_full(NULL, NULL, NULL,
+            (GDestroyNotify)g_ptr_array_unref);
+    }
+    GPtrArray *outputs = g_hash_table_lookup(group_outputs_map, group);
+    if (!outputs) {
+        outputs = g_ptr_array_new();
+        g_hash_table_insert(group_outputs_map, group, outputs);
+    }
+    return outputs;
+}
+static void workspace_group_output_enter(void *data, struct ext_workspace_group_handle_v1 *group, struct wl_output *output) {
+    GPtrArray *outputs = group_outputs(group);
+    if (!g_ptr_array_find(outputs, output, NULL)) {
+        g_ptr_array_add(outputs, output);
+    }
+}
+static void workspace_group_output_leave(void *data, struct ext_workspace_group_handle_v1 *group, struct wl_output *output) {
+    g_ptr_array_remove(group_outputs(group), output);
+}
+static void workspace_group_workspace_enter(void *data, struct ext_workspace_group_handle_v1 *group, struct ext_workspace_handle_v1 *workspace) {
+    if (!workspace_group_map) {
+        workspace_group_map = g_hash_table_new(NULL, NULL);
+    }
+    g_hash_table_insert(workspace_group_map, workspace, group);
+}
+static void workspace_group_workspace_leave(void *data, struct ext_workspace_group_handle_v1 *group, struct ext_workspace_handle_v1 *workspace) {
+    if (workspace_group_map && g_hash_table_lookup(workspace_group_map, workspace) == group) {
+        g_hash_table_remove(workspace_group_map, workspace);
+    }
+}
 static void workspace_group_removed(void *data, struct ext_workspace_group_handle_v1 *group) {
     if (ctx.workspace_group == group) {
         ctx.workspace_group = NULL;
+    }
+    if (group_outputs_map) {
+        g_hash_table_remove(group_outputs_map, group);
     }
     ext_workspace_group_handle_v1_destroy(group);
 }
@@ -853,10 +889,8 @@ static const struct ext_workspace_group_handle_v1_listener workspace_group_liste
 static void workspace_manager_workspace_group(void *data, struct ext_workspace_manager_v1 *manager, struct ext_workspace_group_handle_v1 *group) {
     if (!ctx.workspace_group) {
         ctx.workspace_group = group;
-        ext_workspace_group_handle_v1_add_listener(group, &workspace_group_listener, NULL);
-    } else {
-        ext_workspace_group_handle_v1_destroy(group);
     }
+    ext_workspace_group_handle_v1_add_listener(group, &workspace_group_listener, NULL);
 }
 static void workspace_manager_workspace(void *data, struct ext_workspace_manager_v1 *manager, struct ext_workspace_handle_v1 *workspace) {
     ext_workspace_handle_v1_add_listener(workspace, &workspace_handle_listener, NULL);
@@ -1407,6 +1441,19 @@ void singularity_wayland_close_pip(void) {
     zsingularity_pip_manager_v1_close(ctx.pip_manager);
     wl_display_flush(ctx.display);
 }
+const char *singularity_wayland_get_workspace_connector(void *handle) {
+    if (!workspace_group_map || !output_connector_map) return NULL;
+    struct ext_workspace_group_handle_v1 *group = g_hash_table_lookup(workspace_group_map, handle);
+    if (!group || !group_outputs_map) return NULL;
+    GPtrArray *outputs = g_hash_table_lookup(group_outputs_map, group);
+    if (!outputs || outputs->len != 1) return NULL;
+    return g_hash_table_lookup(output_connector_map, g_ptr_array_index(outputs, 0));
+}
+
+void *singularity_wayland_get_workspace_group(void *handle) {
+    return workspace_group_map ? g_hash_table_lookup(workspace_group_map, handle) : NULL;
+}
+
 void singularity_wayland_activate_workspace(void *handle) {
     if (!handle) return;
     struct ext_workspace_handle_v1 *ws = (struct ext_workspace_handle_v1 *)handle;

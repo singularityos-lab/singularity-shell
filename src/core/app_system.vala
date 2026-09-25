@@ -78,10 +78,101 @@ namespace Singularity {
                     foreach (var win in ws.windows) {
                         list.append(win);
                     }
-                    break;
                 }
             }
             return list;
+        }
+
+        public bool workspaces_per_monitor() {
+            foreach (var ws in workspaces) {
+                if (ws.connector != null && Singularity.wayland_get_workspace_group(ws.handle)
+                        != Singularity.wayland_get_workspace_group(workspaces.nth_data(0).handle)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public Gdk.Monitor? get_active_monitor() {
+            if (current_focused_window_handle != null) {
+                var monitor = (Gdk.Monitor?)Singularity.wayland_get_window_monitor(current_focused_window_handle);
+                if (monitor != null) return monitor;
+            }
+            var display = Gdk.Display.get_default();
+            if (display == null || display.get_monitors().get_n_items() == 0) return null;
+            return display.get_monitors().get_item(0) as Gdk.Monitor;
+        }
+
+        public List<Workspace> get_workspaces_for_monitor(Gdk.Monitor? monitor) {
+            var list = new List<Workspace>();
+            bool per_monitor = workspaces_per_monitor();
+            Gdk.Monitor? target = monitor;
+            if (per_monitor && target == null) target = get_active_monitor();
+            string? connector = target != null ? target.get_connector() : null;
+            foreach (var ws in workspaces) {
+                if (!per_monitor || connector == null || ws.connector == connector) {
+                    list.append(ws);
+                }
+            }
+            return list;
+        }
+
+        public Workspace? get_active_workspace_on(Gdk.Monitor? monitor) {
+            foreach (var ws in get_workspaces_for_monitor(monitor)) {
+                if (ws.active) return ws;
+            }
+            return null;
+        }
+
+        private int index_in_group(Workspace target) {
+            int idx = 0;
+            var group = Singularity.wayland_get_workspace_group(target.handle);
+            foreach (var ws in workspaces) {
+                if (ws == target) return idx;
+                if (Singularity.wayland_get_workspace_group(ws.handle) == group) idx++;
+            }
+            return -1;
+        }
+
+        private Workspace? workspace_of(Window win) {
+            foreach (var ws in workspaces) {
+                if (ws.windows.find(win) != null) return ws;
+            }
+            return null;
+        }
+
+        private void follow_window_monitor(void* handle) {
+            if (!workspaces_per_monitor()) return;
+            var win = get_window_by_handle(handle);
+            if (win == null) return;
+            var monitor = (Gdk.Monitor?)Singularity.wayland_get_window_monitor(handle);
+            if (monitor == null) return;
+            var current = workspace_of(win);
+            if (current != null && current.connector == monitor.get_connector()) return;
+            var target = get_active_workspace_on(monitor);
+            if (target != null) place_window(win, target);
+        }
+
+        private void adopt_orphan_windows() {
+            if (orphan_windows.length() == 0 || workspaces.length() == 0) return;
+            var pending = (owned)orphan_windows;
+            orphan_windows = new List<Window>();
+            foreach (var win in pending) {
+                if (windows.find(win) == null) continue;
+                int index = win.get_data<int>("workspace-index");
+                var monitor = (Gdk.Monitor?)Singularity.wayland_get_window_monitor(win.handle);
+                var candidates = get_workspaces_for_monitor(monitor);
+                var target = candidates.nth_data(index) ?? get_active_workspace_on(monitor);
+                if (target != null) target.windows.append(win);
+            }
+        }
+
+        private void place_window(Window win, Workspace ws) {
+            var current = workspace_of(win);
+            if (current == ws) return;
+            if (current != null) current.windows.remove(win);
+            ws.windows.append(win);
+            schedule_workspaces_changed();
         }
 
         public string? get_focused_app_id() {
@@ -97,6 +188,10 @@ namespace Singularity {
             public string name;
             public bool active;
             public List<Window> windows;
+
+            public string? connector {
+                get { return Singularity.wayland_get_workspace_connector(handle); }
+            }
 
             public Workspace(void* handle, string name) {
                 this.handle = handle;
@@ -133,6 +228,7 @@ namespace Singularity {
 
         private List<Workspace> workspaces;
         private List<Window> windows;
+        private List<Window> orphan_windows = new List<Window>();
         private List<Window> mru_windows; // Most Recently Used order
         private bool _ws_changed_pending = false;
         private bool _running_changed_pending = false;
@@ -218,6 +314,7 @@ namespace Singularity {
             _ws_changed_pending = true;
             Idle.add(() => {
                 _ws_changed_pending = false;
+                adopt_orphan_windows();
                 workspaces_changed();
                 return Source.REMOVE;
             });
@@ -401,6 +498,11 @@ namespace Singularity {
                 }
             }
             if (found != null) {
+                int index = self.index_in_group(found);
+                foreach (var win in found.windows) {
+                    win.set_data<int>("workspace-index", int.max(index, 0));
+                    self.orphan_windows.append(win);
+                }
                 self.workspaces.remove(found);
                 self.schedule_workspaces_changed();
             }
@@ -412,8 +514,6 @@ namespace Singularity {
             foreach (var ws in self.workspaces) {
                 if (ws.handle == handle) {
                     ws.active = is_active;
-                } else if (is_active) {
-                    ws.active = false;
                 }
             }
             self.schedule_workspaces_changed();
@@ -429,25 +529,11 @@ namespace Singularity {
 
         public void move_window_to_workspace_by_index(Window? win, int workspace_index) {
             if (win == null) return;
-            Workspace? target_ws = null;
-            int current_idx = 0;
-            foreach (var ws in workspaces) {
-                if (current_idx == workspace_index) {
-                    target_ws = ws;
-                    break;
-                }
-                current_idx++;
-            }
+            var monitor = (Gdk.Monitor?)Singularity.wayland_get_window_monitor(win.handle);
+            var target_ws = get_workspaces_for_monitor(monitor).nth_data(workspace_index);
             if (target_ws != null) {
                 Singularity.wayland_move_to_workspace(win.handle, (uint32)workspace_index);
-                foreach (var ws in workspaces) {
-                    if (ws.windows.find(win) != null) {
-                        ws.windows.remove(win);
-                        break;
-                    }
-                }
-                target_ws.windows.append(win);
-                schedule_workspaces_changed();
+                place_window(win, target_ws);
             }
         }
 
@@ -464,6 +550,7 @@ namespace Singularity {
         private static void on_window_output_changed(void* handle, void* data) {
             var self = (AppSystem)data;
             Idle.add(() => {
+                self.follow_window_monitor(handle);
                 self.window_output_changed(handle);
                 self.running_apps_changed();
                 return Source.REMOVE;
@@ -477,25 +564,39 @@ namespace Singularity {
 
         public void move_window_to_workspace(Window? win, Workspace ws) {
             if (win == null) return;
-            int target_index = -1;
-            int idx = 0;
-            foreach (var w in workspaces) {
-                if (w == ws) {
-                    target_index = idx;
-                    break;
-                }
-                idx++;
-            }
+            int target_index = index_in_group(ws);
             if (target_index < 0) return;
+            move_window_to_connector(win, ws.connector);
             Singularity.wayland_move_to_workspace(win.handle, (uint32)target_index);
-            foreach (var w in workspaces) {
-                if (w.windows.find(win) != null) {
-                    w.windows.remove(win);
-                    break;
-                }
+            place_window(win, ws);
+        }
+
+        private void move_window_to_connector(Window win, string? connector) {
+            if (connector == null || !workspaces_per_monitor()) return;
+            int x, y, w, h, maximized, fullscreen;
+            string? current;
+            if (!Singularity.wayland_get_window_geometry(win.handle, out x, out y, out w, out h,
+                    out maximized, out fullscreen, out current)) return;
+            if (current == connector || maximized != 0 || fullscreen != 0) return;
+            var from = monitor_for_connector(current);
+            var to = monitor_for_connector(connector);
+            if (from == null || to == null) return;
+            var src = from.get_geometry();
+            var dst = to.get_geometry();
+            int nx = (dst.x + x - src.x).clamp(dst.x, int.max(dst.x, dst.x + dst.width - w));
+            int ny = (dst.y + y - src.y).clamp(dst.y, int.max(dst.y, dst.y + dst.height - h));
+            Singularity.wayland_set_geometry(win.handle, nx, ny, w, h);
+        }
+
+        private Gdk.Monitor? monitor_for_connector(string? connector) {
+            var display = Gdk.Display.get_default();
+            if (connector == null || display == null) return null;
+            var monitors = display.get_monitors();
+            for (uint i = 0; i < monitors.get_n_items(); i++) {
+                var monitor = (Gdk.Monitor)monitors.get_item(i);
+                if (monitor.get_connector() == connector) return monitor;
             }
-            ws.windows.append(win);
-            schedule_workspaces_changed();
+            return null;
         }
 
         public Window? get_window_by_handle(void* handle) {
@@ -1193,10 +1294,8 @@ namespace Singularity {
             if (app_info != null) win.gicon = app_info.get_icon();
             windows.append(win);
             app_opened(handle, app_id);
-            Workspace? target_ws = null;
-            foreach (var ws in workspaces) {
-                if (ws.active) { target_ws = ws; break; }
-            }
+            var window_monitor = (Gdk.Monitor?)Singularity.wayland_get_window_monitor(handle);
+            Workspace? target_ws = get_active_workspace_on(window_monitor);
             if (workspaces.length() == 0) {
                 target_ws = new Workspace(null, "1");
                 target_ws.active = true;
@@ -1358,7 +1457,7 @@ namespace Singularity {
                 if (dynamic_workspaces) {
                     if (workspaces.length() == 0) create_workspace("1");
                 } else {
-                    int current = (int)workspaces.length();
+                    int current = (int)get_workspaces_for_monitor(null).length();
                     if (current < workspace_count) {
                         for (int i = current; i < workspace_count; i++) create_workspace("%d".printf(i + 1));
                     }

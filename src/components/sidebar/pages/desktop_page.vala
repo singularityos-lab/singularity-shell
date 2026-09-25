@@ -1216,6 +1216,11 @@ namespace Singularity {
             });
             settings.bind("dynamic-workspaces", count_row, "visible", SettingsBindFlags.INVERT_BOOLEAN);
             ws_group.add_row(count_row);
+            var per_monitor_row = new SwitchRow(_("Workspaces per Display"),
+                _("Each display switches its own workspaces"),
+                settings.get_boolean("workspaces-per-monitor"));
+            settings.bind("workspaces-per-monitor", per_monitor_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            ws_group.add_row(per_monitor_row);
             add_group(ws_group);
             var dock_group = new PreferencesGroup(_("Dock"));
             var enabled_row = new SwitchRow(_("Enable Dock"), _("Show the dock"), settings.get_boolean("dock-enabled"));

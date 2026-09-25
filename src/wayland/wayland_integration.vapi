@@ -46,6 +46,12 @@ namespace Singularity {
     [CCode (cname = "singularity_wayland_activate_workspace", cheader_filename = "wayland_integration.h")]
     public void wayland_activate_workspace(void* handle);
 
+    [CCode (cname = "singularity_wayland_get_workspace_connector", cheader_filename = "wayland_integration.h")]
+    public unowned string? wayland_get_workspace_connector(void* handle);
+
+    [CCode (cname = "singularity_wayland_get_workspace_group", cheader_filename = "wayland_integration.h")]
+    public void* wayland_get_workspace_group(void* handle);
+
     [CCode (cname = "singularity_wayland_assign_toplevel", cheader_filename = "wayland_integration.h")]
     public void wayland_assign_toplevel(void* workspace_handle, void* toplevel_handle);
     

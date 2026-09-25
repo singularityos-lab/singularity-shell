@@ -106,6 +106,9 @@ namespace Singularity {
             settings.changed["touchpad-scroll-speed"].connect(() => {
                 write_labwc_rc_xml();
             });
+            settings.changed["workspaces-per-monitor"].connect(() => {
+                write_labwc_rc_xml();
+            });
             foreach (string key in new string[] {"touchpad-two-finger-scroll", "touchpad-edge-scroll",
                     "touchpad-edge-natural-scroll", "touchpad-circular-scroll"}) {
                 settings.changed[key].connect(() => {
@@ -271,6 +274,8 @@ namespace Singularity {
             xml.append("<?xml version=\"1.0\"?>\n<labwc_config>\n");
             xml.append("  <desktops number=\"4\">\n");
             xml.append("    <popupTime>0</popupTime>\n");
+            xml.append_printf("    <perOutput>%s</perOutput>\n",
+                settings.get_boolean("workspaces-per-monitor") ? "yes" : "no");
             xml.append("  </desktops>\n");
 
             // Theme (dark/light) + titlebar layout (must be inside <theme>)
@@ -344,7 +349,7 @@ namespace Singularity {
                 xml.append_printf("    <keybind key=\"C-A-%d\"><action name=\"GoToDesktop\" to=\"%d\" /></keybind>\n", i, i);
             }
             for (int i = 1; i <= 4; i++) {
-                xml.append_printf("    <keybind key=\"C-A-S-%d\"><action name=\"SendToDesktop\" to=\"%d\" /></keybind>\n", i, i);
+                xml.append_printf("    <keybind key=\"C-A-S-%d\"><action name=\"Execute\"><command>%s send_to_workspace_%d</command></action></keybind>\n", i, dbus_shorts, i);
             }
             // Close the focused window (Alt-F4)
             xml.append("    <keybind key=\"A-F4\"><action name=\"Close\" /></keybind>\n");
@@ -372,12 +377,45 @@ namespace Singularity {
             xml.append("  </keyboard>\n</labwc_config>\n");
 
             var labwc = Singularity.Compositor.LabwcBackend.get_default();
-            if (labwc.write_config("rc.xml", xml.str)) {
+            bool menu_changed = labwc.write_config("menu.xml", build_labwc_menu_xml(dbus_shorts));
+            if (labwc.write_config("rc.xml", xml.str) || menu_changed) {
                 message("ShortcutManager: wrote rc.xml, reloading labwc");
                 labwc.reconfigure();
             } else {
                 message("ShortcutManager: rc.xml unchanged, skipping reload");
             }
+        }
+
+        private string build_labwc_menu_xml(string dbus_shorts) {
+            var menu = new StringBuilder();
+            menu.append("<?xml version=\"1.0\"?>\n<openbox_menu>\n");
+            menu.append("  <menu id=\"client-menu\">\n");
+            string[,] items = {
+                { _("Minimize"), "Iconify" },
+                { _("Maximize"), "ToggleMaximize" },
+                { _("Fullscreen"), "ToggleFullscreen" },
+                { _("Roll Up/Down"), "ToggleShade" },
+                { _("Decorations"), "ToggleDecorations" },
+                { _("Always on Top"), "ToggleAlwaysOnTop" }
+            };
+            for (int i = 0; i < items.length[0]; i++) {
+                menu.append_printf("    <item label=\"%s\"><action name=\"%s\" /></item>\n",
+                    Markup.escape_text(items[i, 0]), items[i, 1]);
+            }
+            menu.append_printf("    <menu id=\"client-workspace-menu\" label=\"%s\">\n",
+                Markup.escape_text(_("Workspace")));
+            for (int i = 1; i <= 4; i++) {
+                menu.append_printf("      <item label=\"%d\"><action name=\"Execute\"><command>%s send_to_workspace_%d</command></action></item>\n",
+                    i, Markup.escape_text(dbus_shorts), i);
+            }
+            menu.append("      <separator />\n");
+            menu.append_printf("      <item label=\"%s\"><action name=\"ToggleOmnipresent\" /></item>\n",
+                Markup.escape_text(_("Always on Visible Workspace")));
+            menu.append("    </menu>\n");
+            menu.append_printf("    <item label=\"%s\"><action name=\"Close\" /></item>\n",
+                Markup.escape_text(_("Close")));
+            menu.append("  </menu>\n</openbox_menu>\n");
+            return menu.str;
         }
 
         // Translate GNOME button-layout to labwc format.
@@ -580,11 +618,28 @@ namespace Singularity {
                     case "snap_right": snap_focused(TilingLayout.SNAP_RIGHT); break;
                     case "snap_up":    snap_focused(TilingLayout.SNAP_TOP); break;
                     case "snap_down":  snap_focused(TilingLayout.SNAP_BOTTOM); break;
+                    case "send_to_workspace_1": send_focused_to_workspace(0); break;
+                    case "send_to_workspace_2": send_focused_to_workspace(1); break;
+                    case "send_to_workspace_3": send_focused_to_workspace(2); break;
+                    case "send_to_workspace_4": send_focused_to_workspace(3); break;
                     default: warning("Unknown action: %s", action_name); break;
                 }
             } catch (Error e) {
                 warning("Failed to execute action %s: %s", action_name, e.message);
             }
+        }
+
+        private void send_focused_to_workspace(int index) {
+            var app_system = AppSystem.get_default();
+            void* handle = app_system.get_focused_window_handle();
+            var win = handle != null ? app_system.get_window_by_handle(handle) : null;
+            if (win == null) return;
+            var monitor = (Gdk.Monitor?)Singularity.wayland_get_window_monitor(handle);
+            var target = app_system.get_workspaces_for_monitor(monitor).nth_data(index);
+            if (target == null) return;
+            app_system.move_window_to_workspace(win, target);
+            app_system.activate_workspace(target);
+            Singularity.wayland_activate_window(handle);
         }
 
         private void* _last_snap_handle = null;

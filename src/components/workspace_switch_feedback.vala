@@ -19,11 +19,13 @@ namespace Singularity {
         private bool gesture_active = false;
         private uint hide_timeout_id = 0;
         private ulong workspaces_changed_id = 0;
+        private Gdk.Monitor monitor;
         private Singularity.Animation.TimedAnimation? animation;
 
-        public WorkspaceSwitchFeedback(Gtk.Application app) {
+        public WorkspaceSwitchFeedback(Gtk.Application app, Gdk.Monitor monitor) {
             Object(application: app);
             app_system = AppSystem.get_default();
+            this.monitor = monitor;
 
             GtkLayerShell.init_for_window(this);
             GtkLayerShell.set_namespace(this, "singularity-workspace-switch");
@@ -31,8 +33,7 @@ namespace Singularity {
             GtkLayerShell.set_exclusive_zone(this, -1);
             GtkLayerShell.set_keyboard_mode(this,
                 GtkLayerShell.KeyboardMode.NONE);
-            var monitor = Panel.find_primary_monitor();
-            if (monitor != null) GtkLayerShell.set_monitor(this, monitor);
+            GtkLayerShell.set_monitor(this, monitor);
 
             add_css_class("singularity");
             add_css_class("workspace-switch-feedback-window");
@@ -74,6 +75,8 @@ namespace Singularity {
         }
 
         private void begin_gesture(uint32 direction) {
+            if (app_system.workspaces_per_monitor()
+                    && app_system.get_active_monitor() != monitor) return;
             sync_workspace_state(false);
             if (markers.size < 2 || active_index < 0) return;
             cancel_hide();
@@ -108,7 +111,7 @@ namespace Singularity {
         private void sync_workspace_state(bool animate_change) {
             int count = 0;
             int next_active = -1;
-            foreach (var workspace in app_system.get_workspaces()) {
+            foreach (var workspace in app_system.get_workspaces_for_monitor(monitor)) {
                 if (workspace.active) next_active = count;
                 count++;
             }
@@ -191,8 +194,6 @@ namespace Singularity {
         }
 
         private void show_feedback() {
-            var monitor = Panel.find_primary_monitor();
-            if (monitor != null) GtkLayerShell.set_monitor(this, monitor);
             card.remove_css_class("closing");
             card.add_css_class("opening");
             present();

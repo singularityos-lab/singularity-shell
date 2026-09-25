@@ -51,6 +51,8 @@ int singularity_wayland_show_window_pip(void* handle);
 int singularity_wayland_show_region_pip(int x, int y, int width, int height);
 void singularity_wayland_close_pip(void);
 void singularity_wayland_activate_workspace(void* handle);
+const char* singularity_wayland_get_workspace_connector(void* handle);
+void* singularity_wayland_get_workspace_group(void* handle);
 void singularity_wayland_assign_toplevel(void* workspace_handle, void* toplevel_handle);
 void singularity_wayland_create_workspace(const char* name);
 void singularity_wayland_remove_workspace(void* handle);
