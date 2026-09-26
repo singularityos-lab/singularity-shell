@@ -296,11 +296,14 @@ singularity_core_sources = files(
     'src/core/preview_cache.vala',
     'src/core/extreme_mode_manager.vala',
     'src/core/wallpaper_manager.vala',
+    'src/core/wallpaper_effects.vala',
     'src/core/wallpaper_collections.vala',
     'src/core/wallpaper_gallery.vala',
     'src/core/wallpaper_rotation_state.vala',
     'src/core/wallpaper_rotator.vala',
     'src/core/artist_pack_manager.vala',
+    'src/core/wallpaper_history.vala',
+    'src/core/wallpaper_favorites.vala',
     'src/core/wallpaper_sidecar.vala',
     'src/core/wallpaper_browse_cache.vala',
     'src/core/wallpaper_thumbnail_cache.vala',
@@ -528,6 +531,33 @@ wallpaper_rotation_state_test = executable('wallpaper-rotation-state-test',
 )
 test('wallpaper-rotation-state', wallpaper_rotation_state_test)
 
+glib_compile_schemas = find_program('glib-compile-schemas')
+wallpaper_test_schema = custom_target('wallpaper-test-schema',
+  input: 'tests/dev.sinty.desktop.gschema.xml',
+  output: 'gschemas.compiled',
+  command: [glib_compile_schemas, '--strict', '--targetdir', meson.current_build_dir(),
+            join_paths(meson.current_source_dir(), 'tests')],
+  build_by_default: true,
+)
+wallpaper_test_env = environment()
+wallpaper_test_env.set('GSETTINGS_SCHEMA_DIR', meson.current_build_dir())
+
+wallpaper_history_test = executable('wallpaper-history-test',
+  sources: ['src/core/wallpaper_history.vala', 'tests/wallpaper_history_test.vala'],
+  dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), dependency('gio-unix-2.0'), gee_dep],
+)
+test('wallpaper-history', wallpaper_history_test,
+  depends: wallpaper_test_schema,
+  env: wallpaper_test_env)
+
+wallpaper_favorites_test = executable('wallpaper-favorites-test',
+  sources: ['src/core/wallpaper_favorites.vala', 'tests/wallpaper_favorites_test.vala'],
+  dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), dependency('gio-unix-2.0'), gee_dep],
+)
+test('wallpaper-favorites', wallpaper_favorites_test,
+  depends: wallpaper_test_schema,
+  env: wallpaper_test_env)
+
 wallpaper_gallery_test = executable('wallpaper-gallery-test',
   sources: ['src/core/wallpaper_gallery.vala', 'tests/wallpaper_gallery_test.vala'],
   dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), gee_dep],
@@ -552,6 +582,14 @@ wallpaper_sidecar_test = executable('wallpaper-sidecar-test',
   dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), gee_dep, json_dep],
 )
 test('wallpaper-sidecar', wallpaper_sidecar_test)
+
+wallpaper_effects_test = executable('wallpaper-effects-test',
+  sources: ['src/core/wallpaper_effects.vala', 'tests/wallpaper_effects_test.vala'],
+  dependencies: core_deps + [gee_dep, cc.find_library('m')],
+)
+test('wallpaper-effects', wallpaper_effects_test,
+  depends: wallpaper_test_schema,
+  env: wallpaper_test_env)
 
 settings_safety_test = executable('settings-safety-test',
   sources: ['src/core/settings_safety.vala', 'tests/settings_safety_test.vala'],
