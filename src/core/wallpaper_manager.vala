@@ -31,6 +31,8 @@ namespace Singularity {
         public string attribution_author { get; private set; default = ""; }
 
         public signal void wallpaper_changed();
+        // Emitted only after a different image becomes the displayed wallpaper.
+        public signal void wallpaper_path_changed(string new_path);
 
         public static WallpaperManager get_default() {
             if (_instance == null) {
@@ -243,6 +245,7 @@ namespace Singularity {
                         if (pb_small != null) preview_texture = Texture.for_pixbuf(pb_small);
                         message("Wallpaper loaded: %s", load_path);
                         wallpaper_changed();
+                        wallpaper_path_changed(load_path);
                         return false;
                     });
                 });

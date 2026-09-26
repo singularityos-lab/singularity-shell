@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="dev.sinty.desktop" path="/dev/sinty/desktop/">
+    <key name="wallpaper-history-back" type="as"><default>[]</default></key>
+    <key name="wallpaper-history-forward" type="as"><default>[]</default></key>
+    <key name="wallpaper-history-current" type="s"><default>''</default></key>
+    <key name="wallpaper-favorites" type="as"><default>[]</default></key>
+  </schema>
+</schemalist>
