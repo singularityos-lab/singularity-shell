@@ -266,6 +266,65 @@ namespace Singularity {
                 settings.set_boolean("show-wallpaper-attribution", attribution_row.switch_btn.active);
             });
 
+            var attribution_position_options = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
+            attribution_position_options.add(new Singularity.Core.AppSettingOption() { id = "top-left", label = _("Top Left") });
+            attribution_position_options.add(new Singularity.Core.AppSettingOption() { id = "top-right", label = _("Top Right") });
+            attribution_position_options.add(new Singularity.Core.AppSettingOption() { id = "bottom-left", label = _("Bottom Left") });
+            attribution_position_options.add(new Singularity.Core.AppSettingOption() { id = "bottom-right", label = _("Bottom Right") });
+            string attribution_position = settings.get_string("wallpaper-attribution-position");
+            bool valid_position = false;
+            foreach (var opt in attribution_position_options) {
+                if (opt.id == attribution_position) { valid_position = true; break; }
+            }
+            if (!valid_position) attribution_position = "bottom-left";
+            var attribution_position_row = new SelectionRow.with_options(
+                _("Wallpaper Info Position"), attribution_position_options, attribution_position);
+            settings.bind("show-wallpaper-attribution", attribution_position_row,
+                "sensitive", SettingsBindFlags.GET);
+            attribution_position_row.selected.connect((id) => {
+                settings.set_string("wallpaper-attribution-position", id);
+            });
+            grid_group.add_row(attribution_position_row);
+
+            var wallpaper_effect_options = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
+            wallpaper_effect_options.add(new Singularity.Core.AppSettingOption() { id = "none", label = _("None") });
+            wallpaper_effect_options.add(new Singularity.Core.AppSettingOption() { id = "grayscale", label = _("Grayscale") });
+            wallpaper_effect_options.add(new Singularity.Core.AppSettingOption() { id = "blur", label = _("Blur") });
+            wallpaper_effect_options.add(new Singularity.Core.AppSettingOption() { id = "oil-paint", label = _("Oil Painting") });
+            wallpaper_effect_options.add(new Singularity.Core.AppSettingOption() { id = "quote", label = _("Quote Overlay") });
+            string current_effect = settings.get_string("wallpaper-effect");
+            var wallpaper_effect_row = new SelectionRow.with_options(
+                _("Wallpaper Effect"), wallpaper_effect_options, current_effect);
+            grid_group.add_row(wallpaper_effect_row);
+
+            var blur_options = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
+            blur_options.add(new Singularity.Core.AppSettingOption() { id = "4", label = _("Light") });
+            blur_options.add(new Singularity.Core.AppSettingOption() { id = "8", label = _("Medium") });
+            blur_options.add(new Singularity.Core.AppSettingOption() { id = "16", label = _("Strong") });
+            string current_radius = settings.get_int("wallpaper-effect-blur-radius").to_string();
+            var blur_row = new SelectionRow.with_options(_("Blur Strength"), blur_options, current_radius);
+            blur_row.visible = current_effect == "blur";
+            blur_row.selected.connect((id) => {
+                int radius;
+                if (int.try_parse(id, out radius))
+                    settings.set_int("wallpaper-effect-blur-radius", radius);
+            });
+            grid_group.add_row(blur_row);
+
+            var quote_row = new EntryRow(_("Quote Text"));
+            quote_row.text = settings.get_string("wallpaper-effect-quote-text");
+            quote_row.visible = current_effect == "quote";
+            quote_row.entry_changed.connect(() => {
+                settings.set_string("wallpaper-effect-quote-text", quote_row.text);
+            });
+            grid_group.add_row(quote_row);
+
+            wallpaper_effect_row.selected.connect((id) => {
+                settings.set_string("wallpaper-effect", id);
+                blur_row.visible = id == "blur";
+                quote_row.visible = id == "quote";
+            });
+
             var interval_options = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
             interval_options.add(new Singularity.Core.AppSettingOption() { id = "600", label = _("Every 10 minutes") });
             interval_options.add(new Singularity.Core.AppSettingOption() { id = "1800", label = _("Every 30 minutes") });
