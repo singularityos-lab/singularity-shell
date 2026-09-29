@@ -5,10 +5,14 @@ namespace Singularity {
     internal class WallpaperCandidate : Object {
         public string uri { get; private set; }
         public bool is_recent { get; private set; }
+        public int width { get; private set; }
+        public int height { get; private set; }
 
-        public WallpaperCandidate(string uri, bool is_recent) {
+        public WallpaperCandidate(string uri, bool is_recent, int width = 0, int height = 0) {
             this.uri = uri;
             this.is_recent = is_recent;
+            this.width = width;
+            this.height = height;
         }
     }
 
@@ -95,7 +99,10 @@ namespace Singularity {
                     string uri = child.get_uri();
                     if (thread_seen.contains(uri)) continue;
                     thread_seen.add(uri);
-                    candidates.add(new WallpaperCandidate(uri, false));
+                    int width = 0;
+                    int height = 0;
+                    Gdk.Pixbuf.get_file_info(child.get_path(), out width, out height);
+                    candidates.add(new WallpaperCandidate(uri, false, width, height));
                 }
             } catch (Error e) {
             }

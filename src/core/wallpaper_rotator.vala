@@ -6,6 +6,8 @@ namespace Singularity {
     // Selects rotation timing and images; WallpaperManager applies the signal.
     public class WallpaperRotator : Object {
         private static WallpaperRotator? _instance = null;
+        private const int FAVORITE_WEIGHT = 3;
+        private const double ASPECT_TOLERANCE = 0.15;
 
         public signal void wallpaper_selected(string uri);
 
@@ -19,12 +21,21 @@ namespace Singularity {
         private uint tick_id = 0;
         private uint restart_id = 0;
         private FileMonitor? state_monitor = null;
+        private GLib.Settings? selection_settings = null;
+        private WallpaperFavorites? favorites = null;
+        private int test_min_width = 1280;
+        private int test_min_height = 720;
+        private bool test_match_aspect = false;
+        private bool test_favor_favorites = true;
+        public double target_aspect_ratio { get; set; default = 0.0; }
 
         public static WallpaperRotator get_default() {
             if (_instance == null) {
                 _instance = new WallpaperRotator(
                     WallpaperRotationState.default_config_dir(),
                     WallpaperCollections.default_search_roots());
+                _instance.selection_settings = new GLib.Settings("dev.sinty.desktop");
+                _instance.favorites = new WallpaperFavorites(_instance.selection_settings);
             }
             return _instance;
         }
@@ -33,6 +44,18 @@ namespace Singularity {
             this.config_dir = config_dir;
             this.collection_roots = collection_roots;
             this.state = new WallpaperRotationState(config_dir);
+        }
+
+        public void configure_selection(int min_width, int min_height,
+                                        bool match_aspect, bool favor_favorites,
+                                        double target_aspect = 0.0,
+                                        WallpaperFavorites? favorites = null) {
+            test_min_width = min_width;
+            test_min_height = min_height;
+            test_match_aspect = match_aspect;
+            test_favor_favorites = favor_favorites;
+            target_aspect_ratio = target_aspect;
+            this.favorites = favorites;
         }
 
         public void start() {
@@ -121,12 +144,83 @@ namespace Singularity {
             var candidates = WallpaperGallery.scan(scan_dir, all_dirs.to_array(), {});
             if (candidates.size == 0) return null;
 
-            var uris = new ArrayList<string>();
-            foreach (var candidate in candidates) uris.add(candidate.uri);
-            return pick(uris, current, Random.next_int());
+            int min_width = setting_int("wallpaper-rotation-min-width", test_min_width);
+            int min_height = setting_int("wallpaper-rotation-min-height", test_min_height);
+            bool match_aspect = setting_bool("wallpaper-rotation-match-aspect", test_match_aspect);
+            bool favor_favorites = setting_bool("wallpaper-rotation-favor-favorites", test_favor_favorites);
+            var regarded = regard(candidates, min_width, min_height,
+                                  match_aspect, target_aspect_ratio);
+            return pick_candidates(regarded, current, Random.next_int(),
+                                   favor_favorites, favorites);
         }
 
-        // Inject the random roll so selection remains deterministic in tests.
+        private int setting_int(string key, int fallback) {
+            if (selection_settings == null || !selection_settings.settings_schema.has_key(key)) return fallback;
+            return selection_settings.get_int(key);
+        }
+
+        private bool setting_bool(string key, bool fallback) {
+            if (selection_settings == null || !selection_settings.settings_schema.has_key(key)) return fallback;
+            return selection_settings.get_boolean(key);
+        }
+
+        internal static ArrayList<WallpaperCandidate> regard(
+                Gee.List<WallpaperCandidate> candidates, int min_width, int min_height,
+                bool match_aspect, double target_aspect) {
+            var sized = new ArrayList<WallpaperCandidate>();
+            foreach (var candidate in candidates) {
+                if (candidate.width >= min_width && candidate.height >= min_height)
+                    sized.add(candidate);
+            }
+            if (sized.size == 0 && candidates.size > 0) {
+                debug("wallpaper rotator: minimum resolution excluded every candidate; using unfiltered collection");
+                foreach (var candidate in candidates) sized.add(candidate);
+            }
+            if (!match_aspect || target_aspect <= 0.0) return sized;
+
+            var matched = new ArrayList<WallpaperCandidate>();
+            foreach (var candidate in sized) {
+                if (candidate.width <= 0 || candidate.height <= 0) continue;
+                double aspect = (double) candidate.width / (double) candidate.height;
+                if (Math.fabs(aspect - target_aspect) / target_aspect <= ASPECT_TOLERANCE)
+                    matched.add(candidate);
+            }
+            if (matched.size == 0) {
+                debug("wallpaper rotator: aspect preference matched no candidates; using resolution-filtered collection");
+                return sized;
+            }
+            return matched;
+        }
+
+        internal static string? pick_candidates(Gee.List<WallpaperCandidate> candidates,
+                                                string? current_uri, uint32 roll,
+                                                bool favor_favorites,
+                                                WallpaperFavorites? favorites) {
+            var choices = new ArrayList<WallpaperCandidate>();
+            foreach (var candidate in candidates) {
+                if (candidates.size == 1 || candidate.uri != current_uri) choices.add(candidate);
+            }
+            if (choices.size == 0) return candidates.size > 0 ? candidates[0].uri : null;
+
+            int total_weight = 0;
+            foreach (var candidate in choices) {
+                string? path = File.new_for_uri(candidate.uri).get_path();
+                bool favorite = favor_favorites && favorites != null && path != null
+                    && favorites.is_favorite(path);
+                total_weight += favorite ? FAVORITE_WEIGHT : 1;
+            }
+            int selected = (int) (roll % total_weight);
+            foreach (var candidate in choices) {
+                string? path = File.new_for_uri(candidate.uri).get_path();
+                bool favorite = favor_favorites && favorites != null && path != null
+                    && favorites.is_favorite(path);
+                int weight = favorite ? FAVORITE_WEIGHT : 1;
+                if (selected < weight) return candidate.uri;
+                selected -= weight;
+            }
+            return choices[0].uri;
+        }
+
         public static string? pick(Gee.List<string> uris, string? current_uri, uint32 roll) {
             if (uris.size == 0) return null;
             if (uris.size == 1) return uris[0];

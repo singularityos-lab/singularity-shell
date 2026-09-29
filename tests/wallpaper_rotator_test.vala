@@ -10,12 +10,12 @@ private string make_dir(string name) {
     return path;
 }
 
-private string image_file(string dir, string name) {
+private string image_file(string dir, string name, int width = 1920, int height = 1080) {
     string path = Path.build_filename(dir, name + ".svg");
     try {
         DirUtils.create_with_parents(dir, 0700);
         FileUtils.set_contents(path,
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"><rect width=\"1\" height=\"1\"/></svg>");
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%d\" height=\"%d\"><rect width=\"100%%\" height=\"100%%\"/></svg>".printf(width, height));
     } catch (Error e) { error("fixture: %s", e.message); }
     return File.new_for_path(path).get_uri();
 }
@@ -56,6 +56,49 @@ private void test_pick_never_returns_the_current_wallpaper() {
 
 private void test_pick_on_empty_list() {
     assert(WallpaperRotator.pick(new ArrayList<string>(), null, 0) == null);
+}
+
+private void test_minimum_resolution_excludes_small_candidates() {
+    var candidates = new ArrayList<WallpaperCandidate>();
+    candidates.add(new WallpaperCandidate("file:///small.jpg", false, 640, 480));
+    candidates.add(new WallpaperCandidate("file:///large.jpg", false, 1920, 1080));
+    var regarded = WallpaperRotator.regard(candidates, 1280, 720, false, 0.0);
+    assert(regarded.size == 1);
+    assert(regarded[0].uri == "file:///large.jpg");
+}
+
+private void test_empty_resolution_pool_falls_back() {
+    var candidates = new ArrayList<WallpaperCandidate>();
+    candidates.add(new WallpaperCandidate("file:///small-a.jpg", false, 640, 480));
+    candidates.add(new WallpaperCandidate("file:///small-b.jpg", false, 800, 600));
+    var regarded = WallpaperRotator.regard(candidates, 1280, 720, false, 0.0);
+    assert(regarded.size == 2);
+}
+
+private void test_aspect_preference_uses_display_ratio() {
+    var candidates = new ArrayList<WallpaperCandidate>();
+    candidates.add(new WallpaperCandidate("file:///portrait.jpg", false, 1080, 1920));
+    candidates.add(new WallpaperCandidate("file:///wide.jpg", false, 1920, 1080));
+    var regarded = WallpaperRotator.regard(candidates, 1, 1, true, 16.0 / 9.0);
+    assert(regarded.size == 1);
+    assert(regarded[0].uri == "file:///wide.jpg");
+}
+
+private void test_favorites_receive_three_times_the_weight() {
+    var settings = new GLib.Settings("dev.sinty.desktop");
+    var favorites = new WallpaperFavorites(settings);
+    string favorite_path = Path.build_filename(fixture_root, "favorite.jpg");
+    favorites.toggle_favorite(favorite_path);
+    var candidates = new ArrayList<WallpaperCandidate>();
+    candidates.add(new WallpaperCandidate(File.new_for_path(favorite_path).get_uri(), false, 1920, 1080));
+    candidates.add(new WallpaperCandidate("file:///ordinary.jpg", false, 1920, 1080));
+    int favorite_picks = 0;
+    for (uint32 roll = 0; roll < 400; roll++) {
+        string? chosen = WallpaperRotator.pick_candidates(candidates, null, roll, true, favorites);
+        if (chosen == candidates[0].uri) favorite_picks++;
+    }
+    assert(favorite_picks == 300);
+    favorites.toggle_favorite(favorite_path);
 }
 
 private void test_rotates_within_the_selected_collection_only() {
@@ -135,6 +178,24 @@ private void test_rotate_now_announces_nothing_when_there_is_nothing() {
     rotator.wallpaper_selected.connect((uri) => { announced = true; });
     rotator.rotate_now();
     assert(!announced);
+}
+
+private void test_manual_trigger_changes_immediately() {
+    string registry = make_dir("registry-manual");
+    string pack = make_dir("manual-pack");
+    string current = image_file(pack, "current");
+    string next = image_file(pack, "next");
+    write_collection(registry, "manual", pack);
+    string config = make_dir("config-manual");
+    new WallpaperRotationState(config).set_selected_collection("manual");
+
+    var rotator = new WallpaperRotator(config, { registry });
+    rotator.current_uri = current;
+    string? announced = null;
+    rotator.wallpaper_selected.connect((uri) => { announced = uri; });
+    rotator.rotate_now();
+    assert(announced == next);
+    assert(rotator.current_uri == next);
 }
 
 private void test_choose_next_for_excludes_the_supplied_wallpaper() {
@@ -232,12 +293,17 @@ public int main(string[] args) {
     Test.add_func("/wallpaper-rotator/pick-deterministic-roll", test_pick_is_deterministic_for_a_given_roll);
     Test.add_func("/wallpaper-rotator/pick-skips-current", test_pick_never_returns_the_current_wallpaper);
     Test.add_func("/wallpaper-rotator/pick-empty", test_pick_on_empty_list);
+    Test.add_func("/wallpaper-rotator/regard-minimum-resolution", test_minimum_resolution_excludes_small_candidates);
+    Test.add_func("/wallpaper-rotator/regard-empty-fallback", test_empty_resolution_pool_falls_back);
+    Test.add_func("/wallpaper-rotator/regard-aspect", test_aspect_preference_uses_display_ratio);
+    Test.add_func("/wallpaper-rotator/favorites-weighting", test_favorites_receive_three_times_the_weight);
     Test.add_func("/wallpaper-rotator/scoped-to-selected-collection", test_rotates_within_the_selected_collection_only);
     Test.add_func("/wallpaper-rotator/stale-id-falls-back", test_stale_collection_id_falls_back_to_the_first);
     Test.add_func("/wallpaper-rotator/empty-collection-is-a-no-op", test_empty_collection_leaves_the_wallpaper_alone);
     Test.add_func("/wallpaper-rotator/no-registry", test_no_registry_at_all);
     Test.add_func("/wallpaper-rotator/rotate-now-announces", test_rotate_now_announces_and_records_the_choice);
     Test.add_func("/wallpaper-rotator/rotate-now-silent-when-empty", test_rotate_now_announces_nothing_when_there_is_nothing);
+    Test.add_func("/wallpaper-rotator/manual-trigger-changes", test_manual_trigger_changes_immediately);
     Test.add_func("/wallpaper-rotator/choose-next-for-excludes", test_choose_next_for_excludes_the_supplied_wallpaper);
     Test.add_func("/wallpaper-rotator/rotate-async-announces", test_rotate_async_announces_on_the_main_loop);
     Test.add_func("/wallpaper-rotator/untouched-install-does-not-rotate", test_untouched_install_does_not_rotate);
