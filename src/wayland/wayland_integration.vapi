@@ -99,6 +99,10 @@ namespace Singularity {
 
     [CCode (cname = "singularity_wayland_set_geometry", cheader_filename = "wayland_integration.h")]
     public void wayland_set_geometry(void* toplevel_handle, int x, int y, int width, int height);
+    [CCode (cname = "singularity_wayland_set_geometry_animated", cheader_filename = "wayland_integration.h")]
+    public void wayland_set_geometry_animated(void* toplevel_handle, int x, int y, int width, int height);
+    [CCode (cname = "singularity_wayland_can_animate_geometry", cheader_filename = "wayland_integration.h")]
+    public bool wayland_can_animate_geometry();
     [CCode (cname = "singularity_wayland_set_close_gesture_progress", cheader_filename = "wayland_integration.h")]
     public void wayland_set_close_gesture_progress(void* toplevel_handle, double progress);
 
@@ -195,11 +199,15 @@ namespace Singularity {
 
     [CCode (cname = "singularity_type_text", cheader_filename = "vkbd.h")]
     public void type_text(string text);
+    [CCode (cname = "singularity_type_text_set_layout", cheader_filename = "vkbd.h")]
+    public void type_text_set_layout(string layout, string variant);
 
     [CCode (cname = "singularity_osk_set_layout", cheader_filename = "osk.h")]
     public bool osk_set_layout(string layout, string variant);
     [CCode (cname = "singularity_osk_press", cheader_filename = "osk.h")]
     public void osk_press(uint evdev_code, uint modifiers);
+    [CCode (cname = "singularity_osk_press_keysym", cheader_filename = "osk.h")]
+    public bool osk_press_keysym(uint keysym, uint modifiers);
     [CCode (cname = "singularity_osk_label", cheader_filename = "osk.h")]
     public string? osk_label(uint evdev_code, bool shifted);
 
@@ -215,6 +223,14 @@ namespace Singularity {
     public void ime_set_grab(bool grab);
     [CCode (cname = "singularity_ime_forward_key", cheader_filename = "ime.h")]
     public void ime_forward_key(uint key, bool pressed);
+    [CCode (cname = "singularity_keysym_to_unicode", cheader_filename = "ime.h")]
+    public unichar keysym_to_unicode(uint keysym);
+    [CCode (cname = "singularity_ime_key_forwarded", cheader_filename = "ime.h")]
+    public bool ime_key_forwarded(uint key);
+    [CCode (cname = "singularity_ime_active", cheader_filename = "ime.h")]
+    public bool ime_active();
+    [CCode (cname = "singularity_ime_preedit", cheader_filename = "ime.h")]
+    public void ime_preedit(string? text, int cursor_begin, int cursor_end);
     [CCode (cname = "singularity_ime_replace", cheader_filename = "ime.h")]
     public void ime_replace(uint delete_before, uint delete_after, string? text);
     [CCode (cname = "singularity_ime_popup_show", cheader_filename = "ime.h")]

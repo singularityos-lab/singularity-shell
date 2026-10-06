@@ -100,7 +100,10 @@ namespace Singularity.Shell {
                 if (!mapped_once) { mapped_once = true; return; }
                 browse_all.begin();
             });
-            back_clicked.connect(() => view.navigate_to("desktop"));
+            back_clicked.connect(() => {
+                view.navigate_to("desktop");
+                view.show_page_name("desktop-wallpapers");
+            });
 
             provider_group = new PreferencesGroup();
             provider_row = new SelectionRow.with_options(_("Wallpaper source"),
@@ -854,9 +857,17 @@ namespace Singularity.Shell {
                 if (item.license_url.has_prefix("https://") || item.license_url.has_prefix("http://"))
                     card.card.append(new LinkButton.with_label(item.license_url, item.license));
             }
-            card.button = new Button.with_label(imported_keys.contains(item.key) ? _("Added") : _("Import"));
-            card.button.sensitive = !imported_keys.contains(item.key);
-            card.button.clicked.connect(() => { import_card.begin(card); });
+            if (item.local_path != "") {
+                card.button = new Button.with_label(_("Set as Wallpaper"));
+                card.button.clicked.connect(() => {
+                    if (LocalWallpaper.apply(card.item.local_path)) status.label = _("Wallpaper changed.");
+                    else status.label = _("This image is no longer available.");
+                });
+            } else {
+                card.button = new Button.with_label(imported_keys.contains(item.key) ? _("Added") : _("Import"));
+                card.button.sensitive = !imported_keys.contains(item.key);
+                card.button.clicked.connect(() => { import_card.begin(card); });
+            }
             card.card.append_action_button(card.button);
             grid.append(card.card);
             cards.add(card);

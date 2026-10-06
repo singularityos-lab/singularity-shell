@@ -185,6 +185,120 @@ private void test_delete_last_image_removes_pack_and_active_match() {
     remove_tree(root);
 }
 
+private WallpaperCollectionInfo import_collection(string root) {
+    string dir = Path.build_filename(root, "backgrounds", "singularity-dynamic");
+    DirUtils.create_with_parents(dir, 0700);
+    write_collection(root, "dynamic-imports.collection", "registry\n");
+    return new WallpaperCollectionInfo("dynamic-imports", "Dynamic", "", dir, "dynamic", "import",
+        Path.build_filename(root, "dynamic-imports.collection"), root);
+}
+
+private string write_manifest(string dir, string name, string[] images) {
+    DirUtils.create_with_parents(dir, 0700);
+    var sb = new StringBuilder("{\"version\": 1, \"kind\": \"time\", \"frames\": [");
+    for (int i = 0; i < images.length; i++) {
+        if (i > 0) sb.append(", ");
+        sb.append("{\"image\": \"%s\", \"time\": \"%02d:00\"}".printf(images[i], i * 6));
+    }
+    sb.append("]}");
+    write_collection(dir, name, sb.str);
+    return Path.build_filename(dir, name);
+}
+
+private void test_delete_dynamic_removes_own_frames_only() {
+    string root = make_tmp_dir();
+    var collection = import_collection(root);
+    string system_dir = Path.build_filename(root, "usr-share", "backgrounds");
+    DirUtils.create_with_parents(system_dir, 0700);
+    write_collection(system_dir, "shared.png", "system image");
+    string system_image = Path.build_filename(system_dir, "shared.png");
+
+    string sunset = Path.build_filename(collection.dir, "sunset");
+    DirUtils.create_with_parents(sunset, 0700);
+    write_collection(sunset, "frame-00.png", "a");
+    write_collection(sunset, "frame-01.png", "b");
+    write_collection(collection.dir, "outside.png", "sibling");
+    FileUtils.symlink(system_image, Path.build_filename(sunset, "link.png"));
+    string manifest = write_manifest(sunset, "sunset.dynamic.json",
+        { "frame-00.png", "frame-01.png", system_image, "link.png", "../outside.png" });
+
+    string other = Path.build_filename(collection.dir, "other");
+    DirUtils.create_with_parents(other, 0700);
+    write_collection(other, "own.png", "c");
+    write_manifest(other, "other.dynamic.json", { "own.png", "../sunset/frame-01.png" });
+
+    string[] planned = WallpaperCollections.dynamic_files_to_delete(collection, manifest);
+    assert(planned.length == 2);
+
+    try {
+        assert(!WallpaperCollections.delete_image(collection, File.new_for_path(manifest).get_uri()));
+    } catch (Error e) { error("delete dynamic failed: %s", e.message); }
+    assert(!FileUtils.test(manifest, FileTest.EXISTS));
+    assert(!FileUtils.test(Path.build_filename(sunset, "frame-00.png"), FileTest.EXISTS));
+    assert(!FileUtils.test(Path.build_filename(sunset, "link.png"), FileTest.EXISTS | FileTest.IS_SYMLINK));
+    assert(FileUtils.test(Path.build_filename(sunset, "frame-01.png"), FileTest.IS_REGULAR));
+    assert(FileUtils.test(system_image, FileTest.IS_REGULAR));
+    assert(FileUtils.test(Path.build_filename(collection.dir, "outside.png"), FileTest.IS_REGULAR));
+    assert(FileUtils.test(Path.build_filename(other, "own.png"), FileTest.IS_REGULAR));
+    assert(FileUtils.test(Path.build_filename(other, "other.dynamic.json"), FileTest.IS_REGULAR));
+    assert(FileUtils.test(collection.registry_path, FileTest.IS_REGULAR));
+    remove_tree(root);
+}
+
+private void test_delete_last_dynamic_removes_folder_and_pack() {
+    string root = make_tmp_dir();
+    var collection = import_collection(root);
+    string only = Path.build_filename(collection.dir, "only");
+    DirUtils.create_with_parents(only, 0700);
+    write_collection(only, "frame-00.png", "a");
+    write_collection(only, "frame-01.png", "b");
+    string manifest = write_manifest(only, "only.dynamic.json", { "frame-00.png", "frame-01.png" });
+    try {
+        assert(WallpaperCollections.delete_image(collection, File.new_for_path(manifest).get_uri()));
+    } catch (Error e) { error("delete last dynamic failed: %s", e.message); }
+    assert(!FileUtils.test(only, FileTest.EXISTS));
+    assert(!FileUtils.test(collection.dir, FileTest.EXISTS));
+    assert(!FileUtils.test(collection.registry_path, FileTest.EXISTS));
+    remove_tree(root);
+}
+
+private void test_delete_dynamic_keeps_unknown_files() {
+    string root = make_tmp_dir();
+    var collection = import_collection(root);
+    string mine = Path.build_filename(collection.dir, "mine");
+    DirUtils.create_with_parents(mine, 0700);
+    write_collection(mine, "frame-00.png", "a");
+    write_collection(mine, "notes.txt", "user file");
+    string manifest = write_manifest(mine, "mine.dynamic.json", { "frame-00.png" });
+    try {
+        assert(!WallpaperCollections.delete_image(collection, File.new_for_path(manifest).get_uri()));
+    } catch (Error e) { error("delete dynamic failed: %s", e.message); }
+    assert(!FileUtils.test(Path.build_filename(mine, "frame-00.png"), FileTest.EXISTS));
+    assert(FileUtils.test(Path.build_filename(mine, "notes.txt"), FileTest.IS_REGULAR));
+    assert(FileUtils.test(collection.registry_path, FileTest.IS_REGULAR));
+    remove_tree(root);
+}
+
+private void test_delete_dynamic_refuses_protected_collection() {
+    string root = make_tmp_dir();
+    string dir = Path.build_filename(root, "system");
+    string waves = Path.build_filename(dir, "waves");
+    DirUtils.create_with_parents(waves, 0700);
+    write_collection(waves, "frame.png", "a");
+    string manifest = write_manifest(waves, "waves.dynamic.json", { "frame.png" });
+    var system = new WallpaperCollectionInfo("singularity", "Singularity", "", dir, "static", "", "", root);
+    bool refused = false;
+    try {
+        WallpaperCollections.delete_image(system, File.new_for_path(manifest).get_uri());
+    } catch (Error e) {
+        refused = true;
+    }
+    assert(refused);
+    assert(FileUtils.test(manifest, FileTest.IS_REGULAR));
+    assert(FileUtils.test(Path.build_filename(waves, "frame.png"), FileTest.IS_REGULAR));
+    remove_tree(root);
+}
+
 public int main(string[] args) {
     Test.init(ref args);
     Test.add_func("/wallpaper-collections/parses-id-name-artist-dir", test_parses_id_name_artist_dir);
@@ -197,5 +311,9 @@ public int main(string[] args) {
     Test.add_func("/wallpaper-collections/delete-pack-is-scoped", test_delete_pack_is_scoped);
     Test.add_func("/wallpaper-collections/delete-image-updates-sidecar-and-manifest", test_delete_image_updates_sidecar_and_manifest);
     Test.add_func("/wallpaper-collections/delete-last-image-removes-pack-and-active-match", test_delete_last_image_removes_pack_and_active_match);
+    Test.add_func("/wallpaper-collections/delete-dynamic-removes-own-frames-only", test_delete_dynamic_removes_own_frames_only);
+    Test.add_func("/wallpaper-collections/delete-last-dynamic-removes-folder-and-pack", test_delete_last_dynamic_removes_folder_and_pack);
+    Test.add_func("/wallpaper-collections/delete-dynamic-keeps-unknown-files", test_delete_dynamic_keeps_unknown_files);
+    Test.add_func("/wallpaper-collections/delete-dynamic-refuses-protected-collection", test_delete_dynamic_refuses_protected_collection);
     return Test.run();
 }

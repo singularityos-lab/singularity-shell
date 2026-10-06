@@ -17,18 +17,15 @@ namespace Singularity {
         private ScrolledWindow results_scrolled;
         private Gtk.Window? anchor_window;
         private Box main_box;
-        private uint _anim_out_timer = 0;
-        private uint _anim_in_timer = 0;
-        private uint _present_timer = 0;
-        private Singularity.Animation.TimedAnimation? _gesture_animation = null;
+        private Singularity.Animation.MotionBin stage;
+        private GLib.Settings desktop_settings;
+        private Singularity.Animation.TimedAnimation? _stage_fade = null;
+        private Singularity.Animation.SpringAnimation? _gesture_spring = null;
+        private bool _closing = false;
+        private uint _hide_guard = 0;
+        private const double GESTURE_TRAVEL = 72.0;
         private bool _gesture_active = false;
         private bool _gesture_opening = false;
-        // Tears down the grid (icon textures + widget instances) once the
-        // overview has stayed hidden a while, so an idle desktop doesn't pay
-        // for content nobody is looking at. Reopening within the window keeps
-        // the grid intact, so active use stays instant.
-        private uint _idle_depopulate_timer = 0;
-        private const uint IDLE_DEPOPULATE_MS = 45000;
 
         public bool showing { get; private set; default = false; }
 
@@ -110,7 +107,7 @@ namespace Singularity {
                     var res_row = row as SearchResultRow;
                     if (res_row != null) {
                         res_row.result.activate();
-                        toggle();
+                        if (!res_row.result.keeps_open) toggle();
                     }
                     return true;
                 }
@@ -143,7 +140,9 @@ namespace Singularity {
             main_box.add_css_class("overview-box");
             main_box.vexpand = true;
             main_box.hexpand = true;
-            set_child(main_box);
+            stage = new Singularity.Animation.MotionBin(main_box);
+            set_child(stage);
+            desktop_settings = new GLib.Settings("dev.sinty.desktop");
 
             search_entry = new Singularity.Widgets.SearchEntry();
             search_entry.placeholder_text = _("Type to search");
@@ -232,7 +231,7 @@ namespace Singularity {
                 var res_row = row as SearchResultRow;
                 if (res_row != null) {
                     res_row.result.activate();
-                    toggle();
+                    if (!res_row.result.keeps_open) toggle();
                 }
             });
 
@@ -305,76 +304,32 @@ namespace Singularity {
             int64 now = GLib.get_monotonic_time();
             if (now - last_toggle_time < 150000) return;
             last_toggle_time = now;
-            if (_gesture_animation != null) {
-                _gesture_animation.reset();
-                _gesture_animation = null;
-            }
             _gesture_active = false;
-            if (_present_timer != 0) {
-                GLib.Source.remove(_present_timer);
-                _present_timer = 0;
-            }
             // Dev aid: keep the overview open for screenshots. The toggle to
             // close is suppressed while pinned (turn it off in Developer
             // settings to dismiss).
             if (is_showing && Singularity.DebugManager.get_default().overview_pinned)
                 return;
             if (is_showing) {
-                search_entry.opacity = 1;
-                content_stack.opacity = 1;
                 is_showing = false;
                 showing = false;
                 set_keyboard_mode(this, GtkLayerShell.KeyboardMode.NONE);
-                if (_anim_out_timer != 0) {
-                    GLib.Source.remove(_anim_out_timer);
-                    _anim_out_timer = 0;
-                }
-                main_box.remove_css_class("animating-in");
-                main_box.add_css_class("animating-out");
                 hiding();
                 // A folder overlay is a separate toplevel layer window, so it
                 // does not go away with the launcher. Dismiss it here, next to
-                // hiding() -- not inside the 180ms timer below. Two reasons:
-                // the overlay and the launcher then leave together instead of
-                // the overlay fading alone over the desktop for the 180ms the
-                // launcher already took to close, and the reopen path above
-                // cancels _anim_out_timer when the overview reopens within
-                // that window, which would otherwise skip this dismissal
-                // entirely and leave the overlay stuck open indefinitely.
+                // hiding(), so the overlay and the launcher leave together
+                // instead of the overlay fading alone over the desktop.
                 launcher_grid.close_folder_overlays();
-                _anim_out_timer = GLib.Timeout.add(180, () => {
-                    _anim_out_timer = 0;
-                    main_box.remove_css_class("animating-out");
-                    close_layer_window (this);
-                    PreviewCache.get_default().clear();
-                    hidden();
-                    // The overview just freed its grid widgets, icon textures
-                    // and preview buffers; hand the pages back to the OS.
-                    Singularity.trim_heap();
-                    // After a longer idle, drop the grid contents entirely.
-                    if (_idle_depopulate_timer != 0)
-                        GLib.Source.remove(_idle_depopulate_timer);
-                    _idle_depopulate_timer = GLib.Timeout.add(IDLE_DEPOPULATE_MS, () => {
-                        _idle_depopulate_timer = 0;
-                        if (!is_showing) {
-                            launcher_grid.depopulate();
-                            Singularity.trim_heap();
-                        }
-                        return GLib.Source.REMOVE;
-                    });
-                    return GLib.Source.REMOVE;
-                });
+                begin_hide();
+                animate_stage(false);
             } else {
-                search_entry.opacity = 1;
-                content_stack.opacity = 1;
-                if (_idle_depopulate_timer != 0) {
-                    GLib.Source.remove(_idle_depopulate_timer);
-                    _idle_depopulate_timer = 0;
-                }
-                if (_anim_out_timer != 0) {
-                    GLib.Source.remove(_anim_out_timer);
-                    _anim_out_timer = 0;
-                    main_box.remove_css_class("animating-out");
+                bool reopening = _closing;
+                cancel_hide();
+                stop_gesture_spring();
+                stage.translate_y = 0;
+                if (!reopening) {
+                    stage.opacity = 0.0;
+                    stage.scale = Singularity.Motion.ENTER_SCALE;
                 }
                 is_showing = true;
                 showing = true;
@@ -393,28 +348,8 @@ namespace Singularity {
                         search_entry.margin_top = panel_h + 12;
                     }
                 }
-                Gdk.Monitor? grid_mon = GtkLayerShell.get_monitor(this);
-                if (grid_mon == null) {
-                    var d = Gdk.Display.get_default();
-                    if (d != null && d.get_monitors().get_n_items() > 0)
-                        grid_mon = d.get_monitors().get_item(0) as Gdk.Monitor;
-                }
-                if (grid_mon != null) {
-                    Gdk.Rectangle gg = grid_mon.get_geometry();
-                    int avail = gg.width - 48;
-                    var dsettings = new GLib.Settings("dev.sinty.desktop");
-                    string dock_pos = dsettings.get_string("dock-position");
-                    if ((dock_pos == "left" || dock_pos == "right")
-                            && !dsettings.get_boolean("dock-autohide")) {
-                        int isz = dsettings.get_int("dock-icon-size");
-                        if (isz <= 0) isz = 48;
-                        avail -= isz + dsettings.get_int("dock-gap") + 28;
-                    }
-                    launcher_grid.set_columns_for_width(avail);
-                }
+                update_grid_columns();
 
-                // Start invisible, present (map surface), then animate in.
-                opacity = 0;
                 set_layer(this, GtkLayerShell.Layer.TOP);
                 present();
                 // Populate AFTER present so the empty overview (background +
@@ -425,138 +360,164 @@ namespace Singularity {
                     if (!launcher_grid.is_populated()) launcher_grid.populate(true);
                     return GLib.Source.REMOVE;
                 });
-                _present_timer = GLib.Timeout.add(16, () => {
-                    _present_timer = 0;
-                    if (!is_showing) return GLib.Source.REMOVE;
-                    opacity = 1;
-                    main_box.remove_css_class("animating-out");
-                    main_box.add_css_class("animating-in");
-                    if (_anim_in_timer != 0) GLib.Source.remove(_anim_in_timer);
-                    _anim_in_timer = GLib.Timeout.add(220, () => {
-                        _anim_in_timer = 0;
-                        main_box.remove_css_class("animating-in");
-                        return GLib.Source.REMOVE;
-                    });
-                    // Focus search entry so the user can type immediately;
-                    // arrow keys still navigate the grid (see key_pressed handler).
-                    search_entry.grab_focus();
-                    return GLib.Source.REMOVE;
-                });
+                if (!reopening) launcher_grid.play_reveal();
+                animate_stage(true);
+                // Focus search entry so the user can type immediately;
+                // arrow keys still navigate the grid (see key_pressed handler).
+                search_entry.grab_focus();
                 shown();
             }
         }
 
-        private void finish_gesture_hide() {
-            // Same reason as the animated close path, and same fix: dismiss
-            // the overlay before close_layer_window(), not after -- the
-            // overlay is its own toplevel and does not go away with the
-            // launcher, and closing it second left it fading alone over the
-            // desktop once the launcher window was already gone.
+        public void prebuild() {
+            if (is_showing) return;
+            update_grid_columns();
+            if (!launcher_grid.is_populated()) launcher_grid.populate();
+        }
+
+        private void update_grid_columns() {
+            Gdk.Monitor? grid_mon = GtkLayerShell.get_monitor(this);
+            if (grid_mon == null) {
+                var d = Gdk.Display.get_default();
+                if (d != null && d.get_monitors().get_n_items() > 0)
+                    grid_mon = d.get_monitors().get_item(0) as Gdk.Monitor;
+            }
+            if (grid_mon == null) return;
+            Gdk.Rectangle gg = grid_mon.get_geometry();
+            int avail = gg.width - 48;
+            string dock_pos = desktop_settings.get_string("dock-position");
+            if ((dock_pos == "left" || dock_pos == "right")
+                    && !desktop_settings.get_boolean("dock-autohide")) {
+                int isz = desktop_settings.get_int("dock-icon-size");
+                if (isz <= 0) isz = 48;
+                avail -= isz + desktop_settings.get_int("dock-gap") + 28;
+            }
+            launcher_grid.set_columns_for_width(avail);
+            launcher_grid.viewport_hint = gg.height;
+        }
+
+        private void animate_stage(bool entering) {
+            var duration = Singularity.Motion.Duration.LARGE;
+            uint ms = entering ? duration.ms() : duration.exit_ms();
+            var curve = entering ? Singularity.Motion.Curve.ENTER : Singularity.Motion.Curve.EXIT;
+            double scale = entering ? 1.0 : Singularity.Motion.EXIT_SCALE;
+            Singularity.Motion.tween(stage, "scale", scale, ms, curve);
+            var fade = Singularity.Motion.tween(stage, "opacity", entering ? 1.0 : 0.0, ms, curve);
+            _stage_fade = fade;
+            fade.done.connect(() => {
+                if (_stage_fade != fade) return;
+                _stage_fade = null;
+                if (!entering) finish_hide();
+            });
+        }
+
+        private void stop_gesture_spring() {
+            if (_gesture_spring == null) return;
+            var spring = _gesture_spring;
+            _gesture_spring = null;
+            spring.reset();
+        }
+
+        private void begin_hide() {
+            _closing = true;
+            if (_hide_guard != 0) GLib.Source.remove(_hide_guard);
+            uint watchdog = Singularity.Motion.get_default().scale(
+                Singularity.Motion.Duration.SCENE.ms()) + 500;
+            _hide_guard = GLib.Timeout.add(watchdog, () => {
+                _hide_guard = 0;
+                finish_hide();
+                return GLib.Source.REMOVE;
+            });
+        }
+
+        private void cancel_hide() {
+            _closing = false;
+            if (_hide_guard != 0) {
+                GLib.Source.remove(_hide_guard);
+                _hide_guard = 0;
+            }
+        }
+
+        private void finish_hide() {
+            if (!_closing) return;
+            cancel_hide();
+            _stage_fade = null;
+            Singularity.Motion.cancel(stage, "opacity");
+            Singularity.Motion.cancel(stage, "scale");
+            stop_gesture_spring();
+            stage.opacity = 0.0;
+            stage.reset_transform();
             launcher_grid.close_folder_overlays();
             close_layer_window (this);
             PreviewCache.get_default().clear();
             hidden();
             Singularity.trim_heap();
-            if (_idle_depopulate_timer != 0)
-                GLib.Source.remove(_idle_depopulate_timer);
-            _idle_depopulate_timer = GLib.Timeout.add(IDLE_DEPOPULATE_MS, () => {
-                _idle_depopulate_timer = 0;
-                if (!is_showing) {
-                    launcher_grid.depopulate();
-                    Singularity.trim_heap();
-                }
-                return GLib.Source.REMOVE;
-            });
         }
 
         public void begin_gesture(bool opening) {
             if (!opening && !is_showing) return;
             if (!opening && Singularity.DebugManager.get_default().overview_pinned) return;
-            if (_gesture_animation != null) {
-                _gesture_animation.reset();
-                _gesture_animation = null;
-            }
             if (opening) {
                 if (!is_showing) toggle();
                 if (!is_showing) return;
             }
-            if (_present_timer != 0) {
-                GLib.Source.remove(_present_timer);
-                _present_timer = 0;
-            }
-            if (_anim_in_timer != 0) {
-                GLib.Source.remove(_anim_in_timer);
-                _anim_in_timer = 0;
-            }
-            if (_anim_out_timer != 0) {
-                GLib.Source.remove(_anim_out_timer);
-                _anim_out_timer = 0;
-            }
-            main_box.remove_css_class("animating-in");
-            main_box.remove_css_class("animating-out");
+            cancel_hide();
+            _stage_fade = null;
+            Singularity.Motion.cancel(stage, "opacity");
+            Singularity.Motion.cancel(stage, "scale");
+            stop_gesture_spring();
             _gesture_active = true;
             _gesture_opening = opening;
-            opacity = 1;
-            search_entry.opacity = 1;
-            content_stack.opacity = 1;
-            content_stack.margin_top = opening ? 72 : 0;
+            double start = opening ? 0.0 : 1.0;
+            stage.scale = 1.0;
+            stage.opacity = start;
+            stage.translate_y = (1.0 - start) * GESTURE_TRAVEL;
+            var spring = new Singularity.Animation.SpringAnimation(
+                stage, start, start, Singularity.Motion.Spring.GENTLE);
+            spring.reduced_mode = Singularity.Animation.ReducedMode.FULL;
+            spring.set_sink((value) => stage.translate_y = (1.0 - value) * GESTURE_TRAVEL);
+            _gesture_spring = spring;
         }
 
         public void update_gesture(double dy) {
-            if (!_gesture_active) return;
+            if (!_gesture_active || _gesture_spring == null) return;
             double distance = Math.fabs(dy);
             double progress = double.max(0, double.min(1, distance / 240.0));
             double value = _gesture_opening ? progress : 1.0 - progress;
-            search_entry.opacity = value;
-            content_stack.opacity = value;
-            content_stack.margin_top = (int)Math.round((1.0 - value) * 72.0);
+            _gesture_spring.track(value);
+            stage.translate_y = (1.0 - value) * GESTURE_TRAVEL;
+            stage.opacity = value;
         }
 
         public void end_gesture(bool committed) {
             if (!_gesture_active) return;
             _gesture_active = false;
             bool stay_open = _gesture_opening ? committed : !committed;
-            double target = stay_open ? 1.0 : 0.0;
             if (stay_open) {
                 is_showing = true;
                 showing = true;
                 set_keyboard_mode(this, GtkLayerShell.KeyboardMode.ON_DEMAND);
+                search_entry.grab_focus();
             } else {
                 is_showing = false;
                 showing = false;
                 set_keyboard_mode(this, GtkLayerShell.KeyboardMode.NONE);
                 hiding();
+                launcher_grid.close_folder_overlays();
+                begin_hide();
             }
-            double current = content_stack.opacity;
-            if (!Gtk.Settings.get_default().gtk_enable_animations
-                    || Math.fabs(current - target) < 0.001) {
-                search_entry.opacity = target;
-                content_stack.opacity = target;
-                content_stack.margin_top = 0;
-                if (stay_open) search_entry.grab_focus();
-                else finish_gesture_hide();
-                return;
-            }
-            uint duration = (uint)double.max(80,
-                180.0 * Math.fabs(target - current));
-            var animation = new Singularity.Animation.TimedAnimation(
-                this, current, target, duration,
-                Singularity.Animation.TimedAnimation.Easing.EASE_OUT_CUBIC);
-            _gesture_animation = animation;
-            animation.tick.connect(() => {
-                search_entry.opacity = animation.value;
-                content_stack.opacity = animation.value;
-                content_stack.margin_top = (int)Math.round((1.0 - animation.value) * 72.0);
+            double target = stay_open ? 1.0 : 0.0;
+            if (_gesture_spring != null) _gesture_spring.release(target);
+            var duration = Singularity.Motion.Duration.MEDIUM;
+            var fade = Singularity.Motion.tween(stage, "opacity", target,
+                stay_open ? duration.ms() : duration.exit_ms(),
+                stay_open ? Singularity.Motion.Curve.ENTER : Singularity.Motion.Curve.EXIT);
+            _stage_fade = fade;
+            fade.done.connect(() => {
+                if (_stage_fade != fade) return;
+                _stage_fade = null;
+                if (!stay_open) finish_hide();
             });
-            animation.done.connect(() => {
-                search_entry.opacity = target;
-                content_stack.opacity = target;
-                content_stack.margin_top = 0;
-                if (_gesture_animation == animation) _gesture_animation = null;
-                if (stay_open) search_entry.grab_focus();
-                else finish_gesture_hide();
-            });
-            animation.play();
         }
     }
 

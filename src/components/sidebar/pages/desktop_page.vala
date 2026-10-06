@@ -9,6 +9,13 @@ namespace Singularity {
         private GLib.Settings settings;
         private GLib.Settings? wm_settings;
         private SettingsView view;
+        private Singularity.SidebarPages.SettingsSubpages subpages;
+        private SettingsPage wallpapers_page;
+        private SettingsPage themes_page;
+        private SettingsPage dock_page;
+        private SettingsPage panel_page;
+        private SettingsPage windows_page;
+        private SettingsPage workspaces_page;
         private bool decorations_updating_ui = false;
         private bool decorations_ignore_change = false;
         private Box? decorations_start_box;
@@ -96,6 +103,23 @@ namespace Singularity {
             ensure_wallpaper_css();
             settings = new GLib.Settings("dev.sinty.desktop");
             this.view = view;
+            subpages = new Singularity.SidebarPages.SettingsSubpages(view, this, "desktop");
+            wallpapers_page = subpages.create(_("Wallpapers"));
+            themes_page = subpages.create(_("Colors and Effects"));
+            dock_page = subpages.create(_("Dock"));
+            panel_page = subpages.create(_("Panel and Launcher"));
+            windows_page = subpages.create(_("Windows and Snap"));
+            workspaces_page = subpages.create(_("Workspaces"));
+            var light_group = new PreferencesGroup(_("Light and Dark"));
+            var accent_group = new PreferencesGroup(_("Colors"));
+            var material_group = new PreferencesGroup(_("Transparency and Blur"));
+            var app_themes_group = new PreferencesGroup(_("App Themes"));
+            themes_page.add_group(light_group);
+            themes_page.add_group(accent_group);
+            themes_page.add_group(material_group);
+            themes_page.add_group(app_themes_group);
+            var style_group = new PreferencesGroup(_("Window Style"));
+            var dock_look_group = new PreferencesGroup(_("Appearance"));
             back_clicked.connect(() => {
                 view.go_home();
             });
@@ -191,9 +215,9 @@ namespace Singularity {
                 // (not a hack), at the minor cost of losing that window
                 // stacking/transiency relationship on compositors where
                 // xdg-foreign actually works correctly.
-                dialog.open.begin(null, null, (obj, result) => {
+                SidebarWait.choose_file.begin(this, dialog, null, (obj, result) => {
                     try {
-                        var file = dialog.open.end(result);
+                        var file = SidebarWait.choose_file.end(result);
                         set_wallpaper(file.get_uri());
                     } catch (Gtk.DialogError.DISMISSED e) {
                         // The user dismissed the portal chooser.
@@ -207,7 +231,7 @@ namespace Singularity {
             preview_row.set_child(preview_widget);
             preview_group.add_row(preview_row);
             add_group(preview_group);
-            var grid_group = new PreferencesGroup(_("Wallpapers"));
+            var grid_group = new PreferencesGroup(_("Gallery"));
 
             wallpaper_collection_roots = compute_collection_roots();
             wallpaper_source_container = new Gtk.Box(Orientation.VERTICAL, 0);
@@ -237,12 +261,10 @@ namespace Singularity {
             wallpaper_grid.max_children_per_line = 2;
             wallpaper_grid.min_children_per_line = 2; // always two columns; the sidebar is sized for it
             wallpaper_grid.selection_mode = SelectionMode.NONE;
-            wallpaper_grid.column_spacing = 14;
-            wallpaper_grid.row_spacing = 14;
+            wallpaper_grid.column_spacing = 10;
+            wallpaper_grid.row_spacing = 10;
             wallpaper_grid.margin_top = 10;
             wallpaper_grid.margin_bottom = 10;
-            wallpaper_grid.margin_start = 10;
-            wallpaper_grid.margin_end = 10;
             var grid_row = new PreferencesRow();
             grid_row.set_child(wallpaper_grid);
             grid_group.add_row(grid_row);
@@ -314,7 +336,8 @@ namespace Singularity {
                 interval_row.visible = enabled;
             });
 
-            add_group(grid_group);
+            wallpapers_page.add_group(grid_group);
+            if (DynamicWallpaperController.get_default().available) wallpapers_page.add_group(new DynamicWallpaperGroup(this));
             GLib.Idle.add(() => { populate_grid(); return GLib.Source.REMOVE; });
 
             if (ArtistPackManager.get_default().is_available()) {
@@ -322,11 +345,11 @@ namespace Singularity {
                     _("Artist Packs"),
                     _("Curated wallpaper packs, installed through the system package manager."));
                 var artist_pack_refresh_btn = new Button.from_icon_name("view-refresh-symbolic");
-                artist_pack_refresh_btn.has_frame = false;
+                artist_pack_refresh_btn.valign = Align.CENTER;
                 artist_pack_refresh_btn.tooltip_text = _("Refresh");
                 artist_pack_refresh_btn.clicked.connect(() => { populate_artist_packs_async.begin(); });
                 artist_pack_group.add_header_suffix(artist_pack_refresh_btn);
-                add_group(artist_pack_group);
+                wallpapers_page.add_group(artist_pack_group);
                 populate_artist_packs_async.begin();
             }
             refresh_wallpaper_accent_async();
@@ -343,7 +366,7 @@ namespace Singularity {
             settings.changed["recent-wallpapers"].connect(() => {
                 populate_grid();
             });
-            var app_group = new PreferencesGroup(_("Appearance"));
+            var app_group = new PreferencesGroup(_("Appearance and Layout"));
 
             // Theme preview
             var theme_preview_row = new PreferencesRow();
@@ -497,7 +520,7 @@ namespace Singularity {
             settings.changed["accent-color"].connect(() => { theme_preview.queue_draw(); });
             settings.changed["background-picture-uri"].connect(() => { theme_preview.queue_draw(); });
             theme_preview_row.set_child(theme_preview);
-            app_group.add_row(theme_preview_row);
+            light_group.add_row(theme_preview_row);
 
             // Theme mode: a SelectionRow, the same dropdown selector used across
             // the shell (cursor theme, time zone, power profile, ...). The fourth
@@ -530,7 +553,7 @@ namespace Singularity {
                 if (settings.get_string("background-effect") != mode)
                     settings.set_string("background-effect", mode);
             });
-            app_group.add_row(effect_row);
+            material_group.add_row(effect_row);
 
             var transparency_row = new ActionRow(
                 _("Window Transparency"),
@@ -548,7 +571,7 @@ namespace Singularity {
                     (int) transparency_scale.get_value());
             });
             transparency_row.add_suffix(transparency_scale);
-            app_group.add_row(transparency_row);
+            material_group.add_row(transparency_row);
 
             var blur_strength_row = new ActionRow(
                 _("Blur Strength"),
@@ -566,7 +589,7 @@ namespace Singularity {
                     (int) blur_strength_scale.get_value());
             });
             blur_strength_row.add_suffix(blur_strength_scale);
-            app_group.add_row(blur_strength_row);
+            material_group.add_row(blur_strength_row);
 
             bool effect_enabled = settings.get_string("background-effect") != "disabled";
             transparency_row.visible = effect_enabled;
@@ -585,7 +608,7 @@ namespace Singularity {
             adaptive_row.switch_btn.notify["active"].connect(() => {
                 settings.set_boolean("theme-adaptive", adaptive_row.switch_btn.active);
             });
-            app_group.add_row(adaptive_row);
+            light_group.add_row(adaptive_row);
 
             // Night window, shown only while Adaptive is on.
             var time_row = new PreferencesRow();
@@ -606,7 +629,7 @@ namespace Singularity {
             var to_picker = new Singularity.Widgets.TimePicker(settings.get_string("theme-adaptive-to"));
             time_box.append(to_picker);
             time_row.set_child(time_box);
-            app_group.add_row(time_row);
+            light_group.add_row(time_row);
 
             from_picker.changed.connect(() => {
                 settings.set_string("theme-adaptive-from", from_picker.time);
@@ -761,7 +784,8 @@ namespace Singularity {
             });
             accent_box.append(colors_box);
             accent_row.set_child(accent_box);
-            app_group.add_row(accent_row);
+            accent_row.set_data<string>("settings-title", _("Accent Color"));
+            accent_group.add_row(accent_row);
 
             // Custom Color Picker (inline, expander)
             // Init HSV from stored value
@@ -845,7 +869,7 @@ namespace Singularity {
             picker_pad.append(hex_row2);
 
             custom_picker_row.add_row(picker_pad);
-            app_group.add_row(custom_picker_row);
+            accent_group.add_row(custom_picker_row);
 
 
             var sing_themes = new Gee.ArrayList<string>();
@@ -860,7 +884,7 @@ namespace Singularity {
             sing_row.selected.connect((val) => {
                 settings.set_string("singularity-theme", val == "Default" ? "" : val);
             });
-            app_group.add_row(sing_row);
+            app_themes_group.add_row(sing_row);
 
             // Theme Fine Tuning expander
             var tuning_row = new ExpanderRow(_("Theme Fine Tuning"), _("Advanced GTK and Qt theme overrides"));
@@ -1013,7 +1037,7 @@ namespace Singularity {
             // Cursor theme selector (applies to the shell and all apps)
             string[] cursor_themes = list_cursor_themes();
             string current_cursor = settings.get_string("cursor-theme");
-            if (current_cursor == "") current_cursor = "Adwaita";
+            if (current_cursor == "") current_cursor = "Singularity";
             var cursor_row = new SelectionRow(_("Cursor Theme"), cursor_themes, current_cursor);
             cursor_row.selected.connect((val) => {
                 settings.set_string("cursor-theme", val);
@@ -1058,27 +1082,35 @@ namespace Singularity {
             });
             tuning_row.add_row(qt_row);
 
-            app_group.add_row(tuning_row);
+            app_themes_group.add_row(tuning_row);
             add_group(app_group);
 
             var launcher_group = new PreferencesGroup(_("App Launcher"));
             string current_launcher_mode = settings.get_string("app-launcher-mode");
-            var launcher_row = new SelectionRow("Launcher Style", {"Fullscreen", "Menu"}, current_launcher_mode == "menu" ? "Menu" : "Fullscreen");
+            var launcher_row = new SelectionRow(_("Launcher Style"), {"Fullscreen", "Menu"}, current_launcher_mode == "menu" ? "Menu" : "Fullscreen");
             launcher_row.selected.connect((item) => {
                 settings.set_string("app-launcher-mode", item == "Menu" ? "menu" : "fullscreen");
             });
             launcher_group.add_row(launcher_row);
-            add_group(launcher_group);
+            var reset_order_row = new ActionRow(_("Reset App Order"),
+                _("Sort apps and folders alphabetically again, keeping folders and widgets"));
+            var reset_order_btn = new Button.with_label(_("Reset"));
+            reset_order_btn.valign = Align.CENTER;
+            reset_order_btn.clicked.connect(() => reset_order_row.activated());
+            reset_order_row.add_suffix(reset_order_btn);
+            reset_order_row.activated.connect(() => {
+                reset_order_row.confirmation_requested(_("Reset"), _("Cancel"), ConfirmationSuggestedAction.CONFIRM);
+            });
+            reset_order_row.confirmed.connect(() => AppSystem.get_default().reset_grid_order());
+            launcher_group.add_row(reset_order_row);
 
-            var desktop_group = new PreferencesGroup(_("Desktop Icons"));
             var icons_row = new SwitchRow(_("Show Desktop Icons"), _("Display files from your desktop folder on screen"), settings.get_boolean("show-desktop-icons"));
             icons_row.switch_btn.notify["active"].connect(() => {
                 settings.set_boolean("show-desktop-icons", icons_row.switch_btn.active);
             });
-            desktop_group.add_row(icons_row);
-            add_group(desktop_group);
+            app_group.add_row(icons_row);
 
-            var panel_group = new PreferencesGroup(_("Panel"));
+            var panel_group = new PreferencesGroup(_("Top Panel"));
             var battery_pct_row = new SwitchRow(_("Show Battery Percentage"), _("Display the charge percentage next to the battery icon"), settings.get_boolean("show-battery-percentage"));
             battery_pct_row.switch_btn.notify["active"].connect(() => {
                 settings.set_boolean("show-battery-percentage", battery_pct_row.switch_btn.active);
@@ -1095,26 +1127,45 @@ namespace Singularity {
                 settings.set_boolean("global-menu-enabled", global_menu_row.switch_btn.active);
             });
             panel_group.add_row(global_menu_row);
-            add_group(panel_group);
+            panel_page.add_group(panel_group);
 
             var settings_group = new PreferencesGroup(_("Settings"));
             var settings_window_row = new SwitchRow(
-                "Open Settings in Window",
-                "Open Settings in a dedicated window instead of the sidebar",
+                _("Open Settings in Window"),
+                _("Open Settings in a dedicated window instead of the sidebar"),
                 settings.get_boolean("settings-in-window")
             );
             settings_window_row.switch_btn.notify["active"].connect(() => {
                 settings.set_boolean("settings-in-window", settings_window_row.switch_btn.active);
             });
             settings_group.add_row(settings_window_row);
-            add_group(settings_group);
 
-            var wm_group = new PreferencesGroup(_("Window Management"));
+            var wm_group = new PreferencesGroup(_("Snap and Tiling"));
             var rounded_row = new SwitchRow(_("Rounded Corners"), _("Round app window corners when not maximized or tiled"), settings.get_boolean("window-rounded-corners"));
             rounded_row.switch_btn.notify["active"].connect(() => {
                 settings.set_boolean("window-rounded-corners", rounded_row.switch_btn.active);
             });
-            wm_group.add_row(rounded_row);
+            style_group.add_row(rounded_row);
+
+            var snap_row = new SwitchRow(_("Snap Layouts"),
+                _("Rest the pointer on the maximize button or drag a window to the top edge to pick a layout"),
+                settings.get_boolean("snap-layouts"));
+            snap_row.switch_btn.notify["active"].connect(() => {
+                settings.set_boolean("snap-layouts", snap_row.switch_btn.active);
+            });
+            wm_group.add_row(snap_row);
+
+            var snap_assist_row = new SwitchRow(_("Suggest Windows After Snapping"),
+                _("Offer the other open windows to fill the rest of the layout"),
+                settings.get_boolean("snap-assist"));
+            snap_assist_row.switch_btn.notify["active"].connect(() => {
+                settings.set_boolean("snap-assist", snap_assist_row.switch_btn.active);
+            });
+            snap_assist_row.sensitive = snap_row.switch_btn.active;
+            snap_row.switch_btn.notify["active"].connect(() => {
+                snap_assist_row.sensitive = snap_row.switch_btn.active;
+            });
+            wm_group.add_row(snap_assist_row);
 
             string tiling_description = safe_mode.active
                 ? _("Configured value is shown here, but tiling is inactive until you restart normally")
@@ -1166,7 +1217,7 @@ namespace Singularity {
                 settings.set_int("window-border-width",
                     (int)border_width_row.spin_btn.value);
             });
-            wm_group.add_row(border_width_row);
+            style_group.add_row(border_width_row);
 
             tile_row.switch_btn.notify["active"].connect(() => {
                 tiling_layout_row.sensitive = tile_row.switch_btn.active;
@@ -1185,14 +1236,15 @@ namespace Singularity {
             ssd_row.switch_btn.notify["active"].connect(() => {
                 settings.set_boolean("force-ssd", ssd_row.switch_btn.active);
             });
-            wm_group.add_row(ssd_row);
+            style_group.add_row(ssd_row);
 
             var legacy_row = new SwitchRow(_("Classic Titlebar"), _("Use a classic titlebar with inline buttons instead of floating hover controls (requires app restart)"), settings.get_boolean("legacy-titlebar"));
             legacy_row.switch_btn.notify["active"].connect(() => {
                 settings.set_boolean("legacy-titlebar", legacy_row.switch_btn.active);
             });
-            wm_group.add_row(legacy_row);
-            add_group(wm_group);
+            style_group.add_row(legacy_row);
+            windows_page.add_group(wm_group);
+            windows_page.add_group(style_group);
 
             // Host GTK window decoration layout (titlebar buttons)
             if (gsettings_schema_exists("org.gnome.desktop.wm.preferences")) {
@@ -1201,16 +1253,16 @@ namespace Singularity {
             } else {
                 var decor_group = new PreferencesGroup(_("Window Decorations"), _("Not available on this system"));
                 decor_group.add_row(new ActionRow(_("Window decorations"), _("Missing schema org.gnome.desktop.wm.preferences")));
-                add_group(decor_group);
+                windows_page.add_group(decor_group);
             }
 
-            var ws_group = new PreferencesGroup(_("Workspaces"));
+            var ws_group = new PreferencesGroup(_("Behavior"));
             var dyn_row = new SwitchRow(_("Dynamic Workspaces"), _("Automatically remove empty workspaces"), settings.get_boolean("dynamic-workspaces"));
             dyn_row.switch_btn.notify["active"].connect(() => {
                 settings.set_boolean("dynamic-workspaces", dyn_row.switch_btn.active);
             });
             ws_group.add_row(dyn_row);
-            var count_row = new SpinRow("Fixed Workspace Count", null, 1, 10, 1, settings.get_int("workspace-count"));
+            var count_row = new SpinRow(_("Fixed Workspace Count"), null, 1, 10, 1, settings.get_int("workspace-count"));
             count_row.spin_btn.value_changed.connect(() => {
                 settings.set_int("workspace-count", (int)count_row.spin_btn.value);
             });
@@ -1221,15 +1273,15 @@ namespace Singularity {
                 settings.get_boolean("workspaces-per-monitor"));
             settings.bind("workspaces-per-monitor", per_monitor_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
             ws_group.add_row(per_monitor_row);
-            add_group(ws_group);
-            var dock_group = new PreferencesGroup(_("Dock"));
+            workspaces_page.add_group(ws_group);
+            var dock_group = new PreferencesGroup(_("Visibility"));
             var enabled_row = new SwitchRow(_("Enable Dock"), _("Show the dock"), settings.get_boolean("dock-enabled"));
             enabled_row.switch_btn.notify["active"].connect(() => {
                 settings.set_boolean("dock-enabled", enabled_row.switch_btn.active);
             });
             dock_group.add_row(enabled_row);
 
-            var vis_row = new SwitchRow("Always Visible", "Show dock on desktop", settings.get_string("dock-visibility-mode") == "always");
+            var vis_row = new SwitchRow(_("Always Visible"), _("Show dock on desktop"), settings.get_string("dock-visibility-mode") == "always");
             vis_row.switch_btn.notify["active"].connect(() => {
                 settings.set_string("dock-visibility-mode", vis_row.switch_btn.active ? "always" : "overview-only");
             });
@@ -1266,8 +1318,9 @@ namespace Singularity {
             pos_row.selected.connect((item) => {
                 settings.set_string("dock-position", item.down());
             });
-            dock_group.add_row(pos_row);
-            add_group(dock_group);
+            dock_look_group.add_row(pos_row);
+            dock_page.add_group(dock_group);
+            dock_page.add_group(dock_look_group);
 
             bool has_dock_layout = settings.get_user_value("dock-layout-left") != null
                 || settings.get_user_value("dock-layout-center") != null
@@ -1285,7 +1338,7 @@ namespace Singularity {
                 }
             }
 
-            var layout_group = new PreferencesGroup(_("Panel and Dock"));
+            var layout_group = new PreferencesGroup(_("Panel and Dock Items"));
             var layout_row = new ActionRow(
                 _("Layout"),
                 _("Arrange items directly on the desktop")
@@ -1314,20 +1367,19 @@ namespace Singularity {
             update_layout_button();
             layout_row.add_suffix(layout_button);
             layout_group.add_row(layout_row);
-            add_group(layout_group);
+            panel_page.add_group(layout_group);
 
-            var adv_dock_group = new PreferencesGroup(_("Advanced Dock"));
             string current_style = settings.get_string("dock-style");
-            var style_row = new SelectionRow("Style", {"Floating", "Panel"}, current_style == "panel" ? "Panel" : "Floating");
+            var style_row = new SelectionRow(_("Style"), {"Floating", "Panel"}, current_style == "panel" ? "Panel" : "Floating");
             style_row.selected.connect((item) => {
                 settings.set_string("dock-style", item.down());
             });
-            adv_dock_group.add_row(style_row);
+            dock_look_group.add_row(style_row);
             var extended_row = new SwitchRow(_("Extended Taskbar Mode"), _("Show window titles (panel style only)"), settings.get_boolean("dock-extended-mode"));
             extended_row.switch_btn.notify["active"].connect(() => {
                 settings.set_boolean("dock-extended-mode", extended_row.switch_btn.active);
             });
-            adv_dock_group.add_row(extended_row);
+            dock_look_group.add_row(extended_row);
             extended_row.visible = settings.get_string("dock-style") == "panel";
             settings.changed["dock-style"].connect(() => {
                 extended_row.visible = settings.get_string("dock-style") == "panel";
@@ -1336,7 +1388,7 @@ namespace Singularity {
             previews_row.switch_btn.notify["active"].connect(() => {
                 settings.set_boolean("dock-window-previews", previews_row.switch_btn.active);
             });
-            adv_dock_group.add_row(previews_row);
+            dock_look_group.add_row(previews_row);
             var fusion_row = new SwitchRow(_("Panel Fusion"), _("Merge top panel into dock"), settings.get_boolean("panel-fusion"));
             fusion_row.switch_btn.notify["active"].connect(() => {
                 bool active = fusion_row.switch_btn.active;
@@ -1355,12 +1407,12 @@ namespace Singularity {
                 vis_row.sensitive = false;
                 vis_row.subtitle = _("Forced visible by Panel Fusion");
             }
-            adv_dock_group.add_row(fusion_row);
+            panel_group.add_row(fusion_row);
             var flat_panel_row = new SwitchRow(_("Flat Panel"), _("Solid black background instead of transparent"), settings.get_boolean("panel-flat"));
             flat_panel_row.switch_btn.notify["active"].connect(() => {
                 settings.set_boolean("panel-flat", flat_panel_row.switch_btn.active);
             });
-            adv_dock_group.add_row(flat_panel_row);
+            panel_group.add_row(flat_panel_row);
 
             var opacity_row = new PreferencesRow();
             var opacity_box = new Box(Orientation.VERTICAL, 8);
@@ -1383,7 +1435,8 @@ namespace Singularity {
             opacity_box.append(opacity_scale);
             opacity_row.set_child(opacity_box);
             opacity_row.visible = settings.get_boolean("panel-flat");
-            adv_dock_group.add_row(opacity_row);
+            opacity_row.set_data<string>("settings-title", _("Flat Panel Opacity"));
+            panel_group.add_row(opacity_row);
             settings.changed["panel-flat"].connect(() => {
                 opacity_row.visible = settings.get_boolean("panel-flat");
             });
@@ -1392,13 +1445,13 @@ namespace Singularity {
             dock_multi_row.switch_btn.notify["active"].connect(() => {
                 settings.set_boolean("dock-multi-monitor", dock_multi_row.switch_btn.active);
             });
-            adv_dock_group.add_row(dock_multi_row);
+            dock_group.add_row(dock_multi_row);
 
             var panel_multi_row = new SwitchRow(_("Panel on All Monitors"), _("Show top bar on every connected screen"), settings.get_boolean("panel-multi-monitor"));
             panel_multi_row.switch_btn.notify["active"].connect(() => {
                 settings.set_boolean("panel-multi-monitor", panel_multi_row.switch_btn.active);
             });
-            adv_dock_group.add_row(panel_multi_row);
+            panel_group.add_row(panel_multi_row);
             var _disp = Gdk.Display.get_default();
             if (_disp != null) {
                 var _mons = _disp.get_monitors();
@@ -1431,7 +1484,8 @@ namespace Singularity {
             });
             gap_box.append(gap_scale);
             gap_row.set_child(gap_box);
-            adv_dock_group.add_row(gap_row);
+            gap_row.set_data<string>("settings-title", _("Dock Gap"));
+            dock_look_group.add_row(gap_row);
             var size_row = new PreferencesRow();
             var size_box = new Box(Orientation.VERTICAL, 12);
             size_box.margin_top = 12;
@@ -1464,8 +1518,37 @@ namespace Singularity {
             presets_box.append(btn_big);
             size_box.append(presets_box);
             size_row.set_child(size_box);
-            adv_dock_group.add_row(size_row);
-            add_group(adv_dock_group);
+            size_row.set_data<string>("settings-title", _("Icon Size"));
+            dock_look_group.add_row(size_row);
+            panel_page.add_group(launcher_group);
+            panel_page.add_group(settings_group);
+
+            preview_group.add_row(subpages.link(_("Wallpapers"), _("Gallery, rotation and dynamic wallpapers"),
+                "preferences-desktop-wallpaper-symbolic", wallpapers_page, "desktop-wallpapers"));
+            app_group.add_row(subpages.link(_("Colors and Effects"), _("Accent color, dark schedule and transparency"),
+                "preferences-desktop-appearance-symbolic", themes_page, "desktop-themes"));
+            app_group.add_row(subpages.link(_("Dock"), _("Visibility, position, style and icon size"),
+                "user-desktop-symbolic", dock_page, "desktop-dock"));
+            app_group.add_row(subpages.link(_("Panel and Launcher"), _("Top panel, items, launcher and Settings window"),
+                "view-app-grid-symbolic", panel_page, "desktop-panel"));
+            app_group.add_row(subpages.link(_("Windows and Snap"), _("Snap layouts, tiling, titlebars and switcher"),
+                "focus-windows-symbolic", windows_page, "desktop-windows"));
+            app_group.add_row(subpages.link(_("Workspaces"), _("Dynamic or fixed, one set per display"),
+                "view-dual-symbolic", workspaces_page, "desktop-workspaces"));
+            index_groups(wallpapers_page, "desktop-wallpapers");
+            index_groups(themes_page, "desktop-themes");
+            index_groups(dock_page, "desktop-dock");
+            index_groups(panel_page, "desktop-panel");
+            index_groups(windows_page, "desktop-windows");
+            index_groups(workspaces_page, "desktop-workspaces");
+        }
+
+        private void index_groups(SettingsPage page, string page_name) {
+            foreach (var group_widget in page.get_groups()) {
+                var group = group_widget as PreferencesGroup;
+                if (group == null || group.title == "") continue;
+                subpages.search_target(group.title, group.description, page, page_name, group);
+            }
         }
 
         private static bool gsettings_schema_exists(string id) {
@@ -1525,10 +1608,7 @@ namespace Singularity {
 }
 
 .singularity .wallpaper-card-title {
-    color: white;
     padding: 7px 9px;
-    border-radius: 999px;
-    background-color: alpha(black, 0.46);
     box-shadow: 0 4px 16px alpha(black, 0.35);
     font-size: 12px;
     font-weight: 600;
@@ -1630,18 +1710,18 @@ namespace Singularity {
                 sync_window_decorations_from_settings();
             });
 
-            add_group(decor_group);
+            windows_page.add_group(decor_group);
             sync_window_decorations_from_settings();
 
             // Window Switcher group
             var switcher_group = new PreferencesGroup(_("Window Switcher"), null);
             string current_style = settings.get_string("switcher-style");
-            var style_row = new SelectionRow("Layout", {"List (icon + title)", "Grid (icons)"}, current_style == "grid" ? "Grid (icons)" : "List (icon + title)");
+            var style_row = new SelectionRow(_("Layout"), {"List (icon + title)", "Grid (icons)"}, current_style == "grid" ? "Grid (icons)" : "List (icon + title)");
             style_row.selected.connect((item) => {
                 settings.set_string("switcher-style", item.has_prefix("Grid") ? "grid" : "list");
             });
             switcher_group.add_row(style_row);
-            add_group(switcher_group);
+            windows_page.add_group(switcher_group);
         }
 
         private static void split_layout(string layout, out string left, out string right) {
@@ -1701,6 +1781,7 @@ namespace Singularity {
                         string content;
                         try { FileUtils.get_contents(index, out content); } catch (Error e) { continue; }
                         if (!content.contains("Directories=")) continue;
+                        if (content.contains("\nHidden=true")) continue;
                         names.add(n);
                         seen.add(n);
                     }
@@ -2004,6 +2085,11 @@ namespace Singularity {
             populate_grid();
         }
 
+        public void show_collection(string id) {
+            rotation_state.set_selected_collection(id);
+            refresh_after_import();
+        }
+
         private void refresh_wallpaper_sources() {
             wallpaper_collections = WallpaperCollections.parse(wallpaper_collection_roots);
             var options = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
@@ -2093,6 +2179,7 @@ namespace Singularity {
             if (!was_active) return;
             settings.delay();
             settings.reset("background-picture-uri");
+            SettingsSafety.set_string(settings, DynamicWallpaperController.DYNAMIC_KEY, "");
             SettingsSafety.set_string(settings, "background-attribution-title", "");
             SettingsSafety.set_string(settings, "background-attribution-author", "");
             settings.apply();
@@ -2245,7 +2332,8 @@ namespace Singularity {
         }
 
         private void update_wallpaper_selection() {
-            string current_uri = settings.get_string("background-picture-uri");
+            string current_uri = DynamicWallpaperController.get_default().selected_uri();
+            if (current_uri == "") current_uri = settings.get_string("background-picture-uri");
             Widget? child = wallpaper_grid.get_first_child();
             while (child != null) {
                 var fb_child = child as FlowBoxChild;
@@ -2261,7 +2349,9 @@ namespace Singularity {
             var collection = find_owning_collection(uri);
             bool can_delete = collection != null && collection.deletable;
             var card = new WallpaperCard(uri, is_recent, can_delete);
-            card.set_selected(uri == settings.get_string("background-picture-uri"));
+            string selected_uri = DynamicWallpaperController.get_default().selected_uri();
+            if (selected_uri == "") selected_uri = settings.get_string("background-picture-uri");
+            card.set_selected(uri == selected_uri);
             card.clicked.connect(() => set_wallpaper(uri));
             if (can_delete) {
                 card.delete_clicked.connect(() => confirm_delete_image(collection, uri));
@@ -2273,16 +2363,25 @@ namespace Singularity {
 
         private void confirm_delete_image(WallpaperCollectionInfo collection, string uri) {
             string name = File.new_for_uri(uri).get_basename() ?? _("this photo");
+            bool dynamic = WallpaperCollections.is_dynamic_entry(uri);
+            if (dynamic) {
+                try {
+                    name = DynamicWallpaper.load(File.new_for_uri(uri).get_path() ?? "").display_name();
+                } catch (Error e) {
+                }
+            }
             var app = GLib.Application.get_default() as Gtk.Application;
             var dialog = new ConfirmDialog(app,
                 _("Delete “%s”?").printf(name), "user-trash-symbolic",
-                _("This photo will be permanently deleted."),
-                _("Delete Photo"), ConfirmDialog.ActionStyle.DESTRUCTIVE);
+                dynamic ? _("This dynamic wallpaper and the images it brought with it will be permanently deleted.")
+                        : _("This photo will be permanently deleted."),
+                dynamic ? _("Delete Wallpaper") : _("Delete Photo"), ConfirmDialog.ActionStyle.DESTRUCTIVE);
             dialog.response.connect((r) => {
                 if (r != ConfirmDialog.Response.PRIMARY) return;
                 bool was_active = WallpaperCollections.needs_background_fallback(
                     collection, settings.get_string("background-picture-uri")) &&
                     uri == settings.get_string("background-picture-uri");
+                if (dynamic) was_active = DynamicWallpaperController.get_default().selected_uri() == uri;
                 try {
                     bool pack_deleted = WallpaperCollections.delete_image(collection, uri);
                     remove_from_recent(uri);
@@ -2626,7 +2725,7 @@ namespace Singularity {
             add_css_class("workspace-preview");
             overflow = Overflow.HIDDEN;
             var image_area = new Box(Orientation.VERTICAL, 0);
-            image_area.set_size_request(320, 180);
+            image_area.set_size_request(320, 160);
             image_area.hexpand = true;
             preview_picture = new Picture();
             preview_picture.content_fit = ContentFit.COVER;
@@ -2637,7 +2736,6 @@ namespace Singularity {
             metadata.use_markup = false;
             metadata.wrap = true;
             metadata.selectable = true;
-            metadata.max_width_chars = 40;
             metadata.margin_start = metadata.margin_end = 12;
             metadata.margin_top = metadata.margin_bottom = 8;
             metadata.visible = false;
@@ -2695,6 +2793,7 @@ namespace Singularity {
         private Picture picture;
         // The overlay that hosts the picture, title, badges, and recents action.
         private Overlay card_overlay;
+        private Widget? trash_button = null;
         private string thumb_path;
         // Optional remote-thumbnail loader set by WallpaperCard.for_remote().
         // If non-null, replaces the local-file path; runs on a worker thread
@@ -2718,6 +2817,16 @@ namespace Singularity {
             // since thumb_path is "" -- call sites that need a remote
             // thumbnail MUST use WallpaperCard.for_remote() instead.
             thumb_path = file.get_path() ?? "";
+            DynamicWallpaper? dyn_wp = null;
+            if (thumb_path != "" && DynamicWallpaper.is_dynamic_path(thumb_path)) {
+                try {
+                    dyn_wp = DynamicWallpaper.load(thumb_path);
+                    title = dyn_wp.display_name();
+                    thumb_path = dyn_wp.preview_image(Singularity.Style.ThemeMode.get_default().shell_dark());
+                } catch (Error e) {
+                    dyn_wp = null;
+                }
+            }
             // The recents-only trash button lives in this constructor only;
             // for_remote() / placeholder_only() never carry a delete
             // affordance.
@@ -2734,6 +2843,7 @@ namespace Singularity {
                 del_btn.clicked.connect(() => delete_clicked());
             }
             build_card(title, del_btn);
+            if (dyn_wp != null) set_badge(_("Dynamic"));
             if (thumb_path != "") load_thumbnail_async();
         }
 
@@ -2784,7 +2894,7 @@ namespace Singularity {
             var clipper = new ScrolledWindow();
             clipper.add_css_class("workspace-clipper");
             clipper.add_css_class("wallpaper-card-frame");
-            clipper.set_size_request(172, 104);
+            clipper.set_size_request(140, 85);
             clipper.hscrollbar_policy = PolicyType.NEVER;
             clipper.vscrollbar_policy = PolicyType.NEVER;
             clipper.has_frame = false;
@@ -2796,8 +2906,10 @@ namespace Singularity {
             picture.can_shrink = true;
             card_overlay.set_child(picture);
             if (del_btn != null) card_overlay.add_overlay(del_btn);
+            trash_button = del_btn;
             var title_box = new Box(Orientation.HORIZONTAL, 6);
             title_box.add_css_class("wallpaper-card-title");
+            title_box.add_css_class("media-caption");
             title_box.valign = Align.END;
             title_box.halign = Align.FILL;
             title_box.hexpand = true;
@@ -2816,7 +2928,11 @@ namespace Singularity {
             card_overlay.add_overlay(title_box);
             append(clipper);
             var click_ctrl = new GestureClick();
-            click_ctrl.pressed.connect(() => clicked());
+            click_ctrl.pressed.connect((n, x, y) => {
+                var hit = pick(x, y, PickFlags.DEFAULT);
+                if (trash_button != null && hit != null && (hit == trash_button || hit.is_ancestor(trash_button))) return;
+                clicked();
+            });
             add_controller(click_ctrl);
         }
 
@@ -2848,6 +2964,7 @@ namespace Singularity {
             if (text == null || text == "") return;
             var badge = new Label(text);
             badge.add_css_class("wallpaper-card-title");
+            badge.add_css_class("media-caption");
             badge.ellipsize = Pango.EllipsizeMode.END;
             badge.xalign = 0;
             badge.max_width_chars = 22;

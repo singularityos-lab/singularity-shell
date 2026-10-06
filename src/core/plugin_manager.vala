@@ -27,6 +27,10 @@ namespace Singularity {
                 if (SafeMode.get_default().allows(SafeFeature.PLUGINS))
                     enable_configured_plugins();
             });
+            settings.changed["disabled-plugins"].connect(() => {
+                if (SafeMode.get_default().allows(SafeFeature.PLUGINS))
+                    enable_configured_plugins();
+            });
         }
 
         private void ensure_engine() {
@@ -80,20 +84,26 @@ namespace Singularity {
 
         public void load_plugins() {
             if (!SafeMode.get_default().allows(SafeFeature.PLUGINS)) return;
-            if (settings.get_strv("enabled-plugins").length == 0 &&
-                Environment.get_variable("SINGULARITY_PLUGIN_PATH") == null) {
-                return;
-            }
+            retire_legacy_plugins();
             ensure_engine();
             engine.rescan_plugins();
             enable_configured_plugins();
         }
 
+        private void retire_legacy_plugins() {
+            string dir = PomodoroPluginMigration.state_dir();
+            if (!PomodoroPluginMigration.needed(dir)) return;
+            if (PomodoroPluginMigration.run(settings, dir))
+                message("plugins: retired the Pomodoro plugin in favour of the Clock timer tile");
+        }
+
         private void load_extension(Peas.PluginInfo info) {
             string module_name = info.get_module_name();
             if (loaded_extensions.has_key(module_name)) return;
+            if (AppPluginHost.is_app_plugin(info)) return;
 
             if (is_plugin_enabled(module_name)) {
+                PluginPreferences.bind_translations(info);
                 try {
                     // Manual extension creation to avoid ExtensionSet crash
                     // Using empty properties
@@ -135,60 +145,36 @@ namespace Singularity {
             uint n_items = model.get_n_items();
             for (uint i = 0; i < n_items; i++) {
                 var info = (Peas.PluginInfo)model.get_item(i);
+                if (AppPluginHost.is_app_plugin(info)) continue;
                 list.append(info);
             }
             return list;
         }
 
         public bool is_plugin_enabled(string module_name) {
-             string[] enabled = settings.get_strv("enabled-plugins");
-             foreach (string s in enabled) {
-                 if (s == module_name) return true;
-             }
-             return false;
+            ensure_engine();
+            var info = engine.get_plugin_info(module_name);
+            if (info == null) return module_name in settings.get_strv("enabled-plugins");
+            return PluginPreferences.is_enabled(settings, info);
         }
 
         public void set_plugin_enabled(string module_name, bool enabled) {
-            string[] current = settings.get_strv("enabled-plugins");
-            bool already_enabled = false;
-            foreach (string s in current) {
-                if (s == module_name) { already_enabled = true; break; }
-            }
-
-            if (enabled == already_enabled) {
-                // State already correct; just ensure runtime state matches
-                update_plugin_state(module_name, enabled);
-                return;
-            }
-
-            // Build a plain Vala string[] (null-terminated) - DO NOT use GEE
-            // to_array() here: gee_collection_to_array() returns a non-null-terminated
-            // array while g_settings_set_strv expects null-terminated, SIGSEGV.
-            // Also filter NULL/empty entries from GSettings strv to avoid g_utf8_validate crash.
-            string[] new_list = {};
-            if (enabled) {
-                foreach (string s in current) {
-                    if (s != null && s.length > 0) new_list += s;
-                }
-                new_list += module_name;
-            } else {
-                foreach (string s in current) {
-                    if (s != null && s.length > 0 && s != module_name) new_list += s;
-                }
-            }
-
-            settings.set_strv("enabled-plugins", new_list);
+            ensure_engine();
+            var info = engine.get_plugin_info(module_name);
+            if (info == null) return;
+            if (PluginPreferences.is_enabled(settings, info) != enabled)
+                PluginPreferences.set_enabled(settings, info, enabled);
             update_plugin_state(module_name, enabled);
         }
 
         private void enable_configured_plugins() {
             if (!SafeMode.get_default().allows(SafeFeature.PLUGINS)) return;
-            if (settings.get_strv("enabled-plugins").length == 0 && !engine_ready) return;
             ensure_engine();
             var model = (GLib.ListModel)engine;
             uint n_items = model.get_n_items();
             for (uint i = 0; i < n_items; i++) {
                  var info = (Peas.PluginInfo)model.get_item(i);
+                 if (AppPluginHost.is_app_plugin(info)) continue;
                  string module_name = info.get_module_name();
                  bool should_be_active = is_plugin_enabled(module_name);
 

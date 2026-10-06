@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="singularity_stage_unstable_v1">
+  <copyright>
+    Copyright © 2026 Singularity Desktop
+  </copyright>
+
+  <interface name="zsingularity_stage_manager_v1" version="2">
+    <description summary="window groups shown one at a time">
+      Lets the shell keep windows in groups and show one group at a time.
+      Windows of the other groups are minimized by the compositor and
+      travel to and from a rectangle chosen by the shell, usually the
+      group thumbnail in a strip, instead of the dock icon.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager"/>
+    </request>
+
+    <request name="set_hidden">
+      <description summary="hide or show a toplevel for a group switch">
+        Minimizes (hidden = 1) or restores (hidden = 0) a toplevel. The
+        window animates towards or from the given rectangle, in output
+        layout coordinates. A rectangle with zero width or height falls
+        back to the regular minimize target.
+      </description>
+      <arg name="toplevel" type="object" interface="zwlr_foreign_toplevel_handle_v1"/>
+      <arg name="hidden" type="uint"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
+
+    <request name="set_group" since="2">
+      <description summary="remember the group of a toplevel">
+        Stores an opaque group number on a toplevel. The compositor keeps
+        it for the lifetime of the toplevel, so a shell that restarts can
+        rebuild its groups. Zero clears the group.
+      </description>
+      <arg name="toplevel" type="object" interface="zwlr_foreign_toplevel_handle_v1"/>
+      <arg name="group" type="uint"/>
+    </request>
+
+    <request name="get_group" since="2">
+      <description summary="ask for the group of a toplevel">
+        The compositor answers with a group event for the toplevel.
+      </description>
+      <arg name="toplevel" type="object" interface="zwlr_foreign_toplevel_handle_v1"/>
+    </request>
+
+    <event name="group" since="2">
+      <description summary="group of a toplevel">
+        The group number stored with set_group, zero when none. Hidden is
+        1 when the toplevel was minimized through set_hidden and is still
+        minimized.
+      </description>
+      <arg name="toplevel" type="object" interface="zwlr_foreign_toplevel_handle_v1"/>
+      <arg name="group" type="uint"/>
+      <arg name="hidden" type="uint"/>
+    </event>
+  </interface>
+</protocol>

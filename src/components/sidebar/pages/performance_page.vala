@@ -15,11 +15,17 @@ namespace Singularity.SidebarPages {
         private Gee.HashMap<string, Label> fan_values = new Gee.HashMap<string, Label>();
         private Gee.ArrayList<FanCurveEditor> curve_editors = new Gee.ArrayList<FanCurveEditor>();
         private string fan_layout = "";
+        private SettingsSubpages subpages;
+        private SettingsPage games_page;
+        private SettingsPage fans_page;
 
         public PerformancePage(SettingsView view) {
             base(_("Performance"));
             back_clicked.connect(() => view.go_home());
             _settings = new GLib.Settings("dev.sinty.desktop");
+            subpages = new SettingsSubpages(view, this, "performance");
+            games_page = subpages.create(_("Games"));
+            fans_page = subpages.create(_("Fans"));
 
             var gm = GameModeManager.get_default();
 
@@ -60,7 +66,7 @@ namespace Singularity.SidebarPages {
                 manual_row.sensitive = gm.available;
             });
 
-            add_group(gm_group);
+            games_page.add_group(gm_group);
 
             // MangoHud
             bool mangohud_available = GLib.Environment.find_program_in_path("mangohud") != null;
@@ -77,7 +83,7 @@ namespace Singularity.SidebarPages {
                 _settings.set_boolean("mangohud-auto", hud_auto_row.active);
             });
             hud_group.add_row(hud_auto_row);
-            add_group(hud_group);
+            games_page.add_group(hud_group);
 
             // Power profile. The platform profiles (Power Saver, Balanced,
             // Performance) go through power-profiles-daemon, which sets the CPU
@@ -95,11 +101,20 @@ namespace Singularity.SidebarPages {
                 apply_profile_label(ppm, extreme, item);
             });
             profile_group.add_row(profile_row);
+            profile_group.visible = ppm.available;
+            ppm.notify["available"].connect(() => profile_group.visible = ppm.available);
             add_group(profile_group);
+
 
             build_fans();
 
-            // Display link
+            var tuning_group = new PreferencesGroup(_("Tuning"));
+            tuning_group.add_row(subpages.link(_("Games"), _("Game Mode, MangoHud and tearing"),
+                "input-gaming-symbolic", games_page, "performance-games"));
+            tuning_group.add_row(subpages.link(_("Fans"), _("Fan speed, temperature and fan curves"),
+                "weather-windy-symbolic", fans_page, "performance-fans"));
+            add_group(tuning_group);
+
             var display_group = new PreferencesGroup(_("Display"));
             var vrr_link = new ActionRow(_("Variable Refresh Rate (VRR)"), _("Configure VRR in Display settings"), "video-display-symbolic");
             vrr_link.activatable = true;
@@ -109,8 +124,8 @@ namespace Singularity.SidebarPages {
         }
 
         private void build_fans() {
-            fans_group = new PreferencesGroup(_("Fans"), _("Live fan speed and temperature"));
-            add_group(fans_group);
+            fans_group = new PreferencesGroup(_("Speed and Temperature"), _("Live fan speed and temperature"));
+            fans_page.add_group(fans_group);
 
             var control = FanControlManager.get_default();
             control.changed.connect(() => {
@@ -121,11 +136,11 @@ namespace Singularity.SidebarPages {
 
             fan_monitor = new SensorMonitor();
             fan_monitor.updated.connect(update_fans);
-            map.connect(() => {
+            fans_page.map.connect(() => {
                 fan_monitor.start();
                 control.refresh.begin();
             });
-            unmap.connect(() => fan_monitor.stop());
+            fans_page.unmap.connect(() => fan_monitor.stop());
             fan_monitor.refresh();
         }
 
@@ -427,7 +442,7 @@ namespace Singularity.SidebarPages {
         }
 
         // Label for the current state: Extreme Save wins over the PPD profile.
-        private static string current_profile_label(PowerProfilesManager ppm, ExtremeModeManager extreme) {
+        internal static string current_profile_label(PowerProfilesManager ppm, ExtremeModeManager extreme) {
             if (extreme.active) return "Extreme Save";
             switch (ppm.active_profile) {
                 case "power-saver": return "Power Saver";
@@ -439,7 +454,7 @@ namespace Singularity.SidebarPages {
         // Apply a chosen label, mirroring the system tile: Extreme Save turns on
         // extreme mode over PPD power-saver; the others turn it off and set the
         // matching PPD profile.
-        private void apply_profile_label(PowerProfilesManager ppm, ExtremeModeManager extreme, string label) {
+        internal static void apply_profile_label(PowerProfilesManager ppm, ExtremeModeManager extreme, string label) {
             switch (label) {
                 case "Extreme Save":
                     extreme.set_extreme_mode(true);
@@ -458,6 +473,11 @@ namespace Singularity.SidebarPages {
                     ppm.set_profile("performance");
                     break;
             }
+        }
+
+        private static int index_of(string[] values, string value) {
+            for (int i = 0; i < values.length; i++) if (values[i] == value) return i;
+            return 0;
         }
     }
 }

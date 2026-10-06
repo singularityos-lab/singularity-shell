@@ -11,7 +11,7 @@ lock_pixbuf_dep     = dependency('gdk-pixbuf-2.0')
 lock_gio_dep        = dependency('gio-2.0')
 
 executable('singularity-lockscreen',
-  ['lock_main.c', 'pam_auth.c', 'lock_media.c'],
+  ['lock_main.c', 'pam_auth.c', 'lock_media.c', 'lock_notifs.c', 'lock_fprint.c'],
   sources: [sl_proto_c, sl_proto_h],
   dependencies: [
     lock_wl_dep,

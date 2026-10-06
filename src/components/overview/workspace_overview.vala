@@ -13,11 +13,25 @@ namespace Singularity {
         private Picture background_picture;
         private Box ws_strip_container;
         private Gtk.Widget anim_box;
-        private uint _anim_out_timer = 0;
-        private Singularity.Animation.TimedAnimation? _gesture_animation = null;
+        private Singularity.Animation.MotionBin stage;
+        private Singularity.Animation.MotionBin spread_bin;
+        private Singularity.Animation.PageTransition page_transition;
+        private Singularity.Animation.TimedAnimation? _stage_fade = null;
+        private Singularity.Animation.SpringAnimation? _gesture_spring = null;
+        private const double GESTURE_TRAVEL = 72.0;
+        private const double CARD_HOVER_SCALE = 1.02;
+        private const double CARD_SELECTED_SCALE = 1.04;
+        private const string CARD_HOVER_KEY = "workspace-card-hovered";
         private bool _gesture_active = false;
         private bool _gesture_opening = false;
         private AppSystem.Workspace? viewed_workspace = null;
+        private GLib.Settings gesture_settings = new GLib.Settings("dev.sinty.desktop");
+        private int _gesture_start_index = -1;
+        private int _gesture_peek_min = 0;
+        private int _gesture_peek_max = 0;
+        private double _gesture_dx = 0;
+        private int64[] _gesture_times = {};
+        private double[] _gesture_xs = {};
         private int viewed_index = -1;
         private Gdk.Monitor? pinned_monitor = null;
 
@@ -86,7 +100,8 @@ namespace Singularity {
 
             anim_box = new Overlay();
             anim_box.add_css_class("workspace-overview-box");
-            set_child(anim_box);
+            stage = new Singularity.Animation.MotionBin(anim_box);
+            set_child(stage);
             var overlay = (Overlay)anim_box;
 
             // Wallpaper Background
@@ -125,13 +140,14 @@ namespace Singularity {
             ws_box.margin_end = 48;
             ws_scroll.set_child(ws_box);
 
-            // Window Stack (Middle area - Animated transition between spreads)
             window_stack = new Stack();
-            window_stack.transition_type = StackTransitionType.SLIDE_LEFT_RIGHT;
-            window_stack.transition_duration = 400;
             window_stack.vexpand = true;
             window_stack.hexpand = true;
-            main_box.append(window_stack);
+            page_transition = Singularity.Animation.PageTransition.attach(window_stack);
+            spread_bin = new Singularity.Animation.MotionBin(window_stack);
+            spread_bin.vexpand = true;
+            spread_bin.hexpand = true;
+            main_box.append(spread_bin);
 
             app_system.workspaces_changed.connect(schedule_refresh_overview);
 
@@ -178,59 +194,80 @@ namespace Singularity {
 
             var workspaces = app_system.get_workspaces_for_monitor(target_monitor);
             int new_index = workspaces.index(ws);
-            var transition = StackTransitionType.CROSSFADE;
 
             if (viewed_index != -1) {
-                transition = (new_index > viewed_index) ? StackTransitionType.SLIDE_LEFT : StackTransitionType.SLIDE_RIGHT;
+                if (new_index > viewed_index) page_transition.forward();
+                else page_transition.back();
             }
 
             this.viewed_workspace = ws;
             this.viewed_index = new_index;
 
-            // Create and switch to new spread
             var spread = create_spread_widget(ws);
             string ws_id = "ws_%p".printf(ws.handle);
             stack_add_unique(spread, ws_id);
-            window_stack.set_visible_child_full(ws_id, transition);
+            window_stack.set_visible_child(spread);
+            remove_hidden_spreads();
+            update_card_selection(true);
+        }
 
-            // Clean up old spreads after a delay. Coalesce into a single timer
-            // and keep whatever is CURRENTLY visible (not the spread captured
-            // when this timer was scheduled): scrolling fast queued several
-            // timers, and an older one removed the newest spread, blanking the
-            // whole overview until you scrolled back and forth (#48).
-            if (_spread_cleanup_id != 0) {
-                GLib.Source.remove(_spread_cleanup_id);
-                _spread_cleanup_id = 0;
+        private void remove_hidden_spreads() {
+            var keep = window_stack.get_visible_child();
+            Widget? child = window_stack.get_first_child();
+            while (child != null) {
+                Widget next = child.get_next_sibling();
+                if (child != keep) window_stack.remove(child);
+                child = next;
             }
-            _spread_cleanup_id = Timeout.add(600, () => {
-                _spread_cleanup_id = 0;
-                var keep = window_stack.get_visible_child();
-                Widget? child = window_stack.get_first_child();
-                while (child != null) {
-                    Widget next = child.get_next_sibling();
-                    if (child != keep) {
-                        window_stack.remove(child);
-                    }
-                    child = next;
-                }
-                return Source.REMOVE;
-            });
+        }
 
-            // Update card selection visually
-            Widget? card_child = ws_box.get_first_child();
-            while (card_child != null) {
-                if (card_child is WorkspaceCard) {
-                    var card = (WorkspaceCard)card_child;
-                    if (card.ws == ws) card.add_css_class("selected");
+        private void update_card_selection(bool animate) {
+            Widget? holder = ws_box.get_first_child();
+            while (holder != null) {
+                var bin = holder as Singularity.Animation.MotionBin;
+                var card = bin != null ? bin.child as WorkspaceCard : null;
+                if (card != null && card.ws != null) {
+                    if (card.ws == viewed_workspace) card.add_css_class("selected");
                     else card.remove_css_class("selected");
                 }
-                card_child = card_child.get_next_sibling();
+                if (bin != null) settle_card(bin, animate);
+                holder = holder.get_next_sibling();
+            }
+        }
+
+        private Singularity.Animation.MotionBin hold_card(WorkspaceCard card) {
+            var bin = new Singularity.Animation.MotionBin(card);
+            var hover = new EventControllerMotion();
+            hover.enter.connect(() => {
+                bin.set_data<bool>(CARD_HOVER_KEY, true);
+                settle_card(bin, true);
+            });
+            hover.leave.connect(() => {
+                bin.set_data<bool>(CARD_HOVER_KEY, false);
+                settle_card(bin, true);
+            });
+            bin.add_controller(hover);
+            return bin;
+        }
+
+        private void settle_card(Singularity.Animation.MotionBin bin, bool animate) {
+            var card = bin.child as WorkspaceCard;
+            if (card == null) return;
+            double target = 1.0;
+            if (!Singularity.Motion.reduced()) {
+                if (card.has_css_class("selected")) target = CARD_SELECTED_SCALE;
+                else if (bin.get_data<bool>(CARD_HOVER_KEY)) target = CARD_HOVER_SCALE;
+            }
+            if (animate && bin.get_mapped()) {
+                Singularity.Motion.spring_to(bin, "scale", target, Singularity.Motion.Spring.SNAPPY);
+            } else {
+                Singularity.Motion.cancel(bin, "scale");
+                bin.scale = target;
             }
         }
 
         private bool _refresh_pending_overview = false;
         private int _spread_seq = 0;
-        private uint _spread_cleanup_id = 0;
 
         private void schedule_refresh_overview() {
             // Never refresh when hidden - avoids constant SHM buffer allocation in background
@@ -256,16 +293,13 @@ namespace Singularity {
             var spread = create_spread_widget(viewed_workspace);
             string ws_id = "ws_refresh_%d".printf(_spread_seq++);
             window_stack.add_named(spread, ws_id);
-            window_stack.set_visible_child_full(ws_id, StackTransitionType.CROSSFADE);
-            Timeout.add(600, () => {
-                Widget? child = window_stack.get_first_child();
-                while (child != null) {
-                    Widget next = child.get_next_sibling();
-                    if (child != spread) window_stack.remove(child);
-                    child = next;
-                }
-                return Source.REMOVE;
-            });
+            page_transition.enabled = false;
+            window_stack.set_visible_child(spread);
+            page_transition.enabled = true;
+            remove_hidden_spreads();
+            spread.opacity = 0.0;
+            Singularity.Motion.tween(spread, "opacity", 1.0,
+                Singularity.Motion.Duration.MEDIUM, Singularity.Motion.Curve.ENTER);
         }
 
         // Rebuilds only the workspace strip (WorkspaceCards). Does NOT touch the spread.
@@ -292,12 +326,14 @@ namespace Singularity {
                 } else if (viewed_workspace == null && ws.active) {
                     card.add_css_class("selected");
                 }
-                ws_box.append(card);
+                var holder = hold_card(card);
+                ws_box.append(holder);
+                settle_card(holder, false);
                 index++;
             }
             var ghost_card = new WorkspaceCard(null, index, true);
             ghost_card.set_size_request(160, 90);
-            ws_box.append(ghost_card);
+            ws_box.append(hold_card(ghost_card));
 
             if (viewed_workspace == null || active_ws != null) {
                 if (viewed_workspace == null || (active_ws != null && viewed_workspace.active)) {
@@ -354,23 +390,8 @@ namespace Singularity {
             int cols = (int)Math.ceil(Math.sqrt(count));
             int rows = (int)Math.ceil((double)count / cols);
 
-            int screen_w = get_width() > 100 ? get_width() : 1920;
-            int screen_h = get_height() > 100 ? get_height() : 1080;
-            // Try to get actual monitor dimensions if window size not yet available
-            if (screen_w == 1920 || screen_h == 1080) {
-                var surface = get_surface();
-                if (surface != null) {
-                    var display = Gdk.Display.get_default();
-                    if (display != null) {
-                        var monitor = display.get_monitor_at_surface(surface);
-                        if (monitor != null) {
-                            var geom = monitor.get_geometry();
-                            if (geom.width > 100) screen_w = geom.width;
-                            if (geom.height > 100) screen_h = geom.height;
-                        }
-                    }
-                }
-            }
+            int screen_w, screen_h;
+            screen_size(out screen_w, out screen_h);
 
             int area_w = (int)(screen_w * 0.9);
             int top_reserved = 178 + 20;
@@ -401,6 +422,27 @@ namespace Singularity {
 
         private Gdk.Monitor? target_monitor = null;
 
+        private void screen_size(out int screen_w, out int screen_h) {
+            Gdk.Monitor? monitor = target_monitor ?? GtkLayerShell.get_monitor(this);
+            var display = Gdk.Display.get_default();
+            if (monitor == null && display != null) {
+                var surface = get_surface();
+                if (surface != null) monitor = display.get_monitor_at_surface(surface);
+                if (monitor == null && display.get_monitors().get_n_items() > 0)
+                    monitor = display.get_monitors().get_item(0) as Gdk.Monitor;
+            }
+            if (monitor != null) {
+                var geom = monitor.get_geometry();
+                if (geom.width > 100 && geom.height > 100) {
+                    screen_w = geom.width;
+                    screen_h = geom.height;
+                    return;
+                }
+            }
+            screen_w = get_width() > 100 ? get_width() : 1920;
+            screen_h = get_height() > 100 ? get_height() : 1080;
+        }
+
         private void pick_monitor() {
             closing = false;
             target_monitor = pinned_monitor;
@@ -412,53 +454,77 @@ namespace Singularity {
         public void toggle() {
             if (visible && Singularity.DebugManager.get_default().workspaces_pinned)
                 return; // dev aid: keep workspaces open for screenshots
-            if (_gesture_animation != null) {
-                _gesture_animation.reset();
-                _gesture_animation = null;
-            }
+            stop_gesture_spring();
             _gesture_active = false;
             if (visible) {
+                if (closing) return;
                 // Commit the workspace the user navigated to: closing the
                 // overview should leave you on the selected workspace (#108).
                 if (viewed_workspace != null) {
                     app_system.activate_workspace(viewed_workspace);
                 }
-                if (_anim_out_timer != 0) {
-                    GLib.Source.remove(_anim_out_timer);
-                    _anim_out_timer = 0;
-                }
-                anim_box.remove_css_class("animating-in");
-                anim_box.add_css_class("animating-out");
                 closing = true;
                 hiding();
-                _anim_out_timer = GLib.Timeout.add(180, () => {
-                    _anim_out_timer = 0;
-                    opacity = 0;
-                    anim_box.remove_css_class("animating-out");
-                    close_layer_window (this);
-                    // Free all window preview textures - they'll be re-captured on next open
-                    clear_overview_content();
-                    hidden();
-                    return GLib.Source.REMOVE;
-                });
+                animate_stage(false);
             } else {
-                pick_monitor();
+                    pick_monitor();
                 refresh();
-                if (_anim_out_timer != 0) {
-                    GLib.Source.remove(_anim_out_timer);
-                    _anim_out_timer = 0;
-                    anim_box.remove_css_class("animating-out");
-                }
-                anim_box.remove_css_class("animating-out");
-                anim_box.add_css_class("animating-in");
+                reset_spread_motion();
+                stage.opacity = 0.0;
+                stage.scale = Singularity.Motion.ENTER_SCALE;
                 opacity = 1;
-                GLib.Timeout.add(220, () => {
-                    anim_box.remove_css_class("animating-in");
-                    return GLib.Source.REMOVE;
-                });
                 present();
+                update_card_selection(false);
+                animate_stage(true);
                 shown();
             }
+        }
+
+        private void animate_stage(bool entering) {
+            var duration = Singularity.Motion.Duration.LARGE;
+            uint ms = entering ? duration.ms() : duration.exit_ms();
+            var curve = entering ? Singularity.Motion.Curve.ENTER : Singularity.Motion.Curve.EXIT;
+            if (Singularity.Motion.reduced()) {
+                Singularity.Motion.cancel(stage, "scale");
+                stage.scale = 1.0;
+            } else {
+                Singularity.Motion.tween(stage, "scale", entering ? 1.0 : Singularity.Motion.EXIT_SCALE, ms, curve);
+            }
+            var fade = Singularity.Motion.tween(stage, "opacity", entering ? 1.0 : 0.0, ms, curve);
+            _stage_fade = fade;
+            fade.done.connect(() => {
+                if (_stage_fade != fade) return;
+                _stage_fade = null;
+                if (!entering) finish_hide();
+            });
+        }
+
+        private void finish_hide() {
+            if (!closing || !visible) return;
+            _stage_fade = null;
+            Singularity.Motion.cancel(stage, "opacity");
+            Singularity.Motion.cancel(stage, "scale");
+            stage.opacity = 0.0;
+            stage.reset_transform();
+            reset_spread_motion();
+            close_layer_window (this);
+            // Free all window preview textures - they'll be re-captured on next open
+            clear_overview_content();
+            hidden();
+        }
+
+        private void stop_gesture_spring() {
+            if (_gesture_spring == null) return;
+            var spring = _gesture_spring;
+            _gesture_spring = null;
+            spring.reset();
+        }
+
+        private void reset_spread_motion() {
+            stop_gesture_spring();
+            Singularity.Motion.cancel(spread_bin, "opacity");
+            spread_bin.opacity = 1.0;
+            spread_bin.reset_transform();
         }
 
         private void clear_overview_content() {
@@ -475,37 +541,103 @@ namespace Singularity {
 
         public void begin_gesture(bool opening) {
             if ((opening && visible) || (!opening && !visible)) return;
-            if (_gesture_animation != null) {
-                _gesture_animation.reset();
-                _gesture_animation = null;
-            }
-            if (_anim_out_timer != 0) {
-                GLib.Source.remove(_anim_out_timer);
-                _anim_out_timer = 0;
-            }
-            anim_box.remove_css_class("animating-in");
-            anim_box.remove_css_class("animating-out");
+            closing = false;
+            _stage_fade = null;
+            Singularity.Motion.cancel(stage, "opacity");
+            Singularity.Motion.cancel(stage, "scale");
+            stage.opacity = 1.0;
+            stage.reset_transform();
+            reset_spread_motion();
             _gesture_active = true;
             _gesture_opening = opening;
-            window_stack.opacity = 1;
-            window_stack.margin_top = 0;
+            double start = opening ? 0.0 : 1.0;
+            spread_bin.opacity = start;
+            spread_bin.translate_y = (1.0 - start) * GESTURE_TRAVEL;
+            var spring = new Singularity.Animation.SpringAnimation(
+                spread_bin, start, start, Singularity.Motion.Spring.GENTLE);
+            spring.reduced_mode = Singularity.Animation.ReducedMode.FULL;
+            spring.set_sink((value) => spread_bin.translate_y = (1.0 - value) * GESTURE_TRAVEL);
+            _gesture_spring = spring;
+            opacity = 1;
             if (opening) {
                 pick_monitor();
                 refresh();
                 present();
+                update_card_selection(false);
                 shown();
-            } else {
-                opacity = 1;
             }
+            var workspaces = app_system.get_workspaces_for_monitor(target_monitor);
+            _gesture_start_index = viewed_workspace != null ? workspaces.index(viewed_workspace) : -1;
+            if (_gesture_start_index < 0) {
+                for (int i = 0; i < (int) workspaces.length(); i++) {
+                    if (workspaces.nth_data(i).active) _gesture_start_index = i;
+                }
+            }
+            _gesture_peek_min = _gesture_peek_max = int.max(0, _gesture_start_index);
+            _gesture_dx = 0;
+            _gesture_times = {};
+            _gesture_xs = {};
         }
 
-        public void update_gesture(double dy) {
+        private bool two_dimensional() {
+            return gesture_settings.get_boolean("gesture-two-dimensional");
+        }
+
+        private double gesture_position() {
+            return int.max(0, _gesture_start_index) - _gesture_dx / 400.0;
+        }
+
+        private void follow_horizontal(double dx) {
+            if (!two_dimensional() || _gesture_start_index < 0) return;
+            _gesture_dx = dx;
+            _gesture_times += GLib.get_monotonic_time();
+            _gesture_xs += dx;
+            var workspaces = app_system.get_workspaces_for_monitor(target_monitor);
+            int count = (int) workspaces.length();
+            if (count < 2) return;
+            int index = ((int) Math.round(gesture_position())).clamp(0, count - 1);
+            _gesture_peek_min = int.min(_gesture_peek_min, index);
+            _gesture_peek_max = int.max(_gesture_peek_max, index);
+            var ws = workspaces.nth_data(index);
+            if (ws != null && ws != viewed_workspace) set_viewed_workspace(ws);
+        }
+
+        private double horizontal_velocity() {
+            int n = _gesture_times.length;
+            if (n < 2) return 0;
+            int64 now = _gesture_times[n - 1];
+            int first = n - 1;
+            while (first > 0 && now - _gesture_times[first - 1] <= 150000) first--;
+            if (first == n - 1) return 0;
+            double ms = (now - _gesture_times[first]) / 1000.0;
+            if (ms <= 0) return 0;
+            return (_gesture_xs[n - 1] - _gesture_xs[first]) / ms;
+        }
+
+        private AppSystem.Workspace? gesture_target() {
+            if (!two_dimensional() || _gesture_start_index < 0) return viewed_workspace;
+            var workspaces = app_system.get_workspaces_for_monitor(target_monitor);
+            int count = (int) workspaces.length();
+            if (count < 2) return viewed_workspace;
+            double position = gesture_position();
+            double velocity = horizontal_velocity();
+            int target;
+            if (velocity <= -0.6) target = (int) Math.floor(position) + 1;
+            else if (velocity >= 0.6) target = (int) Math.ceil(position) - 1;
+            else target = (int) Math.round(position);
+            target = target.clamp(_gesture_peek_min - 1, _gesture_peek_max + 1).clamp(0, count - 1);
+            return workspaces.nth_data(target);
+        }
+
+        public void update_gesture(double dy, double dx = 0) {
             if (!_gesture_active) return;
+            follow_horizontal(dx);
             double distance = Math.fabs(dy);
             double progress = double.max(0, double.min(1, distance / 240.0));
             double value = _gesture_opening ? progress : 1.0 - progress;
-            window_stack.opacity = value;
-            window_stack.margin_top = (int)Math.round((1.0 - value) * 72.0);
+            if (_gesture_spring != null) _gesture_spring.track(value);
+            spread_bin.translate_y = (1.0 - value) * GESTURE_TRAVEL;
+            spread_bin.opacity = value;
         }
 
         public void end_gesture(bool committed) {
@@ -513,43 +645,31 @@ namespace Singularity {
             _gesture_active = false;
             bool stay_open = _gesture_opening ? committed : !committed;
             double target = stay_open ? 1.0 : 0.0;
+            var chosen = gesture_target();
+            if (chosen != null && chosen != viewed_workspace && stay_open) set_viewed_workspace(chosen);
             if (!stay_open) {
+                if (chosen != null && !chosen.active) app_system.activate_workspace(chosen);
                 closing = true;
                 hiding();
             }
-            double current = window_stack.opacity;
-            if (!Gtk.Settings.get_default().gtk_enable_animations
-                    || Math.fabs(current - target) < 0.001) {
-                window_stack.opacity = target;
-                window_stack.margin_top = 0;
-                if (!stay_open) {
-                    close_layer_window (this);
-                    clear_overview_content();
-                    hidden();
+            if (_gesture_spring != null) {
+                if (Singularity.Motion.reduced()) {
+                    stop_gesture_spring();
+                    spread_bin.translate_y = (1.0 - target) * GESTURE_TRAVEL;
+                } else {
+                    _gesture_spring.release(target);
                 }
-                return;
             }
-            uint duration = (uint)double.max(80,
-                180.0 * Math.fabs(target - current));
-            var animation = new Singularity.Animation.TimedAnimation(
-                this, current, target, duration,
-                Singularity.Animation.TimedAnimation.Easing.EASE_OUT_CUBIC);
-            _gesture_animation = animation;
-            animation.tick.connect(() => {
-                window_stack.opacity = animation.value;
-                window_stack.margin_top = (int)Math.round((1.0 - animation.value) * 72.0);
+            var duration = Singularity.Motion.Duration.MEDIUM;
+            var fade = Singularity.Motion.tween(spread_bin, "opacity", target,
+                stay_open ? duration.ms() : duration.exit_ms(),
+                stay_open ? Singularity.Motion.Curve.ENTER : Singularity.Motion.Curve.EXIT);
+            _stage_fade = fade;
+            fade.done.connect(() => {
+                if (_stage_fade != fade) return;
+                _stage_fade = null;
+                if (!stay_open) finish_hide();
             });
-            animation.done.connect(() => {
-                window_stack.opacity = target;
-                window_stack.margin_top = 0;
-                if (_gesture_animation == animation) _gesture_animation = null;
-                if (!stay_open) {
-                    close_layer_window (this);
-                    clear_overview_content();
-                    hidden();
-                }
-            });
-            animation.play();
         }
     }
 
@@ -558,6 +678,7 @@ namespace Singularity {
         private Picture preview_img;
         private Label title_label;
         private DragSource drag_source;
+        private Singularity.Animation.MotionBin lift;
         private bool is_destroyed = false;
         private ulong _title_signal_id = 0;
         private void* _capture_token = null;
@@ -586,7 +707,13 @@ namespace Singularity {
             add_css_class("window-preview-item");
 
             var overlay = new Overlay();
-            append(overlay);
+            lift = new Singularity.Animation.MotionBin(overlay);
+            append(lift);
+
+            var hover = new EventControllerMotion();
+            hover.enter.connect(() => settle_hover(true));
+            hover.leave.connect(() => settle_hover(false));
+            add_controller(hover);
 
             preview_img = new Picture();
             preview_img.content_fit = ContentFit.CONTAIN;
@@ -627,7 +754,15 @@ namespace Singularity {
             }
 
             var click = new GestureClick();
-            click.released.connect(on_preview_clicked);
+            click.button = 0;
+            click.released.connect((n, x, y) => {
+                if (click.get_current_button() == Gdk.BUTTON_MIDDLE) {
+                    close_preview();
+                    return;
+                }
+                if (click.get_current_button() != Gdk.BUTTON_PRIMARY) return;
+                on_preview_clicked(n, x, y);
+            });
             add_controller(click);
 
             drag_source = new DragSource();
@@ -635,6 +770,23 @@ namespace Singularity {
             drag_source.prepare.connect(on_drag_prepare);
             drag_source.drag_begin.connect(on_drag_begin);
             add_controller(drag_source);
+        }
+
+        private void settle_hover(bool hovered) {
+            if (!sensitive) return;
+            double target = hovered && !Singularity.Motion.reduced() ? 1.02 : 1.0;
+            Singularity.Motion.spring_to(lift, "scale", target, Singularity.Motion.Spring.SNAPPY);
+        }
+
+        private void close_preview() {
+            if (win.handle == null) return;
+            sensitive = false;
+            var duration = Singularity.Motion.Duration.SMALL;
+            if (!Singularity.Motion.reduced()) {
+                Singularity.Motion.tween(lift, "scale", 0.94, duration.ms(), Singularity.Motion.Curve.EXIT);
+            }
+            Singularity.Motion.tween(lift, "opacity", 0.35, duration.ms(), Singularity.Motion.Curve.EXIT);
+            Singularity.close_window(win.handle);
         }
 
         private void on_preview_clicked(int n_press, double x, double y) {

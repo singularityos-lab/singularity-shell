@@ -6,7 +6,11 @@ namespace Singularity {
 
     public class Dock : Gtk.Window, Singularity.DebugInspectable {
         private Box dock_box;
+        private DockMotionHints? motion_hints = null;
+        private DockMagnifier magnifier;
         private Overlay main_container;
+        private Singularity.Animation.MotionBin intro_motion;
+        private Singularity.Animation.MotionBin hide_motion;
         private Box layout_surface;
         private Box start_area;
         private ScrolledWindow start_viewport;
@@ -46,6 +50,7 @@ namespace Singularity {
         private bool _overview_active = false;
         private int64 _hover_start_us = 0;
         private const int64 HOVER_GRACE_US = 600000;
+        private const double INTRO_DISTANCE = 62.0;
         private uint _slide_timer_id = 0;
         private uint _fade_timer_id = 0;
         private uint _leave_timeout_id = 0;
@@ -124,7 +129,9 @@ namespace Singularity {
             main_container = new Overlay();
             main_container.add_css_class("dock-container");
             main_container.overflow = Overflow.VISIBLE;
-            dock_overlay.set_child(main_container);
+            intro_motion = new Singularity.Animation.MotionBin(main_container);
+            hide_motion = new Singularity.Animation.MotionBin(intro_motion);
+            dock_overlay.set_child(hide_motion);
 
             layout_surface = new Box(Orientation.HORIZONTAL, 0);
             layout_surface.hexpand = true;
@@ -167,7 +174,18 @@ namespace Singularity {
 
             dock_box = new Box(Orientation.HORIZONTAL, 5);
             dock_box.halign = Align.CENTER;
+            magnifier = new DockMagnifier(dock_box, _settings);
+            if (magnifier.enabled) add_css_class("magnify-active");
+            magnifier.changed.connect(() => {
+                if (magnifier.enabled) add_css_class("magnify-active");
+                else remove_css_class("magnify-active");
+                update_gap();
+                update_layout_viewports();
+                update_dock_reservation();
+            });
             center_wrapper.append(dock_box);
+            motion_hints = new DockMotionHints(this, dock_box, running_aliases);
+            dock_visibility_changed.connect((hidden) => motion_hints.set_hidden(hidden));
             layout_items["applications"] = dock_box;
 
             // Resources (files / folders / links dropped on the
@@ -393,6 +411,7 @@ namespace Singularity {
             if (is_primary) {
                 _dbus_service = new Singularity.DockDBusService();
                 plugin_ctx.add_dock_item_extension(_dbus_service);
+                plugin_ctx.add_dock_context_menu_provider(_dbus_service);
                 _dbus_service.own_bus();
             }
             update_clock();
@@ -438,11 +457,11 @@ namespace Singularity {
             if (pos == "left") {
                 _current_margin = gap;
                 set_margin(this, GtkLayerShell.Edge.LEFT, gap);
-                main_container.margin_end = gap;
+                main_container.margin_end = gap + magnifier.headroom(true);
             } else if (pos == "right") {
                 _current_margin = gap;
                 set_margin(this, GtkLayerShell.Edge.RIGHT, gap);
-                main_container.margin_start = gap;
+                main_container.margin_start = gap + magnifier.headroom(true);
             } else {
                 _current_margin = gap;
                 // The dock-box casts a 16px bottom shadow that lives in the
@@ -450,7 +469,7 @@ namespace Singularity {
                 // much so the shadow is not clipped at the surface edge,
                 // while the dock stays at the same visual gap (#162).
                 set_margin(this, GtkLayerShell.Edge.BOTTOM, int.max(0, gap - 21));
-                main_container.margin_top = gap;
+                main_container.margin_top = gap + magnifier.headroom(true);
             }
         }
 
@@ -559,6 +578,9 @@ namespace Singularity {
             foreach (ScrolledWindow viewport in viewports) {
                 viewport.max_content_width = vertical ? -1 : limit;
                 viewport.max_content_height = vertical ? limit : -1;
+                viewport.overflow = magnifier.enabled && !editing ? Overflow.VISIBLE : Overflow.HIDDEN;
+                var inner = viewport.get_child();
+                if (inner != null) inner.overflow = viewport.overflow;
                 if (editing) viewport.add_css_class("editing");
                 else viewport.remove_css_class("editing");
             }
@@ -837,7 +859,8 @@ namespace Singularity {
                 && !_hidden_for_fullscreen
                 && (scrolling_tiling || (visibility_mode == "always"
                     && !autohide && !intellihide));
-            int zone = reserve ? int.max(0, _last_dimension - SHADOW_BOTTOM_PX) : 0;
+            int headroom = dock_style == "panel" ? 0 : magnifier.headroom(true);
+            int zone = reserve ? int.max(0, _last_dimension - SHADOW_BOTTOM_PX - headroom) : 0;
             bool changed = app_system.shell_dock_height != zone;
             set_exclusive_zone(this, zone);
             app_system.shell_dock_height = zone;
@@ -1032,92 +1055,50 @@ namespace Singularity {
                 GLib.Source.remove(_fade_timer_id);
                 _fade_timer_id = 0;
             }
-
-            int gap = _settings.get_int("dock-gap");
-            GtkLayerShell.Edge edge = _dock_edge();
-            int off = -(_last_dimension - 4);
-
-            if (hide) {
-                set_body_class("dock-reveal-offset", false);
-                update_dock_reservation();
-                if (edge == GtkLayerShell.Edge.BOTTOM) {
-                    set_body_class("dock-hiding", true);
-                    _fade_timer_id = GLib.Timeout.add(260, () => {
-                        _current_margin = off;
-                        set_margin(this, edge, off);
-                        _fade_timer_id = 0;
-                        return GLib.Source.REMOVE;
-                    });
-                } else {
-                    start_slide(edge, _current_margin, off);
-                }
-            } else {
-                set_body_class("dock-hiding", false);
-                // Revealing means we are not fullscreen-hidden; make sure the
-                // surface is back on the OVERLAY layer. After leaving a
-                // fullscreen video the dock could be left on BACKGROUND and
-                // would otherwise slide in underneath a maximized window (#110).
-                if (!_hidden_for_fullscreen) {
-                    set_layer(this, GtkLayerShell.Layer.OVERLAY);
-                }
-                update_dock_reservation();
-                // Returning on-screen needs a fresh buffer; the idle frame clock
-                // won't render one, so an unmap->map cycle at the visible margin
-                // forces it (otherwise the surface comes back blank).
-                // For the bottom dock, pull the surface down so the dock-box
-                // bottom shadow (16px, reserved in the container margin) is not
-                // clipped at the surface edge, keeping the dock near the edge.
-                int rest_margin = (edge == GtkLayerShell.Edge.BOTTOM)
-                    ? int.max(0, gap - 21) : gap;
-                _current_margin = rest_margin;
-                set_margin(this, edge, rest_margin);
-                // Slide the content up from below: offset it down (no transition,
-                // clipped out of the surface), remap, then drop the offset so the
-                // CSS transform transition animates it into view. The frame clock
-                // is live right after the remap (and we pulse it), so the content
-                // transform is presented reliably without moving the surface.
-                set_body_class("dock-reveal-offset", true);
-                close_layer_window (this);
-                present();
-                start_content_slide();
+            if (!_hidden_for_fullscreen) {
+                set_layer(this, GtkLayerShell.Layer.OVERLAY);
             }
+            update_dock_reservation();
+            if (!hide && !get_mapped()) present();
+            slide_content(hide, _dock_edge());
             pulse_frame_clock();
         }
 
-        private void start_content_slide() {
-            // Drop the offset a couple of frames after the remap so the transform
-            // transition has an applied start state to animate from.
-            _fade_timer_id = GLib.Timeout.add(32, () => {
-                set_body_class("dock-reveal-offset", false);
-                _fade_timer_id = 0;
-                GLib.Timeout.add(260, () => {
-                    update_input_region();
-                    return GLib.Source.REMOVE;
-                });
-                return GLib.Source.REMOVE;
-            });
+        private void slide_content(bool hide, GtkLayerShell.Edge edge) {
+            bool vertical = edge != GtkLayerShell.Edge.BOTTOM;
+            string property = vertical ? "translate-x" : "translate-y";
+            string other = vertical ? "translate-y" : "translate-x";
+            Singularity.Motion.cancel(hide_motion, other);
+            if (vertical) hide_motion.translate_y = 0.0;
+            else hide_motion.translate_x = 0.0;
+            double distance = double.max(_last_dimension, vertical ? get_width() : get_height()) + 8.0;
+            double target = 0.0;
+            if (hide) target = edge == GtkLayerShell.Edge.LEFT ? -distance : distance;
+            if (Singularity.Motion.reduced()) {
+                Singularity.Motion.cancel(hide_motion, property);
+                if (vertical) hide_motion.translate_x = 0.0;
+                else hide_motion.translate_y = 0.0;
+                Singularity.Motion.tween(hide_motion, "opacity", hide ? 0.0 : 1.0,
+                    Singularity.Motion.Duration.SMALL, Singularity.Motion.Curve.LINEAR)
+                    .done.connect(settle_input_region);
+                return;
+            }
+            Singularity.Motion.cancel(hide_motion, "opacity");
+            hide_motion.opacity = 1.0;
+            Singularity.Motion.tween(hide_motion, property, target,
+                Singularity.Motion.Duration.LARGE, Singularity.Motion.Curve.STANDARD)
+                .done.connect(settle_input_region);
         }
 
-        private void start_slide(GtkLayerShell.Edge edge, int start, int target) {
-            _current_margin = start;
-            set_margin(this, edge, start);
-            int span = target - start;
-            if (span == 0) return;
-            int64 t0 = GLib.get_monotonic_time();
-            int64 duration_us = 200000;
-            _slide_timer_id = GLib.Timeout.add(16, () => {
-                double t = (double)(GLib.get_monotonic_time() - t0) / (double)duration_us;
-                if (t >= 1.0) {
-                    _current_margin = target;
-                    set_margin(this, edge, target);
-                    _slide_timer_id = 0;
-                    return GLib.Source.REMOVE;
-                }
-                double e = t * t * t;
-                _current_margin = (int)(start + span * e);
-                set_margin(this, edge, _current_margin);
-                return GLib.Source.CONTINUE;
-            });
+        private void settle_input_region() {
+            update_input_region();
+            queue_draw();
+        }
+
+        public override void snapshot(Gtk.Snapshot snapshot) {
+            Gdk.RGBA clear = { 0.0f, 0.0f, 0.0f, 0.0f };
+            snapshot.append_color(clear, Graphene.Rect() { origin = { 0.0f, 0.0f }, size = { 1.0f, 1.0f } });
+            base.snapshot(snapshot);
         }
 
         // A dedicated thin layer-shell surface pinned to the dock's edge. A
@@ -1214,6 +1195,8 @@ namespace Singularity {
         // focused-fullscreen check made every monitor's dock hide when a video
         // went fullscreen on one monitor (#99/#100).
         private bool is_any_window_fullscreen_on_my_monitor() {
+            void* focused = app_system.get_focused_window_handle();
+            if (focused == null) return false;
             var display = Gdk.Display.get_default();
             var monitor = this.get_target_monitor() ?? find_shell_monitor();
             if (monitor == null && display != null && display.get_monitors().get_n_items() > 0)
@@ -1225,6 +1208,7 @@ namespace Singularity {
             bool target_is_primary = (primary != null && monitor != null)
                 && (primary == monitor || (target_conn != null && primary.get_connector() == target_conn));
             foreach (var win in app_system.get_windows()) {
+                if (win.handle != focused) continue;
                 if (!win.is_fullscreen || win.is_minimized) continue;
                 if (single || monitor == null) return true;
                 var wmon = Singularity.wayland_get_window_monitor(win.handle);
@@ -1319,17 +1303,7 @@ namespace Singularity {
                 if (wrapper_id != null && dock_matches(wrapper_id, app_id)) {
                     var wrapper = child as Gtk.Box;
                     if (wrapper != null) {
-                        unowned Gtk.Box wrapper_weak = wrapper;
-                        wrapper_weak.remove_css_class("launching");
-                        GLib.Idle.add(() => {
-                            if (wrapper_weak.get_parent() == null) return GLib.Source.REMOVE;
-                            wrapper_weak.add_css_class("launching");
-                            GLib.Timeout.add(750, () => {
-                                wrapper_weak.remove_css_class("launching");
-                                return GLib.Source.REMOVE;
-                            });
-                            return GLib.Source.REMOVE;
-                        });
+                        DockLaunchFeedback.play(wrapper, _settings.get_string("dock-position"));
                     }
                     break;
                 }
@@ -1482,7 +1456,7 @@ namespace Singularity {
                 cover.valign = Align.CENTER;
                 cover.add_css_class("dock-mpris-icon-cover");
                 cover.overflow = Overflow.HIDDEN;
-                btn.set_child(cover);
+                btn.set_child(magnifier.wrap(cover));
 
                 var app_badge = new Image();
                 app_badge.pixel_size = 18;
@@ -1498,7 +1472,7 @@ namespace Singularity {
                 img.halign = Align.CENTER;
                 img.valign = Align.CENTER;
                 load_app_icon(img, app_id, app_info);
-                btn.set_child(img);
+                btn.set_child(magnifier.wrap(img));
             }
 
             // Icon overlays from plugins - small badges positioned at the
@@ -1715,11 +1689,12 @@ namespace Singularity {
             _intro_played = true;
             GLib.Idle.add(() => {
                 main_container.opacity = 1.0;
-                main_container.add_css_class("dock-intro");
-                GLib.Timeout.add(620, () => {
-                    main_container.remove_css_class("dock-intro");
-                    return GLib.Source.REMOVE;
-                });
+                intro_motion.opacity = 0.0;
+                if (!Singularity.Motion.reduced()) intro_motion.translate_y = INTRO_DISTANCE;
+                Singularity.Motion.tween(intro_motion, "opacity", 1.0,
+                    Singularity.Motion.Duration.MEDIUM, Singularity.Motion.Curve.ENTER);
+                Singularity.Motion.tween(intro_motion, "translate-y", 0.0,
+                    Singularity.Motion.Duration.LARGE, Singularity.Motion.Curve.EMPHASIZED);
                 return GLib.Source.REMOVE;
             });
         }
@@ -1731,14 +1706,17 @@ namespace Singularity {
         private void update_dock_item_indicators(Gtk.Widget wrapper, int win_count) {
             var indicator_row = wrapper.get_data<Gtk.Box>("indicator_row");
             if (indicator_row == null) return;
+            Widget? kept = null;
+            if (win_count > 0) kept = DockLaunchFeedback.take_dot(wrapper);
+            else if (DockLaunchFeedback.launching(wrapper)) return;
             Widget? dot = indicator_row.get_first_child();
             while (dot != null) {
                 Widget nd = dot.get_next_sibling();
-                indicator_row.remove(dot);
+                if (dot != kept) indicator_row.remove(dot);
                 dot = nd;
             }
             int dot_count = win_count > 0 ? int.min(win_count, 3) : 0;
-            for (int i = 0; i < dot_count; i++) {
+            for (int i = kept != null ? 1 : 0; i < dot_count; i++) {
                 var d = new Box(Orientation.HORIZONTAL, 0);
                 d.add_css_class("dock-indicator-dot");
                 d.valign = Align.CENTER;
@@ -2080,6 +2058,20 @@ namespace Singularity {
 
         // Normalized match: handles org.X.app <-> x-app.desktop, StartupWMClass, etc.
 
+        private string[] running_aliases(string app_id) {
+            string[] ids = {};
+            foreach (var win in app_system.get_windows()) {
+                if (win.app_id != null && dock_matches(app_id, win.app_id)) ids += win.app_id;
+            }
+            return ids;
+        }
+
+        private void announce_launch(GLib.AppInfo? app_info, string? app_id = null) {
+            if (motion_hints == null) return;
+            string? id = app_id ?? (app_info != null ? app_info.get_id() : null);
+            if (id != null) motion_hints.launch(id);
+        }
+
         private bool dock_matches(string? id_a, string? id_b) {
             if (id_a == null || id_b == null || id_a.length < 2 || id_b.length < 2) return false;
             // Basic sanity: reject strings with non-printable chars (garbage memory)
@@ -2228,25 +2220,51 @@ namespace Singularity {
 
             if (!is_running) {
                 menu.add_item("Open", "system-run-symbolic", () => {
-                    if (app_info != null) AppSystem.launch_app(app_info);
+                    if (app_info != null) {
+                        announce_launch(app_info, app_id);
+                        AppSystem.launch_app(app_info);
+                    }
                 });
             } else {
                 menu.add_item("New Window", "window-new-symbolic", () => {
                     if (app_info == null) return;
+                    announce_launch(app_info, app_id);
                     if (!launch_new_window_action(app_info))
                         AppSystem.launch_app(app_info);
                 });
-                var dai = app_info as DesktopAppInfo;
-                if (dai != null) {
-                    string[] actions = dai.list_actions();
-                    foreach (string action_id in actions) {
-                        string captured_id = action_id.dup();
-                        string action_name = dai.get_action_name(captured_id);
-                        if (action_name.down().contains("new window")) continue;
-                        menu.add_item(action_name, "go-next-symbolic", () => {
-                            dai.launch_action(captured_id, Gdk.Display.get_default().get_app_launch_context());
-                        });
+            }
+            var dai = app_info as DesktopAppInfo;
+            if (dai != null) {
+                var entry = new KeyFile();
+                string? entry_path = dai.get_filename();
+                if (entry_path != null) {
+                    try {
+                        entry.load_from_file(entry_path, KeyFileFlags.NONE);
+                    } catch (Error e) {
+                        entry = new KeyFile();
                     }
+                }
+                foreach (string action_id in dai.list_actions()) {
+                    string captured_id = action_id.dup();
+                    string action_name = dai.get_action_name(captured_id);
+                    if (is_running && (action_name.down().contains("new window")
+                            || captured_id.down().contains("new-window"))) continue;
+                    string group = "Desktop Action " + captured_id;
+                    GLib.Icon icon = new ThemedIcon("go-next-symbolic");
+                    bool wants_reply = false;
+                    try {
+                        if (entry.has_key(group, "Icon")) {
+                            string icon_value = entry.get_string(group, "Icon").strip();
+                            if (icon_value != "") icon = GLib.Icon.new_for_string(icon_value);
+                        }
+                        if (entry.has_key(group, "X-Singularity-Dock-Reply"))
+                            wants_reply = entry.get_boolean(group, "X-Singularity-Dock-Reply");
+                    } catch (Error e) { }
+                    menu.add_item_gicon(action_name, icon, () => {
+                        if (!ParentalEnforcer.get_default().allows(dai)) return;
+                        if (wants_reply) activate_action_reply.begin(dai, captured_id);
+                        else dai.launch_action(captured_id, Gdk.Display.get_default().get_app_launch_context());
+                    });
                 }
             }
 
@@ -2271,20 +2289,50 @@ namespace Singularity {
                             Singularity.close_window(win.handle);
                     }
                 });
-                // Shift-held variant: expose a destructive "Force Kill" entry
-                // at the bottom. Red styling makes the intent clear. We send
-                // SIGKILL to all processes whose argv[0] basename matches the
-                // app id - pkill is a portable way to do that without needing
-                // a per-window PID lookup we don't have on wayland.
-                if (shift_held) {
-                    menu.add_separator();
-                    string kill_target = compute_kill_target(app_id, app_info);
-                    menu.add_item("Force Kill", "process-stop-symbolic", () => {
-                        force_kill_app(app_id, kill_target);
-                    }, "destructive-action");
+                var force_separator = new Gtk.Separator(Gtk.Orientation.HORIZONTAL);
+                var force_row = new Singularity.Widgets.MenuRow("Force Kill", "process-stop-symbolic");
+                force_row.halign = Gtk.Align.FILL;
+                force_row.add_css_class("destructive-action");
+                force_separator.visible = shift_held;
+                force_row.visible = shift_held;
+                unowned var menu_weak = menu;
+                force_row.clicked.connect(() => {
+                    menu_weak.popdown();
+                    force_kill_app.begin(app_id);
+                });
+                menu.add_widget(force_separator);
+                menu.add_widget(force_row);
+                var seat = parent.get_display().get_default_seat();
+                var keyboard = seat != null ? seat.get_keyboard() : null;
+                if (keyboard != null) {
+                    ulong watch = keyboard.notify["modifier-state"].connect(() => {
+                        bool shift = (keyboard.modifier_state & Gdk.ModifierType.SHIFT_MASK) != 0;
+                        force_separator.visible = shift;
+                        force_row.visible = shift;
+                    });
+                    menu.unmap.connect(() => {
+                        if (watch != 0) keyboard.disconnect(watch);
+                        watch = 0;
+                    });
                 }
             }
             menu.popup();
+        }
+
+        private async void activate_action_reply(DesktopAppInfo dai, string action_id) {
+            string app_id = dai.get_id() ?? "";
+            if (app_id.has_suffix(".desktop")) app_id = app_id.substring(0, app_id.length - 8);
+            bool done = false;
+            if (app_id != "" && GLib.Application.id_is_valid(app_id)) {
+                try {
+                    var bus = yield GLib.Bus.get(BusType.SESSION);
+                    done = yield DockDBusService.call_reply(bus, app_id,
+                        Singularity.DockMenu.reply_path_for(app_id), action_id, true);
+                } catch (Error e) {
+                    warning("dock: cannot reach %s: %s", app_id, e.message);
+                }
+            }
+            if (!done && ParentalEnforcer.get_default().allows(dai)) dai.launch_action(action_id, Gdk.Display.get_default().get_app_launch_context());
         }
 
         private bool launch_new_window_action(GLib.AppInfo app_info) {
@@ -2293,6 +2341,7 @@ namespace Singularity {
             foreach (string aid in dai.list_actions()) {
                 string an = dai.get_action_name(aid).down();
                 if (an.contains("new window") || aid.down().contains("new-window")) {
+                    if (!ParentalEnforcer.get_default().allows(dai)) return true;
                     dai.launch_action(aid, Gdk.Display.get_default().get_app_launch_context());
                     return true;
                 }
@@ -2300,65 +2349,37 @@ namespace Singularity {
             return false;
         }
 
-        /**
-         * Best-effort process name to pass to `pkill -KILL -f`. We try, in
-         * order: the app's Exec basename, the StartupWMClass, the desktop
-         * id basename. The user explicitly triggered Force Kill via Shift -
-         * a false positive here is on them.
-         */
-        private string compute_kill_target(string app_id, GLib.AppInfo? app_info) {
-            var dai = app_info as DesktopAppInfo;
-            if (dai != null) {
-                string? wm = dai.get_startup_wm_class();
-                if (wm != null && wm.length > 0) return wm;
-                string? exec = dai.get_executable();
-                if (exec != null && exec.length > 0) {
-                    int slash = exec.last_index_of_char('/');
-                    return slash >= 0 ? exec.substring(slash + 1) : exec;
-                }
-            }
-            string id = app_id;
-            if (id.has_suffix(".desktop")) id = id.substring(0, id.length - 8);
-            int dot = id.last_index_of_char('.');
-            return dot >= 0 ? id.substring(dot + 1) : id;
-        }
-
-        private void force_kill_app(string app_id, string kill_target) {
-            warning("dock force_kill_app: app_id='%s' target='%s'", app_id, kill_target);
-            // Try graceful close first on all known windows of this app,
-            // then SIGKILL anything that survived after a beat.
+        private async void force_kill_app(string app_id) {
+            var terminator = new ProcessTerminator();
+            bool has_windows = false;
             foreach (var win in app_system.get_windows()) {
-                if (dock_matches(win.app_id, app_id))
-                    Singularity.close_window(win.handle);
+                if (!dock_matches(win.app_id, app_id)) continue;
+                has_windows = true;
+                int pid;
+                uint source;
+                if (ProcessInfo.get_pid(win.handle, out pid, out source) && !terminator.add(pid))
+                    message("dock: force quit of %s skips pid %d", app_id, pid);
             }
-            GLib.Timeout.add(800, () => {
-                _force_kill_now(kill_target);
-                // Also try the bare app_id basename in case the .desktop
-                // didn't expose StartupWMClass/Exec accurately.
-                string id_short = app_id;
-                if (id_short.has_suffix(".desktop"))
-                    id_short = id_short.substring(0, id_short.length - 8);
-                int dot = id_short.last_index_of_char('.');
-                if (dot >= 0) id_short = id_short.substring(dot + 1);
-                if (id_short != kill_target) _force_kill_now(id_short);
-                return GLib.Source.REMOVE;
-            });
-        }
-
-        private void _force_kill_now(string target) {
-            // Use `pkill -9 -f` which matches the whole command line. We
-            // run via /bin/sh -c so we still work even on minimal PATH.
-            string cmd = "/bin/sh -c " + GLib.Shell.quote(
-                "pkill -9 -f " + GLib.Shell.quote(target) +
-                " || killall -9 " + GLib.Shell.quote(target) +
-                " || true");
-            try {
-                int exit = -1;
-                GLib.Process.spawn_command_line_sync(cmd, null, null, out exit);
-                warning("dock force_kill: '%s' exit=%d", target, exit);
-            } catch (Error e) {
-                warning("dock force_kill spawn failed: %s", e.message);
+            int[] pids = terminator.list_pids();
+            if (pids.length == 0) {
+                string name = app_id;
+                var info = app_system.resolve_app_for_id(app_id);
+                if (info != null && info.get_display_name() != null) name = info.get_display_name();
+                string body = has_windows
+                    ? _("The system could not tell which process owns its windows, so nothing was stopped.")
+                    : _("It has no open windows to identify its process, so nothing was stopped.");
+                var hints = new HashTable<string, Variant>(str_hash, str_equal);
+                hints.insert("urgency", new Variant.byte(1));
+                SystemMonitor.get_default().notifications.notify(_("Dock"), 0,
+                    "process-stop-symbolic", _("Cannot force quit %s").printf(name), body, {}, hints, -1);
+                message("dock: force quit of %s: no process found", app_id);
+                return;
             }
+            string[] listed = {};
+            foreach (int p in pids) listed += p.to_string();
+            message("dock: force quit of %s: pids %s", app_id, string.joinv(" ", listed));
+            int killed = yield terminator.terminate();
+            if (killed > 0) message("dock: force quit of %s: %d processes ignored SIGTERM and were killed", app_id, killed);
         }
 
         // A dropped resource rendered as a dock item - identical pill
@@ -2441,7 +2462,7 @@ namespace Singularity {
             img.halign = Align.CENTER;
             img.valign = Align.CENTER;
             load_app_icon(img, app_id, app_info, rep_win);
-            btn.set_child(img);
+            btn.set_child(magnifier.wrap(img));
 
             var item_overlay = new Overlay();
             item_overlay.set_child(btn);
@@ -2547,13 +2568,9 @@ namespace Singularity {
                         Singularity.wayland_activate_window(handle);
                     }
                 } else if (app_info != null) {
+                    announce_launch(app_info, app_id);
                     AppSystem.launch_app(app_info);
-                    wrapper_weak.add_css_class("launching");
-                    GLib.Timeout.add(750, () => {
-                        if (wrapper_weak.get_parent() != null)
-                            wrapper_weak.remove_css_class("launching");
-                        return GLib.Source.REMOVE;
-                    });
+                    DockLaunchFeedback.play(wrapper_weak, _settings.get_string("dock-position"));
                 }
             });
 
@@ -2720,6 +2737,7 @@ namespace Singularity {
             btn.add_controller(drag_source);
 
             btn.clicked.connect(() => {
+                announce_launch(app_info);
                 AppSystem.launch_app(app_info);
             });
             return btn;
@@ -2737,7 +2755,9 @@ namespace Singularity {
 
             // Membership sets.
             var pin_set = new Gee.HashSet<string>();
-            foreach (var p in pinned) pin_set.add("pin:" + p);
+            foreach (var p in pinned) {
+                if (!ParentalEnforcer.get_default().hides(p)) pin_set.add("pin:" + p);
+            }
             var res_set = new Gee.HashSet<string>();
             foreach (var u in resources_area.uris()) res_set.add("res:" + u);
 
@@ -2753,7 +2773,7 @@ namespace Singularity {
             // 2) Append pinned apps not yet placed (newly pinned).
             foreach (var p in pinned) {
                 string k = "pin:" + p;
-                if (!seen.contains(k)) { result.add(k); seen.add(k); }
+                if (!seen.contains(k) && pin_set.contains(k)) { result.add(k); seen.add(k); }
             }
             // 3) Append resources not yet placed (freshly dropped).
             foreach (var u in resources_area.uris()) {
@@ -3038,17 +3058,7 @@ namespace Singularity {
         }
 
         private static Gdk.Monitor? find_shell_monitor() {
-            var s = new GLib.Settings("dev.sinty.desktop");
-            string connector = s.get_string("shell-monitor");
-            if (connector == "") return null;
-            var display = Gdk.Display.get_default();
-            if (display == null) return null;
-            var monitors = display.get_monitors();
-            for (uint i = 0; i < monitors.get_n_items(); i++) {
-                var mon = (Gdk.Monitor)monitors.get_item(i);
-                if (mon.get_connector() == connector) return mon;
-            }
-            return null;
+            return Singularity.Panel.find_primary_monitor();
         }
 
         private void add_input_bounds(Cairo.Region region, Widget widget) {
@@ -3070,18 +3080,18 @@ namespace Singularity {
             var region = new Cairo.Region();
             if (_hidden) {
                 var edge = _dock_edge();
+                int strip = int.min(4, int.min(get_width(), get_height()));
                 if (edge == GtkLayerShell.Edge.BOTTOM) {
                     region.union_rectangle(Cairo.RectangleInt() {
-                        x = 0, y = 0, width = get_width(), height = int.min(4, get_height())
+                        x = 0, y = get_height() - strip, width = get_width(), height = strip
                     });
                 } else if (edge == GtkLayerShell.Edge.LEFT) {
                     region.union_rectangle(Cairo.RectangleInt() {
-                        x = int.max(0, get_width() - 4), y = 0,
-                        width = int.min(4, get_width()), height = get_height()
+                        x = 0, y = 0, width = strip, height = get_height()
                     });
                 } else {
                     region.union_rectangle(Cairo.RectangleInt() {
-                        x = 0, y = 0, width = int.min(4, get_width()), height = get_height()
+                        x = get_width() - strip, y = 0, width = strip, height = get_height()
                     });
                 }
                 surface.set_input_region(region);
@@ -3155,7 +3165,7 @@ namespace Singularity {
 
         private static string icon_for_corner_action(string? action) {
             switch (action) {
-                case "workspaces": return "dev.sinty.workspaces";
+                case "workspaces": return "dev.sinty.workspaces-symbolic";
                 case "overview":   return "view-app-grid-symbolic";
                 case "settings":   return "emblem-system-symbolic";
                 default:           return "go-next-symbolic";

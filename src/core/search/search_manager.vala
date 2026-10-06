@@ -41,6 +41,89 @@ namespace Singularity {
             file_provider = new FileSearchProvider();
             providers.append(file_provider);
             load_script_providers();
+            if (desktop_settings.settings_schema.has_key("search-provider-overrides")) {
+                desktop_settings.changed["search-provider-overrides"].connect(reload_remote_providers);
+                desktop_settings.get_value("search-provider-overrides");
+            }
+            AppSystem.get_default().apps_changed.connect(schedule_remote_reload);
+            load_remote_providers();
+        }
+
+        private GLib.Settings desktop_settings = new GLib.Settings("dev.sinty.desktop");
+        private List<RemoteSearchProvider> remote_providers = new List<RemoteSearchProvider>();
+        private uint _remote_reload = 0;
+
+        public RemoteSearchProviderInfo[] get_remote_provider_infos() {
+            return RemoteSearchProviderInfo.load_all();
+        }
+
+        public bool is_remote_provider_enabled(RemoteSearchProviderInfo info) {
+            if (!desktop_settings.settings_schema.has_key("search-provider-overrides"))
+                return !info.default_disabled;
+            var iter = desktop_settings.get_value("search-provider-overrides").iterator();
+            string id;
+            bool enabled;
+            while (iter.next("{sb}", out id, out enabled)) {
+                if (id == info.id) return enabled;
+            }
+            return !info.default_disabled;
+        }
+
+        public void set_remote_provider_enabled(string id, bool enabled) {
+            if (!desktop_settings.settings_schema.has_key("search-provider-overrides")) return;
+            var builder = new VariantBuilder(new VariantType("a{sb}"));
+            var iter = desktop_settings.get_value("search-provider-overrides").iterator();
+            string key;
+            bool value;
+            while (iter.next("{sb}", out key, out value)) {
+                if (key != id) builder.add("{sb}", key, value);
+            }
+            builder.add("{sb}", id, enabled);
+            desktop_settings.set_value("search-provider-overrides", builder.end());
+        }
+
+        private void load_remote_providers() {
+            foreach (var info in RemoteSearchProviderInfo.load_all()) {
+                if (!is_remote_provider_enabled(info)) continue;
+                var provider = new RemoteSearchProvider(info);
+                remote_providers.append(provider);
+                providers.append(provider);
+            }
+        }
+
+        private void schedule_remote_reload() {
+            if (_remote_reload != 0) return;
+            _remote_reload = Timeout.add(500, () => {
+                _remote_reload = 0;
+                reload_remote_providers();
+                return Source.REMOVE;
+            });
+        }
+
+        private void reload_remote_providers() {
+            foreach (var provider in remote_providers) providers.remove(provider);
+            remote_providers = new List<RemoteSearchProvider>();
+            load_remote_providers();
+        }
+
+        private static List<SearchResult> group_by_provider(List<SearchResult> sorted) {
+            var order = new GenericArray<string>();
+            var groups = new HashTable<string, GenericArray<SearchResult>>(str_hash, str_equal);
+            foreach (var r in sorted) {
+                string key = r.provider.id;
+                var group = groups[key];
+                if (group == null) {
+                    group = new GenericArray<SearchResult>();
+                    groups[key] = group;
+                    order.add(key);
+                }
+                group.add(r);
+            }
+            var grouped = new List<SearchResult>();
+            foreach (unowned string key in order.data) {
+                foreach (var r in groups[key].data) grouped.append(r);
+            }
+            return grouped;
         }
 
         private void load_script_providers() {
@@ -67,20 +150,22 @@ namespace Singularity {
                 current_cancellable.cancel();
             }
             current_cancellable = new Cancellable();
+            var cancellable = current_cancellable;
             search_started();
 
             var all_results = new List<SearchResult>();
-            int pending = (int)providers.length();
+            var round = new SearchRound((int)providers.length());
 
-            if (pending == 0) {
+            if (round.finished) {
                 results_updated(all_results);
                 search_finished();
                 return;
             }
 
             foreach (var provider in providers) {
-                search_provider_async.begin(provider, text, current_cancellable, (obj, res) => {
+                search_provider_async.begin(provider, text, cancellable, (obj, res) => {
                     var provider_results = search_provider_async.end(res);
+                    if (cancellable.is_cancelled()) return;
                     if (provider_results != null) {
                         foreach (var r in provider_results) {
                             bool duplicate = false;
@@ -107,11 +192,12 @@ namespace Singularity {
                             if (a.score < b.score) return 1;
                             return 0;
                         });
-                        results_updated(all_results);
+                        all_results = group_by_provider(all_results);
                     }
 
-                    pending--;
-                    if (pending == 0) search_finished();
+                    if (round.provider_done(provider_results != null))
+                        results_updated(all_results);
+                    if (round.finished) search_finished();
                 });
             }
         }

@@ -53,7 +53,7 @@ namespace Singularity.SidebarPages {
 
         private void refresh_entries() {
             entries_group.clear();
-            var entries = autostart.entries();
+            var entries = autostart.visible_entries();
             if (entries.size == 0) {
                 var empty = new ActionRow(_("No startup applications"),
                     _("Add an app or command above"), null);

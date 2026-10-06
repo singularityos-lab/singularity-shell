@@ -83,9 +83,43 @@ namespace Singularity {
         private bool _sdb_refreshing = false;
         private uint _sdb_timer_id = 0;
 
+        private SettingsPage _debug_options_page;
+        private SettingsPage _shell_state_page;
+        private SettingsPage _test_triggers_page;
+
         public DeveloperPage (SettingsView view) {
             base(_("Developer"));
             _view = view;
+
+            var tools = new WelcomePage ();
+            tools.is_section = true;
+            tools.embedded = true;
+            tools.compact = true;
+            tools.app_icon_name = "applications-engineering";
+            tools.title = _("Developer Tools");
+            tools.subtitle = _("Inspect and debug the system while it runs.");
+            tools.add_action ("application-x-executable", _("Settings Editor"), _("Browse and change every setting on the system"),
+                () => _view.open_subpage (new Singularity.SidebarPages.DevSettingsEditorPage (_view), "dev-settings-editor"));
+            tools.add_action ("network-workgroup", _("D-Bus Inspector"), _("Explore services, objects, properties and methods"),
+                () => _view.open_subpage (new Singularity.SidebarPages.DevDBusPage (_view), "dev-dbus"));
+            tools.add_action ("x-office-spreadsheet", _("Profiler"), _("Record which processes and threads use the processor"),
+                () => _view.open_subpage (new Singularity.SidebarPages.DevProfilerPage (_view), "dev-profiler"));
+            tools.add_action ("singularity-account-generic", _("OAuth Clients"), _("See and override the Google and Microsoft clients used for online accounts"),
+                () => _view.open_subpage (new Singularity.SidebarPages.DevOAuthClientsPage (_view), "dev-oauth-clients"));
+            add_widget (tools);
+
+            _debug_options_page = make_subpage (_("Debug Options"));
+            _shell_state_page = make_subpage (_("Shell State"));
+            _test_triggers_page = make_subpage (_("Test Triggers"));
+
+            var shell_group = new PreferencesGroup (_("Shell"));
+            shell_group.add_row (make_nav_row (_("Debug Options"), _("Logging, overlays and focus pinning"),
+                "applications-engineering-symbolic", _debug_options_page, "dev-debug-options"));
+            shell_group.add_row (make_nav_row (_("Shell State"), _("Apps, wallpaper, tiling, resources and log"),
+                "computer-symbolic", _shell_state_page, "dev-shell-state"));
+            shell_group.add_row (make_nav_row (_("Test Triggers"), _("Hot corners, notifications, portals and previews"),
+                "media-playback-start-symbolic", _test_triggers_page, "dev-test-triggers"));
+            add_group (shell_group);
 
             dsh_group = new PreferencesGroup (_("Developer Shell"));
             dsh_group.visible = false;
@@ -113,7 +147,7 @@ namespace Singularity {
                 _unlock_error.visible = false;
                 _unlock_error.margin_start = 16;
                 _unlock_error.margin_end = 16;
-                _unlock_error.halign = Gtk.Align.START;
+                _unlock_error.xalign = 0f;
                 var unlock_err_wrapper = new Box (Orientation.VERTICAL, 0);
                 unlock_err_wrapper.append (_unlock_error);
                 add_widget (unlock_err_wrapper);
@@ -187,7 +221,7 @@ namespace Singularity {
             });
             debug_group.add_row (pin_workspaces);
 
-            add_group (debug_group);
+            _debug_options_page.add_group (debug_group);
 
             // GTK Rendering Tools
             var gtk_group = new PreferencesGroup (_("GTK Rendering Tools"));
@@ -215,6 +249,20 @@ namespace Singularity {
             });
             gtk_group.add_row (anim_switch);
 
+            var motion = Singularity.Motion.get_default ();
+            var slow_switch = new SwitchRow (_("Slow Animations"),
+                _("Play every Singularity animation five times slower"));
+            slow_switch.active = motion.duration_scale > 1.0;
+            slow_switch.switch_btn.notify["active"].connect (() => {
+                double scale = slow_switch.switch_btn.active ? 5.0 : 1.0;
+                if (motion.duration_scale != scale) motion.duration_scale = scale;
+            });
+            motion.notify["duration-scale"].connect (() => {
+                bool slow = motion.duration_scale > 1.0;
+                if (slow_switch.active != slow) slow_switch.active = slow;
+            });
+            gtk_group.add_row (slow_switch);
+
             var borders_switch = new SwitchRow (_("Show Widget Borders"),
                 "Overlay accent-colored borders on every widget");
             borders_switch.switch_btn.notify["active"].connect (() => {
@@ -222,7 +270,7 @@ namespace Singularity {
             });
             gtk_group.add_row (borders_switch);
 
-            add_group (gtk_group);
+            _debug_options_page.add_group (gtk_group);
 
             // App System
             var as_expander = new ExpanderRow (_("App System"),
@@ -246,7 +294,7 @@ namespace Singularity {
 
             var appsys_group = new PreferencesGroup (_("App System"));
             appsys_group.add_row (as_expander);
-            add_group (appsys_group);
+            _shell_state_page.add_group (appsys_group);
 
             // Wallpaper Manager
             var wp_expander = new ExpanderRow (_("Wallpaper Manager"),
@@ -266,7 +314,7 @@ namespace Singularity {
 
             var wp_group = new PreferencesGroup (_("Wallpaper"));
             wp_group.add_row (wp_expander);
-            add_group (wp_group);
+            _shell_state_page.add_group (wp_group);
 
             // Tiling Manager
             var tiling_group = new PreferencesGroup (_("Tiling Manager"));
@@ -285,7 +333,7 @@ namespace Singularity {
             });
             tiling_group.add_row (retile_row);
 
-            add_group (tiling_group);
+            _shell_state_page.add_group (tiling_group);
 
             // Hot Corners
             var hc_group = new PreferencesGroup (_("Hot Corners"));
@@ -310,7 +358,7 @@ namespace Singularity {
                 row.add_suffix (btn);
                 hc_group.add_row (row);
             }
-            add_group (hc_group);
+            _test_triggers_page.add_group (hc_group);
 
             // Desktop Resources
             var dr_group = new PreferencesGroup (_("Desktop Resources"));
@@ -360,7 +408,7 @@ namespace Singularity {
             total_row.add_suffix (lbl_total_mem);
             procs_box.append (total_row);
 
-            add_group (dr_group);
+            _shell_state_page.add_group (dr_group);
 
             // Notifications
             var notif_group = new PreferencesGroup (_("Notifications"));
@@ -378,7 +426,7 @@ namespace Singularity {
             });
             notif_group.add_row (test_notif);
 
-            add_group (notif_group);
+            _test_triggers_page.add_group (notif_group);
 
             // XDG Portal
             var portal_group = new PreferencesGroup (_("XDG Portal"));
@@ -420,7 +468,7 @@ namespace Singularity {
             test_chooser_row.add_suffix (chooser_btn);
             portal_group.add_row (test_chooser_row);
 
-            add_group (portal_group);
+            _test_triggers_page.add_group (portal_group);
 
             // Window Preview
             var preview_group = new PreferencesGroup (_("Window Preview"));
@@ -441,7 +489,7 @@ namespace Singularity {
             preview_group.add_row (preview_row);
             preview_group.add_row (preview_image);
 
-            add_group (preview_group);
+            _test_triggers_page.add_group (preview_group);
 
             // Shell Log
             var log_expander = new ExpanderRow (_("Shell Log"),
@@ -482,7 +530,7 @@ namespace Singularity {
 
             var log_group = new PreferencesGroup (_("Diagnostics"));
             log_group.add_row (log_expander);
-            add_group (log_group);
+            _shell_state_page.add_group (log_group);
 
             log_expander.notify["expanded"].connect (() => {
                 if (log_expander.expanded && _terminal == null)
@@ -491,11 +539,45 @@ namespace Singularity {
             update_live_labels ();
             update_desktop_resources ();
 
-            map.connect (() => { start_update_timer (); start_sdb_timer (); });
-            unmap.connect (() => { stop_update_timer (); stop_sdb_timer (); });
+            map.connect (() => start_sdb_timer ());
+            unmap.connect (() => stop_sdb_timer ());
+            index_subpage (_debug_options_page, "dev-debug-options");
+            index_subpage (_shell_state_page, "dev-shell-state");
+            index_subpage (_test_triggers_page, "dev-test-triggers");
+            _shell_state_page.map.connect (() => start_update_timer ());
+            _shell_state_page.unmap.connect (() => stop_update_timer ());
         }
 
         // Helpers
+
+        private SettingsPage make_subpage (string title) {
+            var page = new SettingsPage (title);
+            page.back_btn.visible = true;
+            page.back_clicked.connect (() => _view.navigate_to ("developer"));
+            return page;
+        }
+
+        private void index_subpage (SettingsPage page, string page_name) {
+            foreach (var group_widget in page.get_groups ()) {
+                var group = group_widget as PreferencesGroup;
+                if (group == null) continue;
+                foreach (var row_widget in group.get_rows ()) {
+                    var row = row_widget as ActionRow;
+                    if (row == null || row.title == "") continue;
+                    add_search_action (row.title, row.subtitle, () => _view.open_subpage (page, page_name));
+                }
+            }
+        }
+
+        private ActionRow make_nav_row (string title, string subtitle, string icon_name,
+                                        SettingsPage page, string page_name) {
+            var row = new ActionRow (title, subtitle, icon_name);
+            var chevron = new Image.from_icon_name ("go-next-symbolic");
+            chevron.add_css_class ("dim-label");
+            row.add_suffix (chevron);
+            row.activated.connect (() => _view.open_subpage (page, page_name));
+            return row;
+        }
 
         private Label make_val_label (string text) {
             var lbl = new Label (text);
@@ -881,7 +963,7 @@ namespace Singularity {
             _sdb_error.visible = false;
             _sdb_error.margin_start = 16;
             _sdb_error.margin_end = 16;
-            _sdb_error.halign = Gtk.Align.START;
+            _sdb_error.xalign = 0f;
             var sdb_err_wrapper = new Box (Orientation.VERTICAL, 0);
             sdb_err_wrapper.append (_sdb_error);
             add_widget (sdb_err_wrapper);
@@ -890,7 +972,7 @@ namespace Singularity {
                 "fingerprint-symbolic");
             _sdb_device_fp = new Label ("");
             _sdb_device_fp.selectable = true;
-            _sdb_device_fp.halign = Gtk.Align.END;
+            _sdb_device_fp.xalign = 1f;
             _sdb_device_fp.hexpand = true;
             _sdb_device_fp.wrap = true;
             _sdb_device_fp.wrap_mode = Pango.WrapMode.WORD_CHAR;
@@ -926,7 +1008,7 @@ namespace Singularity {
 
             _sdb_pair_host = new Label ("");
             _sdb_pair_host.wrap = true;
-            _sdb_pair_host.halign = Gtk.Align.CENTER;
+            _sdb_pair_host.justify = Justification.CENTER;
             _sdb_pair_host.add_css_class ("dim-label");
             _sdb_pair_host.visible = false;
 
@@ -937,7 +1019,7 @@ namespace Singularity {
             _sdb_code.add_css_class ("monospace");
 
             _sdb_expiry = new Label ("");
-            _sdb_expiry.halign = Gtk.Align.CENTER;
+            _sdb_expiry.justify = Justification.CENTER;
             _sdb_expiry.wrap = true;
             _sdb_expiry.add_css_class ("caption");
             _sdb_expiry.add_css_class ("dim-label");
@@ -947,7 +1029,6 @@ namespace Singularity {
             _sdb_fp_caption.add_css_class ("heading");
 
             _sdb_fingerprint = new Label ("");
-            _sdb_fingerprint.halign = Gtk.Align.CENTER;
             _sdb_fingerprint.justify = Justification.CENTER;
             _sdb_fingerprint.wrap = true;
             _sdb_fingerprint.wrap_mode = Pango.WrapMode.WORD_CHAR;
@@ -956,7 +1037,7 @@ namespace Singularity {
             _sdb_fingerprint.add_css_class ("caption");
 
             _sdb_attempts = new Label ("");
-            _sdb_attempts.halign = Gtk.Align.CENTER;
+            _sdb_attempts.justify = Justification.CENTER;
             _sdb_attempts.wrap = true;
             _sdb_attempts.add_css_class ("caption");
             _sdb_attempts.visible = false;
@@ -1657,7 +1738,7 @@ namespace Singularity {
             error_label.visible = false;
             error_label.margin_start = 16;
             error_label.margin_end = 16;
-            error_label.halign = Gtk.Align.START;
+            error_label.xalign = 0f;
             var err_wrapper = new Box (Orientation.VERTICAL, 0);
             err_wrapper.append (error_label);
             add_widget (err_wrapper);

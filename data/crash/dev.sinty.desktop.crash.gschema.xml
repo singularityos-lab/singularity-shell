@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="dev.sinty.desktop.crash" path="/dev/sinty/desktop/crash/">
+    <key name="enabled" type="b">
+      <default>true</default>
+      <summary>Crash reports</summary>
+      <description>Show a notification with Reopen and Details when an app quits unexpectedly. Nothing is ever sent anywhere.</description>
+    </key>
+  </schema>
+</schemalist>

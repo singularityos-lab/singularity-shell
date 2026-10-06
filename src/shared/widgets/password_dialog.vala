@@ -26,7 +26,7 @@ namespace Singularity {
             box.margin_start = 24;
             box.margin_end = 24;
 
-            var icon = new Image.from_icon_name("network-wireless-signal-good-symbolic");
+            var icon = new Image.from_icon_name("network-wireless");
             icon.pixel_size = 48;
             box.append(icon);
 

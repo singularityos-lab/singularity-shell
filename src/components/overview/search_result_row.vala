@@ -61,6 +61,11 @@ namespace Singularity {
                 text_box.append(desc_label);
             }
 
+            var preview = build_result_preview(result.preview, 40);
+            if (preview != null) row_box.append(preview);
+            var actions = build_result_actions(result, () => request_close());
+            if (actions != null) row_box.append(actions);
+
             // Inline preview revealer (files only)
             if (result.provider.id == "files") {
                 add_css_class("search-result-row-file");
@@ -80,6 +85,85 @@ namespace Singularity {
                 motion.leave.connect(on_hover_leave);
                 add_controller(motion);
             }
+        }
+
+        public delegate void CloseRequest();
+
+        public static Widget? build_result_preview(SearchResultPreview? preview, int size) {
+            if (preview == null) return null;
+            if (preview.large && preview.kind != SearchResultPreviewKind.TEXT) size = SearchResultPreview.LARGE_SIZE;
+            Widget widget;
+            switch (preview.kind) {
+            case SearchResultPreviewKind.COLOR:
+                var swatch = new Gtk.DrawingArea();
+                var color = preview.color;
+                swatch.set_draw_func((area, cr, w, h) => {
+                    double r = 6;
+                    cr.new_sub_path();
+                    cr.arc(w - r, r, r, -Math.PI / 2, 0);
+                    cr.arc(w - r, h - r, r, 0, Math.PI / 2);
+                    cr.arc(r, h - r, r, Math.PI / 2, Math.PI);
+                    cr.arc(r, r, r, Math.PI, 3 * Math.PI / 2);
+                    cr.close_path();
+                    Gdk.cairo_set_source_rgba(cr, color);
+                    cr.fill_preserve();
+                    cr.set_source_rgba(0, 0, 0, 0.18);
+                    cr.set_line_width(1);
+                    cr.stroke();
+                });
+                swatch.set_size_request(size, size);
+                widget = swatch;
+                break;
+            case SearchResultPreviewKind.IMAGE:
+                var picture = new Image.from_paintable(preview.paintable);
+                picture.pixel_size = size;
+                widget = picture;
+                break;
+            case SearchResultPreviewKind.ICON:
+                var image = new Image.from_gicon(preview.icon);
+                image.pixel_size = size;
+                widget = image;
+                break;
+            default:
+                var label = new Label(preview.text);
+                label.add_css_class("monospace");
+                label.ellipsize = Pango.EllipsizeMode.END;
+                label.max_width_chars = 24;
+                widget = label;
+                break;
+            }
+            widget.add_css_class("search-result-preview");
+            widget.valign = Align.CENTER;
+            return widget;
+        }
+
+        public static Widget? build_result_actions(SearchResult result, owned CloseRequest close) {
+            var actions = result.get_actions();
+            if (actions.length == 0) return null;
+            var box = new Box(Orientation.HORIZONTAL, 4);
+            box.add_css_class("search-result-actions");
+            box.valign = Align.CENTER;
+            int shown = 0;
+            foreach (var action in actions) {
+                if (shown++ >= 3) break;
+                var button = new Button();
+                button.add_css_class("flat");
+                button.add_css_class("search-result-action");
+                if (action.icon_name != null) {
+                    button.icon_name = action.icon_name;
+                    button.tooltip_text = action.label;
+                } else {
+                    button.label = action.label;
+                }
+                button.update_property(Gtk.AccessibleProperty.LABEL, action.label, -1);
+                var captured = action;
+                button.clicked.connect(() => {
+                    captured.activate();
+                    if (!captured.keeps_open) close();
+                });
+                box.append(button);
+            }
+            return box;
         }
 
         public void show_preview_keyboard() {
@@ -131,7 +215,7 @@ namespace Singularity {
                 // Generic: icon + description
                 var icon = new Image();
                 if (result.gicon != null) icon.set_from_gicon(result.gicon);
-                else icon.set_from_icon_name("text-x-generic-symbolic");
+                else icon.set_from_icon_name("text-x-generic");
                 icon.pixel_size = 64;
                 icon.halign = Align.CENTER;
                 icon.margin_top = 8;

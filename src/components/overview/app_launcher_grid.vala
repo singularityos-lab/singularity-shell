@@ -54,6 +54,7 @@ namespace Singularity {
         private int columns;
         public int max_columns = 0;
         public int column_slot = 0;
+        public int viewport_hint = 0;
         private int _last_avail = 0;
         // Fixed cell footprint - every item gets its size_request set to
         // (cell_w * w, cell_h * h) so column/row widths stay predictable
@@ -129,6 +130,10 @@ namespace Singularity {
 
             app_system.apps_changed.connect(on_apps_changed);
             app_system.folders_changed.connect(on_apps_changed);
+            IconTheme.get_for_display(Gdk.Display.get_default()).changed.connect(() => {
+                _icon_textures.remove_all();
+                on_apps_changed();
+            });
 
             // Listen to widget registry changes (in case a plugin or manifest
             // arrives after the overview is built).
@@ -203,6 +208,7 @@ namespace Singularity {
             if (t != columns) {
                 columns = t;
                 if (get_mapped()) populate();
+                else _needs_repopulate = true;
             }
         }
 
@@ -212,6 +218,7 @@ namespace Singularity {
         // Deferred widget instantiation (created in idle after the grid shows).
         private class PendingWidget : Object {
             public Gtk.Overlay? wrapper;
+            public Gtk.Widget? skeleton;
             public OverviewWidgetProvider provider;
             public string iid;
             public int w;
@@ -275,19 +282,57 @@ namespace Singularity {
                     start_widget_jobs();
                     if (_build_index >= _build_keys.length) {
                         _build_source = 0;
+                        _reveal_rows = -1;
                         return GLib.Source.REMOVE;
                     }
                     return GLib.Source.CONTINUE;
                 }, GLib.Priority.DEFAULT_IDLE);
+            else _reveal_rows = -1;
+        }
+
+        private int _reveal_rows = -1;
+        private int _reveal_first_row = 0;
+        private uint _reveal_count = 0;
+
+        public void play_reveal() {
+            _reveal_rows = -1;
+            if (Singularity.Motion.reduced()) return;
+            var adj = find_vadjustment();
+            int row_px = cell_h + (int) grid.row_spacing;
+            double top = adj != null ? adj.value : 0;
+            double page = adj != null && adj.page_size > 0 ? adj.page_size : viewport_hint;
+            if (page <= 0) page = 1080;
+            _reveal_first_row = (int) Math.floor(top / row_px);
+            _reveal_rows = (int) Math.ceil((top + page) / row_px);
+            _reveal_count = 0;
+            Gtk.Widget[] visible_cells = {};
+            Widget? c = grid.get_first_child();
+            while (c != null) {
+                var cell = c as FixedCell;
+                if (cell != null && in_reveal_rows(cell)) visible_cells += cell.bin;
+                c = c.get_next_sibling();
+            }
+            _reveal_count = visible_cells.length;
+            Singularity.Motion.cascade(visible_cells, Singularity.Motion.Preset.FADE_SLIDE);
+            if (is_populated() && _build_source == 0) _reveal_rows = -1;
+        }
+
+        private bool in_reveal_rows(FixedCell cell) {
+            if (_reveal_rows < 0) return false;
+            int col, row, width, span;
+            grid.query_child(cell, out col, out row, out width, out span);
+            return row < _reveal_rows && row + span > _reveal_first_row;
         }
 
         private class FixedCell : Gtk.Widget {
             private Gtk.Widget? _child;
             private int _fw;
             private int _fh;
+            public Singularity.Animation.MotionBin bin;
             public FixedCell(Gtk.Widget child, int fw, int fh) {
                 _fw = fw; _fh = fh;
-                _child = child;
+                bin = new Singularity.Animation.MotionBin(child);
+                _child = bin;
                 _child.set_parent(this);
                 set_overflow(Gtk.Overflow.HIDDEN);
             }
@@ -353,6 +398,9 @@ namespace Singularity {
                 child.height_request = fh;
                 if (fill_horizontally) child.hexpand = true;
                 grid.attach(child, col, row, w, h);
+                if (_reveal_rows >= 0 && row < _reveal_rows && row + h > _reveal_first_row)
+                    Singularity.Motion.reveal(capped.bin, Singularity.Motion.Preset.FADE_SLIDE,
+                        Singularity.Motion.stagger_delay(_reveal_count++));
                 done++;
             }
         }
@@ -370,7 +418,11 @@ namespace Singularity {
                 if (content != null) {
                     content.hexpand = true;
                     content.vexpand = true;
-                    job.wrapper.set_child(content);
+                    job.wrapper.add_overlay(content);
+                    if (job.wrapper.get_mapped())
+                        Singularity.Motion.crossfade(job.skeleton, content);
+                    else
+                        job.skeleton.visible = false;
                 }
             }
             if (_pending_widgets.size == 0) { _pending_source = 0; return GLib.Source.REMOVE; }
@@ -434,9 +486,12 @@ namespace Singularity {
                 // decode, DBus, /proc) that was stalling the overview open.
                 var placeholder = new Gtk.Box(Orientation.VERTICAL, 0);
                 placeholder.add_css_class("overview-widget-loading");
-                var wrapper = wrap_widget(iid, inst, provider, placeholder);
+                var reveal = new Gtk.Overlay();
+                reveal.set_child(placeholder);
+                var wrapper = wrap_widget(iid, inst, provider, reveal);
                 var job = new PendingWidget();
-                job.wrapper = wrapper as Gtk.Overlay;
+                job.wrapper = reveal;
+                job.skeleton = placeholder;
                 job.provider = provider;
                 job.iid = iid;
                 job.w = w; job.h = h; job.cfg = cfg;
@@ -852,6 +907,11 @@ namespace Singularity {
                 if (parent is Gtk.Overlay)
                     attach_resize_chrome((Gtk.Overlay) parent, iid, inst, provider);
             });
+            if (provider.can_configure(iid)) {
+                menu.add_item(_("Configure…"), "emblem-system-symbolic", () => {
+                    provider.configure_instance(iid);
+                });
+            }
             menu.add_separator();
             menu.add_item("Remove from overview", "edit-delete-symbolic", () => {
                 app_system.remove_overview_widget(iid);
@@ -902,24 +962,11 @@ namespace Singularity {
             box.halign = Align.CENTER;
             box.valign = Align.CENTER;
 
-            var icon = app.get_icon();
             var img = new Image();
             img.pixel_size = icon_size;
             img.halign = Align.CENTER;
             img.valign = Align.CENTER;
-
-            if (icon is ThemedIcon) {
-                var theme = IconTheme.get_for_display(Gdk.Display.get_default());
-                bool set = false;
-                foreach (var name in ((ThemedIcon) icon).get_names()) {
-                    if (theme.has_icon(name)) { img.icon_name = name; set = true; break; }
-                }
-                if (!set) img.icon_name = "application-x-executable";
-            } else if (icon != null) {
-                img.set_from_gicon(icon);
-            } else {
-                img.icon_name = "application-x-executable";
-            }
+            load_app_icon(img, app.get_icon());
 
             box.append(img);
 
@@ -998,6 +1045,121 @@ namespace Singularity {
             btn.add_controller(drop);
 
             return btn;
+        }
+
+        private class IconJob {
+            public string key;
+            public GLib.File file;
+            public int px;
+        }
+
+        private static GLib.HashTable<string, Gdk.Texture> _icon_textures =
+            new GLib.HashTable<string, Gdk.Texture>(str_hash, str_equal);
+        private static GLib.HashTable<string, GLib.GenericArray<Gtk.Image>> _icon_waiters =
+            new GLib.HashTable<string, GLib.GenericArray<Gtk.Image>>(str_hash, str_equal);
+        private static GLib.ThreadPool<IconJob>? _icon_pool = null;
+
+        private void load_app_icon(Gtk.Image img, GLib.Icon? icon) {
+            var theme = IconTheme.get_for_display(Gdk.Display.get_default());
+            string fallback = "application-x-executable";
+            GLib.File? file = null;
+            int scale = icon_scale();
+            if (icon is FileIcon) {
+                file = ((FileIcon) icon).get_file();
+            } else if (icon is ThemedIcon) {
+                foreach (var name in ((ThemedIcon) icon).get_names()) {
+                    if (theme.has_icon(name)) { fallback = name; break; }
+                }
+            } else if (icon != null) {
+                img.set_from_gicon(icon);
+                return;
+            }
+            if (file == null && !fallback.has_suffix("-symbolic")) {
+                var found = theme.lookup_icon(fallback, null, icon_size, scale, TextDirection.NONE, 0);
+                file = found.get_file();
+            }
+            if (file == null) {
+                img.icon_name = fallback;
+                return;
+            }
+            string key = "%s@%d".printf(file.get_uri(), icon_size * scale);
+            var cached = _icon_textures.lookup(key);
+            if (cached != null) {
+                img.paintable = cached;
+                return;
+            }
+            if (icon is FileIcon) img.set_data<GLib.Icon>("icon-fallback", icon);
+            else img.set_data<string>("icon-fallback", fallback);
+            var waiting = _icon_waiters.lookup(key);
+            if (waiting != null) {
+                waiting.add(img);
+                return;
+            }
+            try {
+                if (_icon_pool == null)
+                    _icon_pool = new GLib.ThreadPool<IconJob>.with_owned_data(rasterize_icon, 4, false);
+                waiting = new GLib.GenericArray<Gtk.Image>();
+                waiting.add(img);
+                _icon_waiters.insert(key, waiting);
+                var job = new IconJob();
+                job.key = key;
+                job.file = file;
+                job.px = icon_size * scale;
+                _icon_pool.add((owned) job);
+            } catch (ThreadError e) {
+                _icon_waiters.remove(key);
+                apply_icon_fallback(img);
+            }
+        }
+
+        private int icon_scale() {
+            int scale = int.max(1, get_scale_factor());
+            var display = Gdk.Display.get_default();
+            if (display == null) return scale;
+            var monitors = display.get_monitors();
+            for (uint i = 0; i < monitors.get_n_items(); i++) {
+                var monitor = monitors.get_item(i) as Gdk.Monitor;
+                if (monitor != null) scale = int.max(scale, (int) Math.ceil(monitor.get_scale()));
+            }
+            return scale;
+        }
+
+        private static void rasterize_icon(owned IconJob job) {
+            Gdk.Texture? texture = null;
+            try {
+                var stream = job.file.read();
+                var pixbuf = new Gdk.Pixbuf.from_stream_at_scale(stream, job.px, job.px, true);
+                texture = new Gdk.MemoryTexture(pixbuf.width, pixbuf.height,
+                    pixbuf.has_alpha ? Gdk.MemoryFormat.R8G8B8A8 : Gdk.MemoryFormat.R8G8B8,
+                    pixbuf.read_pixel_bytes(), pixbuf.rowstride);
+            } catch (Error e) {
+                texture = null;
+            }
+            string key = job.key;
+            GLib.Idle.add(() => {
+                deliver_icon(key, texture);
+                return GLib.Source.REMOVE;
+            });
+        }
+
+        private static void deliver_icon(string key, Gdk.Texture? texture) {
+            var waiting = _icon_waiters.lookup(key);
+            _icon_waiters.remove(key);
+            if (texture != null) _icon_textures.insert(key, texture);
+            if (waiting == null) return;
+            foreach (var img in waiting.data) {
+                if (texture != null) img.paintable = texture;
+                else apply_icon_fallback(img);
+            }
+        }
+
+        private static void apply_icon_fallback(Gtk.Image img) {
+            var gicon = img.get_data<GLib.Icon>("icon-fallback");
+            if (gicon != null) {
+                img.set_from_gicon(gicon);
+                return;
+            }
+            img.icon_name = img.get_data<string>("icon-fallback") ?? "application-x-executable";
         }
 
         // Drop reorder
@@ -1154,7 +1316,7 @@ namespace Singularity {
             menu.popup();
         }
 
-        private void confirm_uninstall(AppInfo app, string[] argv) {
+        private void confirm_uninstall(AppInfo app, owned string[] argv) {
             var dialog = new PowerConfirmDialog(
                 (Gtk.Application) GLib.Application.get_default(),
                 _("Uninstall %s?").printf(app.get_display_name()),
@@ -1184,13 +1346,22 @@ namespace Singularity {
                 menu.add_item("No widgets available", "dialog-information-symbolic", () => {});
             } else {
                 foreach (var p in providers) {
-                    var first = p.supported_sizes[0];
-                    string label = "%s (%dx%d)".printf(p.display_name, first.w, first.h);
                     string pid = p.id;
-                    int w = first.w, h = first.h;
-                    menu.add_item(label, p.icon_name, () => {
-                        app_system.add_overview_widget(pid, w, h);
-                    });
+                    if (p.supported_sizes.length <= 1) {
+                        var only = p.supported_sizes.length == 1 ? p.supported_sizes[0] : WidgetSize(2, 2);
+                        int w = only.w, h = only.h;
+                        menu.add_item(_("%s (%dx%d)").printf(p.display_name, w, h), p.icon_name, () => {
+                            app_system.add_overview_widget(pid, w, h);
+                        });
+                        continue;
+                    }
+                    var sizes = menu.add_submenu(p.display_name, p.icon_name);
+                    foreach (var size in p.supported_sizes) {
+                        int w = size.w, h = size.h;
+                        sizes.add_item(_("%dx%d").printf(w, h), null, () => {
+                            app_system.add_overview_widget(pid, w, h);
+                        });
+                    }
                 }
             }
             menu.popup();

@@ -62,6 +62,7 @@ namespace Singularity {
             try {
                 var dir = File.new_for_path(path);
                 if (!dir.query_exists()) return;
+                bool dynamic_dir = has_dynamic_manifest(dir);
                 var enumerator = dir.enumerate_children(
                     "standard::name,standard::content-type,standard::type,standard::is-symlink,standard::symlink-target",
                     FileQueryInfoFlags.NONE, null);
@@ -90,7 +91,11 @@ namespace Singularity {
                     }
 
                     string mime = info.get_content_type();
-                    if (mime == null || !mime.has_prefix("image/")) continue;
+                    string name = info.get_name();
+                    bool dyn_wp = DynamicWallpaper.has_manifest_name(name)
+                        || (name.down().has_suffix(".xml") && DynamicWallpaper.sniff_timed_xml(child.get_path()));
+                    if (dynamic_dir && !dyn_wp) continue;
+                    if (!dyn_wp && (mime == null || !mime.has_prefix("image/"))) continue;
 
                     string uri = child.get_uri();
                     if (thread_seen.contains(uri)) continue;
@@ -101,5 +106,17 @@ namespace Singularity {
             }
         }
 
+
+        private static bool has_dynamic_manifest(File dir) {
+            try {
+                var en = dir.enumerate_children("standard::name", FileQueryInfoFlags.NONE, null);
+                FileInfo info;
+                while ((info = en.next_file(null)) != null) {
+                    if (DynamicWallpaper.has_manifest_name(info.get_name())) return true;
+                }
+            } catch (Error e) {
+            }
+            return false;
+        }
     }
 }

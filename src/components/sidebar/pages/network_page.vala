@@ -7,6 +7,67 @@ namespace Singularity {
         private PreferencesGroup vpn_error_group;
         private ActionRow vpn_error_row;
 
+        private Widget build_wifi_actions(NetworkManagerWrapper network) {
+            var group = new Box(Orientation.VERTICAL, 0);
+            group.margin_start = 12;
+            group.margin_end = 12;
+            group.margin_bottom = 12;
+            var buttons = new FlowBox();
+            buttons.selection_mode = SelectionMode.NONE;
+            buttons.homogeneous = false;
+            buttons.column_spacing = 8;
+            buttons.row_spacing = 8;
+            buttons.max_children_per_line = 4;
+            buttons.add_css_class("wifi-page-actions");
+            group.append(buttons);
+            var context = PluginManager.get_default().get_context();
+            var shown = new HashTable<SettingsPageAction, Widget>(direct_hash, direct_equal);
+            SyncCallback sync = () => {
+                bool any = false;
+                shown.foreach((action, child) => {
+                    if (action.visible) any = true;
+                });
+                group.visible = any && network.has_wifi;
+            };
+            ActionCallback add = (action) => {
+                if (action.page != SettingsPageAction.WIFI || shown.contains(action)) return;
+                var content = new Box(Orientation.HORIZONTAL, 6);
+                if (action.icon_name != null) content.append(new Image.from_icon_name(action.icon_name));
+                var label = new Label(action.label);
+                content.append(label);
+                var button = new Button();
+                button.set_child(content);
+                button.add_css_class("pill");
+                action.bind_property("label", label, "label");
+                action.bind_property("visible", button, "visible", BindingFlags.SYNC_CREATE);
+                action.notify["visible"].connect(() => sync());
+                button.clicked.connect(() => action.activate());
+                buttons.append(button);
+                shown[action] = button.get_parent() ?? button;
+                sync();
+            };
+            foreach (var action in context.get_settings_page_actions(SettingsPageAction.WIFI)) add(action);
+            ulong added = context.settings_page_action_added.connect((action) => add(action));
+            ulong removed = context.settings_page_action_removed.connect((action) => {
+                var child = shown[action];
+                if (child == null) return;
+                buttons.remove(child);
+                shown.remove(action);
+                sync();
+            });
+            ulong state = network.state_changed.connect(() => sync());
+            group.destroy.connect(() => {
+                context.disconnect(added);
+                context.disconnect(removed);
+                network.disconnect(state);
+            });
+            sync();
+            return group;
+        }
+
+        private delegate void SyncCallback();
+        private delegate void ActionCallback(SettingsPageAction action);
+
         public NetworkPage(SettingsView view) {
             base(_("Network"));
             back_clicked.connect(() => {
@@ -32,6 +93,22 @@ namespace Singularity {
                 update_networks_list(wifi_group, ref network_rows, network);
             });
             update_networks_list(wifi_group, ref network_rows, network);
+            network.wifi_connections_changed.connect(() => {
+                update_networks_list(wifi_group, ref network_rows, network);
+            });
+            var plugin_context = PluginManager.get_default().get_context();
+            ulong network_action_added = plugin_context.settings_page_action_added.connect((action) => {
+                if (action.page == SettingsPageAction.WIFI_NETWORK)
+                    update_networks_list(wifi_group, ref network_rows, network);
+            });
+            ulong network_action_removed = plugin_context.settings_page_action_removed.connect((action) => {
+                if (action.page == SettingsPageAction.WIFI_NETWORK)
+                    update_networks_list(wifi_group, ref network_rows, network);
+            });
+            wifi_group.destroy.connect(() => {
+                plugin_context.disconnect(network_action_added);
+                plugin_context.disconnect(network_action_removed);
+            });
             network.request_scan();
             var scan_btn = new Button.from_icon_name("view-refresh-symbolic");
             scan_btn.add_css_class("navigation-button");
@@ -40,6 +117,7 @@ namespace Singularity {
             });
             header.append(scan_btn);
             add_group(wifi_group);
+            add_group(build_wifi_actions(network));
             var wired_group = new PreferencesGroup(_("Wired"));
             var wired_rows = new List<Widget>();
             update_wired_list(wired_group, ref wired_rows, network);
@@ -47,6 +125,27 @@ namespace Singularity {
                 update_wired_list(wired_group, ref wired_rows, network);
             });
             add_group(wired_group);
+
+            var dynamic_group = new PreferencesGroup(_("Dynamic Internet"),
+                _("Keeps available connections ready and switches when another link is healthier."));
+            var dynamic_toggle = new SwitchRow(_("Dynamic Internet"),
+                network.dynamic_internet.status, network.dynamic_internet.enabled);
+            dynamic_group.add_row(dynamic_toggle);
+            var dynamic_rows = new List<Widget>();
+            update_dynamic_internet_list(dynamic_group, ref dynamic_rows,
+                network.dynamic_internet);
+            dynamic_toggle.switch_btn.notify["active"].connect(() => {
+                if (dynamic_toggle.active != network.dynamic_internet.enabled)
+                    network.set_dynamic_internet_enabled(dynamic_toggle.active);
+            });
+            network.dynamic_internet.changed.connect(() => {
+                if (dynamic_toggle.active != network.dynamic_internet.enabled)
+                    dynamic_toggle.active = network.dynamic_internet.enabled;
+                dynamic_toggle.subtitle = network.dynamic_internet.status;
+                update_dynamic_internet_list(dynamic_group, ref dynamic_rows,
+                    network.dynamic_internet);
+            });
+            add_group(dynamic_group);
 
             var hs_settings = new GLib.Settings("dev.sinty.desktop");
             string init_ssid, init_pw; bool init_wpa3;
@@ -195,9 +294,9 @@ namespace Singularity {
                 all_filter.add_pattern("*");
                 filter_store.append(all_filter);
                 chooser.filters = filter_store;
-                chooser.open.begin(null, null, (obj, res) => {
+                SidebarWait.choose_file.begin(this, chooser, null, (obj, res) => {
                     try {
-                        var file = chooser.open.end(res);
+                        var file = SidebarWait.choose_file.end(res);
                         if (file != null) {
                             var path = file.get_path();
                             if (path != null) {
@@ -212,6 +311,28 @@ namespace Singularity {
             });
             vpn_setup_group.add_row(import_row);
             add_group(vpn_setup_group);
+
+            var security_group = new PreferencesGroup(_("Security"));
+            var firewall_row = new ActionRow(_("Firewall"), _("Profiles and allowed apps"), "security-high-symbolic");
+            firewall_row.activatable = true;
+            var firewall_chevron = new Image.from_icon_name("go-next-symbolic");
+            firewall_chevron.pixel_size = 12;
+            firewall_chevron.add_css_class("dim-label");
+            firewall_chevron.valign = Align.CENTER;
+            firewall_row.add_suffix(firewall_chevron);
+            firewall_row.activated.connect(() => view.navigate_to("firewall"));
+            security_group.add_row(firewall_row);
+            add_group(security_group);
+            add_search_action(_("Firewall"), _("Home and Public profiles, allowed apps and ports"),
+                () => view.navigate_to("firewall"));
+            var firewall = FirewallManager.get_default();
+            firewall.changed.connect(() => {
+                var st = firewall.current;
+                if (firewall.backend == null) firewall_row.subtitle = _("Not available on this system");
+                else if (st == null || !st.enabled) firewall_row.subtitle = _("Off");
+                else firewall_row.subtitle = st.profile == FirewallProfile.PUBLIC ? _("On, Public network") : _("On, Home network");
+            });
+            firewall.refresh.begin();
         }
 
         public static void ensure_hotspot_credentials(GLib.Settings s,
@@ -251,36 +372,59 @@ namespace Singularity {
                 rows.append(lbl_row);
                 return;
             }
-            var seen_ssids = new GenericSet<string>(str_hash, str_equal);
+            var network_actions = PluginManager.get_default().get_context()
+                .get_settings_page_actions(SettingsPageAction.WIFI_NETWORK);
+            var entries = new GenericArray<WifiEntry>();
+            var by_ssid = new HashTable<string, WifiEntry>(str_hash, str_equal);
             foreach (var ap in aps) {
                 var ssid_bytes = ap.ssid;
                 if (ssid_bytes == null) continue;
                 string ssid = NM.Utils.ssid_to_utf8(ssid_bytes.get_data());
                 if (ssid == "") continue;
-                if (seen_ssids.contains(ssid)) continue;
-                seen_ssids.add(ssid);
-                string icon_name = "network-wireless-signal-good-symbolic";
-                if (ap.strength < 30) icon_name = "network-wireless-signal-weak-symbolic";
-                else if (ap.strength < 60) icon_name = "network-wireless-signal-ok-symbolic";
-                else if (ap.strength < 80) icon_name = "network-wireless-signal-good-symbolic";
-                else icon_name = "network-wireless-signal-excellent-symbolic";
-                var row = new ActionRow(ssid, null, icon_name);
+                var known = by_ssid[ssid];
+                if (known != null) {
+                    if (ap.strength > known.ap.strength) known.ap = ap;
+                    continue;
+                }
+                var entry = new WifiEntry(ap, ssid);
+                entry.connected = network.is_wifi_connected(ssid);
+                entry.saved = network.has_saved_wifi(ssid);
+                by_ssid[ssid] = entry;
+                entries.add(entry);
+            }
+            entries.sort((a, b) => {
+                if (a.connected != b.connected) return a.connected ? -1 : 1;
+                if (a.saved != b.saved) return a.saved ? -1 : 1;
+                return (int) b.ap.strength - (int) a.ap.strength;
+            });
+            foreach (var entry in entries.data) {
+                var ap = entry.ap;
+                string ssid = entry.ssid;
+                bool is_connected = entry.connected;
+                var row = new ActionRow(ssid, null, signal_icon_name(ap.strength));
                 row.activatable = true;
-                bool is_connected = (network.wifi_ssid == ssid);
                 if (is_connected) {
                     row.subtitle = _("Connected");
-                    row.add_suffix(new Image.from_icon_name("object-select-symbolic"));
                     row.add_css_class("selected");
+                } else if (entry.saved) {
+                    row.subtitle = _("Saved");
                 }
+                if (entry.saved) add_network_actions(row, ssid, network_actions);
                 if (ap.rsn_flags != NM.80211ApSecurityFlags.NONE || ap.wpa_flags != NM.80211ApSecurityFlags.NONE) {
-                    var lock_icon = new Image.from_icon_name("changes-prevent-symbolic");
+                    var lock_icon = new Image.from_icon_name("channel-secure-symbolic");
                     lock_icon.add_css_class("dim-label");
-                    lock_icon.pixel_size = 12;
+                    lock_icon.tooltip_text = _("Secured");
+                    lock_icon.update_property(AccessibleProperty.LABEL, _("Secured"), -1);
                     row.add_suffix(lock_icon);
+                } else {
+                    var lock_slot = new Box(Orientation.HORIZONTAL, 0);
+                    lock_slot.width_request = 16;
+                    row.add_suffix(lock_slot);
                 }
                 var gesture = new GestureClick();
                 gesture.released.connect(() => {
                     if (is_connected) return;
+                    if (entry.saved && network.activate_saved_wifi(ssid, ap)) return;
                     bool secured = (ap.rsn_flags != NM.80211ApSecurityFlags.NONE || ap.wpa_flags != NM.80211ApSecurityFlags.NONE);
                     if (secured) {
                         var dialog = new WifiPasswordDialog(ssid);
@@ -298,6 +442,104 @@ namespace Singularity {
                 group.add_row(row);
                 rows.append(row);
             }
+        }
+
+        private class WifiEntry {
+            public NM.AccessPoint ap;
+            public string ssid;
+            public bool connected;
+            public bool saved;
+
+            public WifiEntry(NM.AccessPoint ap, string ssid) {
+                this.ap = ap;
+                this.ssid = ssid;
+            }
+        }
+
+        private static string signal_icon_name(uint8 strength) {
+            if (strength < 25) return "network-wireless-signal-weak-symbolic";
+            if (strength < 50) return "network-wireless-signal-ok-symbolic";
+            if (strength < 75) return "network-wireless-signal-good-symbolic";
+            return "network-wireless-signal-excellent-symbolic";
+        }
+
+        private void update_dynamic_internet_list(PreferencesGroup group,
+                                                  ref List<Widget> rows,
+                                                  DynamicInternetManager manager) {
+            foreach (var row in rows) group.remove_row(row);
+            rows = new List<Widget>();
+            if (!manager.enabled) return;
+
+            foreach (var uplink in manager.get_uplinks()) {
+                string icon;
+                switch (uplink.kind) {
+                    case InternetUplinkKind.ETHERNET: icon = "network-wired-symbolic"; break;
+                    case InternetUplinkKind.WIFI: icon = "network-wireless-symbolic"; break;
+                    case InternetUplinkKind.MOBILE: icon = "network-cellular-symbolic"; break;
+                    default: icon = "network-transmit-receive-symbolic"; break;
+                }
+
+                string state;
+                if (uplink.captive) state = _("Sign-in required");
+                else if (!uplink.reachable) state = _("No internet access");
+                else if (uplink.latency_ms >= 0)
+                    state = _("%d ms · %d%% loss").printf(uplink.latency_ms,
+                        uplink.loss_percent);
+                else state = _("Internet available");
+
+                var row = new ActionRow(uplink.display_name, state, icon);
+                bool preferred = manager.preferred_id != ""
+                    ? uplink.id == manager.preferred_id : uplink.primary;
+                if (preferred) {
+                    row.add_css_class("selected");
+                    row.add_suffix(new Label(_("Preferred")));
+                } else {
+                    var standby = new Label(_("Standby"));
+                    standby.add_css_class("dim-label");
+                    row.add_suffix(standby);
+                }
+                group.add_row(row);
+                rows.append(row);
+            }
+
+            if (manager.last_error != "") {
+                var error = new ActionRow(_("Dynamic Internet error"), manager.last_error,
+                    "dialog-error-symbolic");
+                group.add_row(error);
+                rows.append(error);
+            }
+        }
+
+        private void add_network_actions(ActionRow row, string ssid, SettingsPageAction[] actions) {
+            SettingsPageAction[] shown = {};
+            foreach (var action in actions) {
+                if (!action.visible) continue;
+                shown += action;
+                var button = new Button.from_icon_name(action.icon_name ?? "singularity-share-symbolic");
+                button.add_css_class("flat");
+                button.add_css_class("circular");
+                button.valign = Align.CENTER;
+                button.tooltip_text = action.label;
+                button.update_property(AccessibleProperty.LABEL, action.label,
+                    AccessibleProperty.DESCRIPTION, ssid, -1);
+                button.clicked.connect(() => action.activate_for(ssid));
+                row.add_suffix(button);
+            }
+            if (shown.length == 0) return;
+            var menu_click = new GestureClick();
+            menu_click.button = Gdk.BUTTON_SECONDARY;
+            menu_click.pressed.connect((n, x, y) => {
+                menu_click.set_state(EventSequenceState.CLAIMED);
+                var menu = new Singularity.Widgets.ContextMenu(row);
+                Gdk.Rectangle rect = { (int) x, (int) y, 1, 1 };
+                menu.set_pointing_to(rect);
+                foreach (var action in shown) {
+                    var captured = action;
+                    menu.add_item(captured.label, captured.icon_name, () => captured.activate_for(ssid));
+                }
+                menu.popup();
+            });
+            row.add_controller(menu_click);
         }
 
         // One row per physical wired port, cable in or out -- a board can

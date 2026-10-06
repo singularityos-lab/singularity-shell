@@ -117,6 +117,25 @@ void singularity_osk_press(guint evdev_code, guint modifiers) {
     wl_display_flush(display);
 }
 
+gboolean singularity_osk_press_keysym(guint keysym, guint modifiers) {
+    if (keyboard == NULL || keymap == NULL) return FALSE;
+    xkb_keycode_t min = xkb_keymap_min_keycode(keymap);
+    xkb_keycode_t max = xkb_keymap_max_keycode(keymap);
+    for (guint level = 0; level < 2; level++) {
+        for (xkb_keycode_t code = min; code <= max; code++) {
+            const xkb_keysym_t *syms = NULL;
+            int count = xkb_keymap_key_get_syms_by_level(keymap, code, 0, level, &syms);
+            for (int i = 0; i < count; i++) {
+                if (syms[i] == keysym && code >= 8) {
+                    singularity_osk_press(code - 8, modifiers | (level == 1 ? SINGULARITY_OSK_SHIFT : 0));
+                    return TRUE;
+                }
+            }
+        }
+    }
+    return FALSE;
+}
+
 char *singularity_osk_label(guint evdev_code, gboolean shifted) {
     if (keymap == NULL || label_state == NULL) return NULL;
     xkb_state_update_mask(label_state, shifted ? modifier_bit(XKB_MOD_NAME_SHIFT) : 0, 0, 0, 0, 0, 0);

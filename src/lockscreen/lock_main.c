@@ -16,6 +16,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <math.h>
 #include <poll.h>
 #include <pwd.h>
 #include <sys/mman.h>
@@ -31,12 +32,33 @@
 #include "ext-session-lock-v1-client-protocol.h"
 #include "pam_auth.h"
 #include "lock_media.h"
+#include "lock_notifs.h"
+#include "lock_fprint.h"
 #include "loginui.h"
 
 #define BTN_LEFT 0x110
 
 static cairo_surface_t *bg_surface = NULL;
+static cairo_surface_t *bg_sharp_surface = NULL;
 static cairo_surface_t *avatar_surface = NULL;
+
+#define MOTION_SMALL_MS 140.0
+#define MOTION_LARGE_MS 320.0
+#define MOTION_PAGE_MS 380.0
+#define LOCK_CLOCK_DROP 8.0
+#define SHAKE_VELOCITY 520.0
+#define BOUNCY_DAMPING 14.0
+#define BOUNCY_STIFFNESS 300.0
+#define SHAKE_REST_PX 0.4
+
+enum lock_phase { PHASE_IDLE, PHASE_ENTER, PHASE_LEAVE };
+
+static enum lock_phase anim_phase = PHASE_IDLE;
+static int64_t anim_start = -1;
+static double anim_ms = 0.0;
+static int64_t shake_start = -1;
+static bool motion_reduced = false;
+static double motion_scale = 1.0;
 
 struct lock_output {
     struct wl_output *wl_output;
@@ -47,6 +69,7 @@ struct lock_output {
     bool configured;
     double mb_cx[3], mb_r[3], mb_cy;
     bool mb_valid;
+    struct wl_callback *frame_cb;
     struct lock_output *next;
 };
 
@@ -101,7 +124,11 @@ static void load_assets(void) {
         uri = g_settings_get_string(s, "background-picture-uri");
         g_object_unref(s);
     }
-    if (uri && uri[0]) bg_surface = loginui_load_wallpaper(uri, 960);
+    if (uri && uri[0]) {
+        bg_surface = loginui_load_wallpaper(uri, 960);
+        bg_sharp_surface = loginui_load_image(
+            g_str_has_prefix(uri, "file://") ? uri + 7 : uri, 1920, 1920);
+    }
     g_free(uri);
 
     char p[512];
@@ -253,7 +280,155 @@ static void render_media(cairo_t *cr, struct lock_output *o,
         draw_text_ellipsized(cr, "Sans 11", m->artist, tx, cy + 1, tw, 0.78, 0.78, 0.82);
 }
 
+static void render_notifs(cairo_t *cr, struct lock_output *o, double x, double y, double w) {
+    const LockNotifsState *ns = lock_notifs_get();
+    double row_h = 58, gap = 8, pad = 12;
+    for (int i = 0; i < ns->count; i++) {
+        if (y + row_h > o->height - 16) break;
+        const LockNotification *n = &ns->items[i];
+        rounded_rect(cr, x, y, w, row_h, 16);
+        cairo_set_source_rgba(cr, 0.176, 0.176, 0.176, 0.88);
+        cairo_fill(cr);
+        rounded_rect(cr, x + 0.5, y + 0.5, w - 1, row_h - 1, 16);
+        cairo_set_source_rgba(cr, 1, 1, 1, 0.08);
+        cairo_set_line_width(cr, 1);
+        cairo_stroke(cr);
+        char when[16] = "";
+        time_t t = (time_t) n->timestamp;
+        struct tm tm;
+        localtime_r(&t, &tm);
+        strftime(when, sizeof when, "%H:%M", &tm);
+        draw_text_ellipsized(cr, "Sans Bold 9", n->app_name, x + pad, y + 7, w - pad * 2 - 44, 0.72, 0.72, 0.76);
+        draw_text_ellipsized(cr, "Sans 9", when, x + w - pad - 40, y + 7, 40, 0.62, 0.62, 0.66);
+        draw_text_ellipsized(cr, "Sans Bold 11", n->summary, x + pad, y + 22, w - pad * 2, 0.96, 0.96, 0.98);
+        if (n->body[0])
+            draw_text_ellipsized(cr, "Sans 10", n->body, x + pad, y + 39, w - pad * 2, 0.80, 0.80, 0.84);
+        y += row_h + gap;
+    }
+}
+
+static void load_motion(void) {
+    GSettingsSchemaSource *src = g_settings_schema_source_get_default();
+    if (!src) return;
+    GSettingsSchema *schema = g_settings_schema_source_lookup(src, "dev.sinty.desktop", TRUE);
+    if (schema) {
+        GSettings *s = g_settings_new("dev.sinty.desktop");
+        if (g_settings_schema_has_key(schema, "reduce-motion"))
+            motion_reduced = g_settings_get_boolean(s, "reduce-motion");
+        if (g_settings_schema_has_key(schema, "motion-duration-scale")) {
+            double scale = g_settings_get_double(s, "motion-duration-scale");
+            if (scale > 0.0) motion_scale = scale;
+        }
+        g_object_unref(s);
+        g_settings_schema_unref(schema);
+    }
+    schema = g_settings_schema_source_lookup(src, "org.gnome.desktop.interface", TRUE);
+    if (schema) {
+        if (g_settings_schema_has_key(schema, "enable-animations")) {
+            GSettings *s = g_settings_new("org.gnome.desktop.interface");
+            if (!g_settings_get_boolean(s, "enable-animations")) motion_reduced = true;
+            g_object_unref(s);
+        }
+        g_settings_schema_unref(schema);
+    }
+}
+
+static int64_t now_us(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+}
+
+static double bezier_axis(double a, double b, double t) {
+    double u = 1.0 - t;
+    return 3.0 * u * u * t * a + 3.0 * u * t * t * b + t * t * t;
+}
+
+static double bezier_ease(double x1, double y1, double x2, double y2, double x) {
+    if (x <= 0.0) return 0.0;
+    if (x >= 1.0) return 1.0;
+    double lo = 0.0, hi = 1.0, t = x;
+    for (int i = 0; i < 32; i++) {
+        double value = bezier_axis(x1, x2, t);
+        if (fabs(value - x) < 1e-6) break;
+        if (value < x) lo = t; else hi = t;
+        t = (lo + hi) / 2.0;
+    }
+    return bezier_axis(y1, y2, t);
+}
+
+static double ease_standard(double t) {
+    return bezier_ease(0.2, 0.0, 0.0, 1.0, t);
+}
+
+static void start_phase(enum lock_phase phase, double ms) {
+    anim_phase = phase;
+    anim_start = -1;
+    anim_ms = motion_reduced ? MOTION_SMALL_MS : ms;
+    anim_ms *= motion_scale;
+}
+
+static double shake_offset(int64_t now) {
+    if (shake_start < 0) return 0.0;
+    double t = (now - shake_start) / 1000000.0 / motion_scale;
+    double omega = sqrt(BOUNCY_STIFFNESS);
+    double zeta = BOUNCY_DAMPING / (2.0 * omega);
+    double omega_d = omega * sqrt(1.0 - zeta * zeta);
+    double envelope = SHAKE_VELOCITY / omega_d * exp(-zeta * omega * t);
+    if (envelope < SHAKE_REST_PX) {
+        shake_start = -1;
+        return 0.0;
+    }
+    return -envelope * sin(omega_d * t);
+}
+
+static void unlock_session(void);
+
+static bool apply_motion(LoginUiState *st) {
+    int64_t now = now_us();
+    bool animating = false;
+    st->background_sharp = bg_sharp_surface;
+    if (anim_phase != PHASE_IDLE) {
+        if (anim_start < 0) anim_start = now;
+        double t = anim_ms > 0.0 ? (now - anim_start) / 1000.0 / anim_ms : 1.0;
+        if (t > 1.0) t = 1.0;
+        double p = motion_reduced ? t : ease_standard(t);
+        if (anim_phase == PHASE_ENTER) {
+            st->sharpness = 1.0 - p;
+            st->content_fade = 1.0 - p;
+            st->clock_dy = motion_reduced ? 0.0 : -LOCK_CLOCK_DROP * (1.0 - p);
+        } else {
+            st->sharpness = p;
+            st->content_fade = p;
+        }
+        if (t >= 1.0) {
+            if (anim_phase == PHASE_LEAVE) st->content_fade = 1.0;
+            else anim_phase = PHASE_IDLE;
+        } else {
+            animating = true;
+        }
+    }
+    st->card_dx = shake_offset(now);
+    if (shake_start >= 0) animating = true;
+    return animating;
+}
+
+static void frame_done(void *data, struct wl_callback *cb, uint32_t time) {
+    struct lock_output *o = data;
+    wl_callback_destroy(cb);
+    o->frame_cb = NULL;
+    if (anim_phase == PHASE_LEAVE && anim_start >= 0
+            && (now_us() - anim_start) / 1000.0 >= anim_ms) {
+        anim_phase = PHASE_IDLE;
+        unlock_session();
+        return;
+    }
+    render_output(o);
+}
+static const struct wl_callback_listener frame_listener = { .done = frame_done };
+
 static void render_output(struct lock_output *o) {
+    if (o->frame_cb) return;
     cairo_t *cr;
     struct loginui_buffer *b = loginui_create_buffer(shm, o->width, o->height, &cr);
     if (!b) return;
@@ -278,14 +453,31 @@ static void render_output(struct lock_output *o) {
     /* On Sinty OS the unlock field takes a PIN, not a password (the recoverd
      * broker socket is the tell that we authenticate via the PIN daemon). */
     st.auth_label = (access("/run/sinty-recoverd.sock", F_OK) == 0) ? "PIN" : NULL;
+    bool animating = apply_motion(&st);
 
     double card_x, card_y, card_w, card_h;
     loginui_render(cr, &st, &card_x, &card_y, &card_w, &card_h);
 
-    render_media(cr, o, card_x, card_y, card_w, card_h);
+    if (st.content_fade < 1.0) {
+        bool faded = st.content_fade > 0.0;
+        if (faded) cairo_push_group(cr);
+        cairo_save(cr);
+        cairo_translate(cr, st.card_dx, 0);
+        render_media(cr, o, card_x, card_y, card_w, card_h);
+        render_notifs(cr, o, card_x, card_y + card_h + 14 + (o->mb_valid ? 102 : 0), card_w);
+        cairo_restore(cr);
+        if (faded) {
+            cairo_pop_group_to_source(cr);
+            cairo_paint_with_alpha(cr, 1.0 - st.content_fade);
+        }
+    }
 
     cairo_destroy(cr);
 
+    if (animating || anim_phase == PHASE_LEAVE) {
+        o->frame_cb = wl_surface_frame(o->surface);
+        wl_callback_add_listener(o->frame_cb, &frame_listener, o);
+    }
     wl_surface_attach(o->surface, b->wl_buffer, 0, 0);
     wl_surface_damage_buffer(o->surface, 0, 0, (int)o->width, (int)o->height);
     wl_surface_commit(o->surface);
@@ -326,6 +518,42 @@ static const struct ext_session_lock_v1_listener lock_listener = {
 
 /* ── Auth ───────────────────────────────────────────────────────────────── */
 
+static void unlock_session(void) {
+    lock_fprint_stop();
+    ext_session_lock_v1_unlock_and_destroy(lock);
+    wl_display_roundtrip(display);
+    running = false;
+}
+
+static void begin_leave(void) {
+    if (anim_phase == PHASE_LEAVE) return;
+    bool any = false;
+    for (struct lock_output *o = outputs; o; o = o->next)
+        if (o->configured) any = true;
+    if (!any) {
+        unlock_session();
+        return;
+    }
+    shake_start = -1;
+    start_phase(PHASE_LEAVE, MOTION_LARGE_MS);
+    render_all();
+}
+
+static void on_fprint_match(void) {
+    snprintf(status_text, sizeof status_text, "%s", "Unlocking…");
+    status_error = false;
+    render_all();
+    wl_display_flush(display);
+    begin_leave();
+}
+
+static void on_fprint_status(const char *text, bool error) {
+    if (password_len > 0) return;
+    snprintf(status_text, sizeof status_text, "%s", text);
+    status_error = error;
+    render_all();
+}
+
 static void submit_password(void) {
     if (password_len == 0) return;
     password[password_len] = '\0';
@@ -341,10 +569,9 @@ static void submit_password(void) {
     password_len = 0;
 
     if (rc == 0) {
-        ext_session_lock_v1_unlock_and_destroy(lock);
-        wl_display_roundtrip(display);
-        running = false;
+        begin_leave();
     } else {
+        if (!motion_reduced) shake_start = now_us();
         snprintf(status_text, sizeof status_text, "%s",
                  (access("/run/sinty-recoverd.sock", F_OK) == 0) ? "Incorrect PIN" : "Incorrect password");
         status_error = true;
@@ -377,6 +604,7 @@ static void kb_repeat(void *d, struct wl_keyboard *kb, int32_t rate, int32_t del
 static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
                    uint32_t time, uint32_t key, uint32_t state) {
     if (!xkb_state || state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+    if (anim_phase == PHASE_LEAVE) return;
     xkb_keycode_t kc = key + 8;
     xkb_keysym_t sym = xkb_state_key_get_one_sym(xkb_state, kc);
 
@@ -495,10 +723,17 @@ static void reg_remove(void *data, struct wl_registry *reg, uint32_t name) {
         if ((*pp)->name == name) {
             struct lock_output *dead = *pp;
             *pp = dead->next;
+            if (dead->frame_cb) wl_callback_destroy(dead->frame_cb);
             if (dead->lock_surface) ext_session_lock_surface_v1_destroy(dead->lock_surface);
             if (dead->surface) wl_surface_destroy(dead->surface);
             if (dead->wl_output) wl_output_destroy(dead->wl_output);
             free(dead);
+            if (anim_phase == PHASE_LEAVE) {
+                bool any = false;
+                for (struct lock_output *o = outputs; o; o = o->next)
+                    if (o->configured) any = true;
+                if (!any) unlock_session();
+            }
             return;
         }
         pp = &(*pp)->next;
@@ -513,6 +748,30 @@ static void on_media_change(void) {
     if (display) wl_display_flush(display);
 }
 
+static void seat_capabilities(void *data, struct wl_seat *s, uint32_t caps) {
+    (void)data;
+    if ((caps & WL_SEAT_CAPABILITY_KEYBOARD) && !keyboard) {
+        keyboard = wl_seat_get_keyboard(s);
+        wl_keyboard_add_listener(keyboard, &keyboard_listener, NULL);
+    } else if (!(caps & WL_SEAT_CAPABILITY_KEYBOARD) && keyboard) {
+        wl_keyboard_release(keyboard);
+        keyboard = NULL;
+    }
+    if ((caps & WL_SEAT_CAPABILITY_POINTER) && !pointer) {
+        pointer = wl_seat_get_pointer(s);
+        wl_pointer_add_listener(pointer, &pointer_listener, NULL);
+    } else if (!(caps & WL_SEAT_CAPABILITY_POINTER) && pointer) {
+        wl_pointer_release(pointer);
+        pointer = NULL;
+    }
+}
+
+static void seat_name(void *data, struct wl_seat *s, const char *name) {
+    (void)data; (void)s; (void)name;
+}
+
+static const struct wl_seat_listener seat_listener = { seat_capabilities, seat_name };
+
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
 
@@ -521,6 +780,8 @@ int main(int argc, char **argv) {
     else { const char *u = getenv("USER"); if (u) snprintf(username, sizeof username, "%s", u); }
 
     load_assets();
+    load_motion();
+    start_phase(PHASE_ENTER, MOTION_PAGE_MS);
 
     display = wl_display_connect(NULL);
     if (!display) { fprintf(stderr, "lock: cannot connect to Wayland display\n"); return 1; }
@@ -535,10 +796,8 @@ int main(int argc, char **argv) {
     }
 
     xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    keyboard = wl_seat_get_keyboard(seat);
-    if (keyboard) wl_keyboard_add_listener(keyboard, &keyboard_listener, NULL);
-    pointer = wl_seat_get_pointer(seat);
-    if (pointer) wl_pointer_add_listener(pointer, &pointer_listener, NULL);
+    wl_seat_add_listener(seat, &seat_listener, NULL);
+    wl_display_roundtrip(display);
 
     lock = ext_session_lock_manager_v1_lock(lock_manager);
     ext_session_lock_v1_add_listener(lock, &lock_listener, NULL);
@@ -548,6 +807,8 @@ int main(int argc, char **argv) {
      * folded into the Wayland poll below so D-Bus signals are dispatched
      * without a second thread. */
     lock_media_init(on_media_change);
+    lock_notifs_init(on_media_change);
+    lock_fprint_start(username, on_fprint_match, on_fprint_status);
 
     GMainContext *ctx = g_main_context_default();
     int fd = wl_display_get_fd(display);

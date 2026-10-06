@@ -389,7 +389,29 @@ void singularity_ime_set_grab(gboolean grab) {
 
 void singularity_ime_forward_key(guint key, gboolean pressed) {
     send_forward(key, pressed);
+    if (key < KEY_COUNT) forwarded[key] = pressed;
     if (display != NULL) wl_display_flush(display);
+}
+
+guint32 singularity_keysym_to_unicode(guint keysym) {
+    return xkb_keysym_to_utf32(keysym);
+}
+
+gboolean singularity_ime_key_forwarded(guint key) {
+    return key < KEY_COUNT && forwarded[key];
+}
+
+gboolean singularity_ime_active(void) {
+    return input_method != NULL && current.active;
+}
+
+void singularity_ime_preedit(const char *text, int cursor_begin, int cursor_end) {
+    if (input_method == NULL || !current.active) return;
+    if (text != NULL && *text != '\0') {
+        zwp_input_method_v2_set_preedit_string(input_method, text, cursor_begin, cursor_end);
+    }
+    zwp_input_method_v2_commit(input_method, serial);
+    wl_display_flush(display);
 }
 
 void singularity_ime_replace(guint delete_before, guint delete_after, const char *text) {

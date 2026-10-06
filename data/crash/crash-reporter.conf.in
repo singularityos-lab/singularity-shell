@@ -1,0 +1,15 @@
+[Crash Reporter]
+Sources=auto
+SpoolDir=@SPOOL_DIR@
+BacktraceTool=auto
+BacktraceTimeout=30
+NotifyUnknownPrograms=false
+DeleteCoreAfterBacktrace=true
+
+[Handler]
+Enabled=true
+MinUid=1000
+KeepCore=true
+MaxCoreSizeMB=256
+MaxReports=20
+MaxCores=3

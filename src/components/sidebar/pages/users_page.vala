@@ -42,11 +42,390 @@ namespace Singularity.SidebarPages {
             users_group = new PreferencesGroup(_("System Users"));
             add_group(users_group);
 
+            if (LoginScreenSync.available()) add_group(build_login_screen_group());
+            var fingerprint_group = build_fingerprint_group();
+            fingerprint_group.visible = false;
+            add_group(fingerprint_group);
+
             service = AccountsService.get_default();
             service.user_added.connect(on_user_added);
             service.user_removed.connect(on_user_removed);
             load_users.begin();
             init_permission.begin();
+        }
+
+        private PreferencesGroup build_fingerprint_group() {
+            var manager = new FingerprintManager();
+            var group = new PreferencesGroup(_("Fingerprint"));
+            group.description = _("Unlock the screen with your fingerprint. After a restart your password is needed once, because it also unlocks your keyring and encrypted data.");
+
+            var status_row = new ActionRow(_("Fingerprint Unlock"), "");
+            status_row.activatable = false;
+            group.add_row(status_row);
+
+            var add_row = new ActionRow(_("Add Fingerprint"), _("Enroll another finger"));
+            var add_btn = new Button.with_label(_("Add"));
+            add_btn.valign = Align.CENTER;
+            add_row.add_suffix(add_btn);
+            group.add_row(add_row);
+
+            var enroll_row = new FingerprintEnrollRow(manager);
+            enroll_row.visible = false;
+            group.add_row(enroll_row);
+
+            var remove_row = new ActionRow(_("Remove All Fingerprints"), _("Unlock only with your password"));
+            var remove_btn = new Button.with_label(_("Remove"));
+            remove_btn.add_css_class("destructive-action");
+            remove_btn.valign = Align.CENTER;
+            remove_row.add_suffix(remove_btn);
+            remove_btn.clicked.connect(() => remove_row.activated());
+            remove_row.activated.connect(() => {
+                remove_row.confirmation_requested(_("Remove"), _("Cancel"), ConfirmationSuggestedAction.CANCEL);
+            });
+            group.add_row(remove_row);
+
+            Callback refresh = () => {
+                manager.enrolled.begin((obj, res) => {
+                    int count = manager.enrolled.end(res).length;
+                    status_row.subtitle = count == 0 ? _("No fingerprints enrolled")
+                        : ngettext("%d finger enrolled", "%d fingers enrolled", count).printf(count);
+                    remove_row.visible = count > 0;
+                });
+            };
+            manager.finished.connect(() => refresh());
+            add_btn.clicked.connect(() => {
+                add_btn.visible = false;
+                enroll_row.visible = true;
+                enroll_row.start();
+            });
+            enroll_row.closed.connect(() => {
+                enroll_row.visible = false;
+                add_btn.visible = true;
+                refresh();
+            });
+            remove_row.confirmed.connect(() => {
+                manager.remove_all.begin((obj, res) => {
+                    manager.remove_all.end(res);
+                    add_row.subtitle = _("Enroll another finger");
+                    refresh();
+                });
+            });
+            var driver_row = new ActionRow(_("Install the Manufacturer's Driver"), "");
+            var driver_spinner = new Spinner();
+            driver_spinner.valign = Align.CENTER;
+            driver_spinner.visible = false;
+            var driver_btn = new Button.with_label(_("Install"));
+            driver_btn.valign = Align.CENTER;
+            driver_row.add_suffix(driver_spinner);
+            driver_row.add_suffix(driver_btn);
+            driver_row.visible = false;
+            driver_row.activated.connect(() => {
+                if (driver_btn.visible) driver_btn.clicked();
+            });
+            group.add_row(driver_row);
+
+            FingerprintDriver? driver = null;
+            Callback show_driver = () => {
+                driver_spinner.visible = false;
+                driver_spinner.spinning = false;
+                driver_btn.visible = true;
+                driver_btn.sensitive = true;
+                driver_row.visible = true;
+                if (driver.installed) {
+                    driver_row.title = _("Manufacturer's Driver");
+                    driver_row.subtitle = _("%s %s from %s").printf(driver.name, driver.version, driver.vendor);
+                    driver_btn.label = _("Remove");
+                    driver_btn.remove_css_class("suggested-action");
+                } else {
+                    driver_row.title = _("Install the Manufacturer's Driver");
+                    driver_row.subtitle = _("%s, downloaded from %s").printf(driver.vendor, driver.host);
+                    driver_btn.label = _("Install");
+                    driver_btn.add_css_class("suggested-action");
+                }
+            };
+            Callback show_ready = () => {
+                status_row.visible = true;
+                add_row.visible = true;
+                group.visible = true;
+                refresh();
+            };
+            Callback show_unsupported = () => {
+                add_row.visible = false;
+                remove_row.visible = false;
+                group.visible = true;
+                string sensor = driver != null ? driver.id : (FingerprintManager.unsupported_sensor() ?? "");
+                if (driver != null && driver.installed) {
+                    status_row.subtitle = _("The driver for fingerprint reader %s is installed. Restart the computer to use it.").printf(sensor);
+                } else {
+                    status_row.subtitle = _("Fingerprint reader %s needs its manufacturer's driver").printf(sensor);
+                }
+            };
+            Callback reprobe = () => {
+                driver_row.subtitle = _("Starting the fingerprint service...");
+                start_fprintd.begin((o, r) => {
+                    start_fprintd.end(r);
+                    manager.probe.begin((o2, r2) => {
+                        bool now_ready = manager.probe.end(r2);
+                        show_driver();
+                        if (now_ready) {
+                            show_ready();
+                        } else {
+                            show_unsupported();
+                        }
+                    });
+                });
+            };
+            driver_btn.clicked.connect(() => {
+                if (driver == null) return;
+                bool removing = driver.installed;
+                var app = GLib.Application.get_default() as Gtk.Application;
+                ConfirmDialog dialog;
+                if (removing) {
+                    dialog = new ConfirmDialog(app, _("Remove the Manufacturer's Driver?"), "user-trash-symbolic",
+                        _("The fingerprint reader stops working until the driver is installed again. Enrolled fingerprints are kept."),
+                        _("Remove"), ConfirmDialog.ActionStyle.DESTRUCTIVE);
+                } else {
+                    dialog = new ConfirmDialog(app, _("Install the Manufacturer's Driver?"), "dialog-warning-symbolic",
+                        _("%s is proprietary software from %s. It is not part of Singularity, its source code is not available, and Singularity cannot review or update it.").printf(driver.name, driver.vendor),
+                        _("Install"), ConfirmDialog.ActionStyle.SUGGESTED);
+                    string[] details = {
+                        _("Downloaded from: %s, where the vendor publishes it").printf(driver.host),
+                        _("Installed as a Singularity driver plugin. No system packages are installed or changed."),
+                        _("Version: %s, %s").printf(driver.version, GLib.format_size((uint64) driver.size)),
+                        _("License: %s").printf(driver.license),
+                        _("The download is checked against a known fingerprint before anything is installed."),
+                    };
+                    foreach (string text in details) {
+                        var label = new Label(text);
+                        label.wrap = true;
+                        label.max_width_chars = 42;
+                        label.xalign = 0;
+                        label.add_css_class("dim-label");
+                        dialog.custom_area.append(label);
+                    }
+                }
+                dialog.response.connect((r) => {
+                    if (r != ConfirmDialog.Response.PRIMARY) return;
+                    driver_btn.visible = false;
+                    driver_spinner.visible = true;
+                    driver_spinner.spinning = true;
+                    driver_row.subtitle = removing ? _("Removing the driver...") : _("Downloading and installing the driver...");
+                    AsyncReadyCallback done = (o, r2) => {
+                        try {
+                            if (removing) {
+                                driver.uninstall.end(r2);
+                            } else {
+                                driver.install.end(r2);
+                            }
+                            reprobe();
+                        } catch (GLib.Error e) {
+                            show_driver();
+                            if (!(e is IOError.CANCELLED)) driver_row.subtitle = e.message;
+                        }
+                    };
+                    if (removing) {
+                        driver.uninstall.begin(done);
+                    } else {
+                        driver.install.begin(done);
+                    }
+                });
+                dialog.present();
+            });
+
+            manager.probe.begin((obj, res) => {
+                bool ready = manager.probe.end(res);
+                string? sensor = FingerprintManager.unsupported_sensor();
+                if (ready) show_ready();
+                if (sensor == null) return;
+                FingerprintDriver.find.begin(sensor, (o, r) => {
+                    driver = FingerprintDriver.find.end(r);
+                    if (driver != null && (driver.installed || !ready)) show_driver();
+                    if (ready) return;
+                    show_unsupported();
+                    if (driver != null) return;
+                    var info_btn = new Button.with_label(_("Learn More"));
+                    info_btn.valign = Align.CENTER;
+                    info_btn.clicked.connect(() => {
+                        try {
+                            AppInfo.launch_default_for_uri("https://fprint.freedesktop.org/supported-devices.html", null);
+                        } catch (GLib.Error e) {
+                            warning("Cannot open the fingerprint driver page: %s", e.message);
+                        }
+                    });
+                    status_row.add_suffix(info_btn);
+                });
+            });
+            return group;
+        }
+
+        private static async void start_fprintd() {
+            try {
+                var bus = yield Bus.get(BusType.SYSTEM);
+                yield bus.call("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                    "StartServiceByName", new Variant("(su)", "net.reactivated.Fprint", 0),
+                    null, DBusCallFlags.NONE, 20000);
+            } catch (GLib.Error e) {
+                warning("Cannot start the fingerprint service: %s", e.message);
+            }
+        }
+
+        private delegate void Callback();
+
+        private PreferencesGroup build_login_screen_group() {
+            var sync = new LoginScreenSync();
+            var group = new PreferencesGroup(_("Login Screen"));
+            group.description = _("Use your displays, keyboard and pointer settings on the login screen");
+
+            var displays_row = new SwitchRow(_("Displays"), _("Arrangement, resolution, scale and rotation"), true);
+            displays_row.switch_btn.bind_property("active", sync, "displays", BindingFlags.SYNC_CREATE);
+            group.add_row(displays_row);
+            var keyboard_row = new SwitchRow(_("Keyboard Layout"), _("Layouts and keyboard options"), true);
+            keyboard_row.switch_btn.bind_property("active", sync, "keyboard", BindingFlags.SYNC_CREATE);
+            group.add_row(keyboard_row);
+            var pointer_row = new SwitchRow(_("Mouse & Touchpad"), _("Tap to click, scrolling and speed"), true);
+            pointer_row.switch_btn.bind_property("active", sync, "pointer", BindingFlags.SYNC_CREATE);
+            group.add_row(pointer_row);
+            var cursor_row = new SwitchRow(_("Cursor"), _("Cursor theme and size"), true);
+            cursor_row.switch_btn.bind_property("active", sync, "cursor", BindingFlags.SYNC_CREATE);
+            group.add_row(cursor_row);
+
+            string[] bg_labels = { _("Each User's Wallpaper"), _("Picture"), _("Solid Color") };
+            string? current_image = LoginScreenSync.background_image();
+            string? current_color = LoginScreenSync.background_color();
+            int bg_mode = current_image != null ? 1 : (current_color != null ? 2 : 0);
+            var bg_row = new SelectionRow(_("Background"), bg_labels, bg_labels[bg_mode]);
+            group.add_row(bg_row);
+
+            var picture_row = new ActionRow(_("Picture"), current_image != null ? _("Shown behind the sign-in box") : _("No picture chosen"));
+            var thumb = new Picture();
+            thumb.content_fit = ContentFit.COVER;
+            thumb.set_size_request(64, 36);
+            thumb.valign = Align.CENTER;
+            thumb.add_css_class("login-bg-thumb");
+            if (current_image != null) thumb.set_filename(current_image);
+            picture_row.add_suffix(thumb);
+            var choose_btn = new Button.with_label(_("Choose"));
+            choose_btn.valign = Align.CENTER;
+            picture_row.add_suffix(choose_btn);
+            group.add_row(picture_row);
+
+            var color_row = new ActionRow(_("Color"), null);
+            var picker = new ColorPickerButton();
+            var initial = Gdk.RGBA();
+            initial.parse(current_color ?? "#1e1e2e");
+            picker.color = initial;
+            picker.valign = Align.CENTER;
+            color_row.add_suffix(picker);
+            group.add_row(color_row);
+
+            picture_row.visible = bg_mode == 1;
+            color_row.visible = bg_mode == 2;
+
+            choose_btn.clicked.connect(() => {
+                var dialog = new FileDialog();
+                dialog.title = _("Choose a Login Screen Picture");
+                var filter = new FileFilter();
+                filter.name = _("Pictures");
+                filter.add_mime_type("image/png");
+                filter.add_mime_type("image/jpeg");
+                filter.add_mime_type("image/webp");
+                var filters = new GLib.ListStore(typeof(FileFilter));
+                filters.append(filter);
+                dialog.filters = filters;
+                SidebarWait.choose_file.begin(this, dialog, get_root() as Gtk.Window, (obj, res) => {
+                    File file;
+                    try {
+                        file = SidebarWait.choose_file.end(res);
+                    } catch (GLib.Error e) {
+                        return;
+                    }
+                    picture_row.subtitle = _("Applying...");
+                    sync.set_background_image.begin(file, (o, r) => {
+                        try {
+                            sync.set_background_image.end(r);
+                            picture_row.subtitle = _("Shown behind the sign-in box");
+                            string? stored = LoginScreenSync.background_image();
+                            if (stored != null) thumb.set_filename(stored);
+                        } catch (GLib.Error e) {
+                            picture_row.subtitle = e.message;
+                        }
+                    });
+                });
+            });
+
+            picker.color_changed.connect((c) => {
+                string hex = "#%02x%02x%02x".printf((uint) (c.red * 255 + 0.5), (uint) (c.green * 255 + 0.5), (uint) (c.blue * 255 + 0.5));
+                color_row.subtitle = _("Applying...");
+                sync.set_background_color.begin(hex, (o, r) => {
+                    try {
+                        sync.set_background_color.end(r);
+                        color_row.subtitle = hex;
+                    } catch (GLib.Error e) {
+                        color_row.subtitle = e.message;
+                    }
+                });
+            });
+
+            bg_row.selected.connect((item) => {
+                int mode = 0;
+                for (int i = 0; i < bg_labels.length; i++) if (bg_labels[i] == item) mode = i;
+                picture_row.visible = mode == 1;
+                color_row.visible = mode == 2;
+                if (mode == 0) {
+                    sync.reset_background.begin((o, r) => {
+                        try {
+                            sync.reset_background.end(r);
+                        } catch (GLib.Error e) {
+                            bg_row.subtitle = e.message;
+                        }
+                    });
+                } else if (mode == 1 && LoginScreenSync.background_image() == null) {
+                    choose_btn.clicked();
+                } else if (mode == 2) {
+                    picker.color_changed(picker.color);
+                }
+            });
+
+            var apply_row = new ActionRow(_("Apply My Settings"), _("Copy the selected settings to the login screen"));
+            var apply_btn = new Button.with_label(_("Apply"));
+            apply_btn.add_css_class("suggested-action");
+            apply_btn.valign = Align.CENTER;
+            apply_row.add_suffix(apply_btn);
+            apply_row.activated.connect(() => apply_btn.clicked());
+            apply_btn.clicked.connect(() => {
+                apply_btn.sensitive = false;
+                sync.apply.begin((obj, res) => {
+                    apply_btn.sensitive = true;
+                    try {
+                        sync.apply.end(res);
+                        apply_row.subtitle = _("Applied, used from the next login screen");
+                    } catch (GLib.Error e) {
+                        apply_row.subtitle = e.message;
+                    }
+                });
+            });
+            group.add_row(apply_row);
+
+            var reset_row = new ActionRow(_("Restore Defaults"), _("Go back to the standard login screen settings"));
+            var reset_btn = new Button.with_label(_("Restore"));
+            reset_btn.valign = Align.CENTER;
+            reset_row.add_suffix(reset_btn);
+            reset_btn.clicked.connect(() => reset_row.activated());
+            reset_row.activated.connect(() => {
+                reset_row.confirmation_requested(_("Restore"), _("Cancel"), ConfirmationSuggestedAction.CONFIRM);
+            });
+            reset_row.confirmed.connect(() => {
+                sync.reset.begin((obj, res) => {
+                    try {
+                        sync.reset.end(res);
+                        reset_row.subtitle = _("Restored");
+                    } catch (GLib.Error e) {
+                        reset_row.subtitle = e.message;
+                    }
+                });
+            });
+            group.add_row(reset_row);
+            return group;
         }
 
         private async void init_permission() {
@@ -133,7 +512,7 @@ namespace Singularity.SidebarPages {
 
             row.activated.connect(() => {
                 if (is_locked && !is_self) return;
-                var detail = new UserDetailPage(view, user, service, this);
+                var detail = new UserDetailPage(view, user, service, this, !is_locked, is_self);
                 detail.admin_unlocked = !is_locked;
                 detail.self_account = is_self;
                 view.open_subpage(detail, "user-detail-%s".printf(user.uid.to_string()));
@@ -172,8 +551,11 @@ namespace Singularity.SidebarPages {
         public bool self_account = false;
 
         public UserDetailPage(SettingsView view, AccountUser user,
-                               AccountsService service, UsersPage parent) {
+                               AccountsService service, UsersPage parent,
+                               bool admin_unlocked = false, bool self_account = false) {
             base(user.real_name != "" ? user.real_name : user.user_name);
+            this.admin_unlocked = admin_unlocked;
+            this.self_account = self_account;
             this.view = view;
             this.user = user;
             this.service = service;
@@ -236,6 +618,21 @@ namespace Singularity.SidebarPages {
             });
             sec_group.add_row(pin_row);
             add_group(sec_group);
+
+            if (admin_unlocked && !self_account && user.account_type == 0) {
+                var family_group = new PreferencesGroup(_("Family"));
+                var parental_row = new ActionRow(_("Parental Controls"), _("Apps, time limits, websites and screen time"), "singularity-parental-controls");
+                var chevron = new Image.from_icon_name("go-next-symbolic");
+                chevron.add_css_class("dim-label");
+                parental_row.add_suffix(chevron);
+                parental_row.activatable = true;
+                parental_row.activated.connect(() => {
+                    var page = new ParentalControlsPage(view, user, "user-detail-%s".printf(user.uid.to_string()));
+                    view.open_subpage(page, "parental-%s".printf(user.uid.to_string()));
+                });
+                family_group.add_row(parental_row);
+                add_group(family_group);
+            }
 
             // Danger zone: removing an account is administrative -> admin unlock only.
             if (admin_unlocked) {
@@ -425,7 +822,7 @@ namespace Singularity.SidebarPages {
             error_label.visible = false;
             error_label.margin_start = 16;
             error_label.margin_end = 16;
-            error_label.halign = Align.START;
+            error_label.xalign = 0f;
 
             var err_wrapper = new Box(Orientation.VERTICAL, 0);
             err_wrapper.append(error_label);
@@ -532,7 +929,7 @@ namespace Singularity.SidebarPages {
             error_label.visible = false;
             error_label.margin_start = 16;
             error_label.margin_end = 16;
-            error_label.halign = Align.START;
+            error_label.xalign = 0f;
             var err_wrapper = new Box(Orientation.VERTICAL, 0);
             err_wrapper.append(error_label);
             add_widget(err_wrapper);
@@ -592,6 +989,255 @@ namespace Singularity.SidebarPages {
                 error_label.visible = true;
                 change_btn.sensitive = true;
             }
+        }
+    }
+
+    public class FingerprintEnrollRow : PreferencesRow {
+        public signal void closed();
+
+        private FingerprintManager manager;
+        private Label hint;
+        private Box marks_box;
+        private Label status;
+        private Button cancel_btn;
+        private Button retry_btn;
+        private Button done_btn;
+        private Gee.ArrayList<Image> marks = new Gee.ArrayList<Image>();
+        private int filled = 0;
+        private bool active = false;
+
+        public FingerprintEnrollRow(FingerprintManager manager) {
+            this.manager = manager;
+            activatable = false;
+            add_css_class("fingerprint-enroll");
+            ensure_style();
+
+            var box = new Box(Orientation.VERTICAL, 12);
+            box.margin_top = 16;
+            box.margin_bottom = 16;
+            box.margin_start = 16;
+            box.margin_end = 16;
+
+            hint = new Label(_("Touch the sensor with the same finger, moving it slightly each time"));
+            hint.wrap = true;
+            hint.justify = Justification.CENTER;
+            box.append(hint);
+
+            marks_box = new Box(Orientation.VERTICAL, 10);
+            marks_box.halign = Align.CENTER;
+            box.append(marks_box);
+
+            status = new Label("");
+            status.add_css_class("fingerprint-status");
+            status.wrap = true;
+            status.justify = Justification.CENTER;
+            box.append(status);
+
+            var buttons = new Box(Orientation.HORIZONTAL, 8);
+            buttons.halign = Align.CENTER;
+            cancel_btn = new Button.with_label(_("Cancel"));
+            cancel_btn.add_css_class("pill");
+            cancel_btn.clicked.connect(on_cancel);
+            buttons.append(cancel_btn);
+            retry_btn = new Button.with_label(_("Try Again"));
+            retry_btn.add_css_class("pill");
+            retry_btn.add_css_class("suggested-action");
+            retry_btn.clicked.connect(start);
+            buttons.append(retry_btn);
+            done_btn = new Button.with_label(_("Done"));
+            done_btn.add_css_class("pill");
+            done_btn.add_css_class("suggested-action");
+            done_btn.clicked.connect(() => closed());
+            buttons.append(done_btn);
+            box.append(buttons);
+            set_child(box);
+
+            manager.started.connect(on_started);
+            manager.scanning.connect(on_scanning);
+            manager.stage_passed.connect(on_stage_passed);
+            manager.retry.connect(on_retry);
+            manager.finished.connect(on_finished);
+            unmap.connect(() => {
+                Idle.add(() => {
+                    if (active && !get_mapped()) on_cancel();
+                    return Source.REMOVE;
+                });
+            });
+        }
+
+        public void start() {
+            active = true;
+            filled = 0;
+            marks.clear();
+            for (var line = marks_box.get_first_child(); line != null; line = marks_box.get_first_child()) {
+                marks_box.remove(line);
+            }
+            marks_box.visible = false;
+            hint.visible = true;
+            show_status(_("Preparing the fingerprint reader..."), null);
+            cancel_btn.visible = true;
+            retry_btn.visible = false;
+            done_btn.visible = false;
+            if (auth_wait != null) auth_wait.end_quietly();
+            auth_wait = SidebarWait.get_default().begin(this, _("Waiting for Authentication"), "dialog-password-symbolic",
+                () => on_cancel(), true);
+            manager.enroll.begin();
+            reveal();
+        }
+
+        private SidebarWaitTicket? auth_wait = null;
+
+        private void end_auth_wait() {
+            if (auth_wait == null) return;
+            auth_wait.end();
+            auth_wait = null;
+        }
+
+        private void reveal() {
+            int last = -1;
+            add_tick_callback(() => {
+                int height = get_height();
+                if (height <= 0 || height != last) {
+                    last = height;
+                    return Source.CONTINUE;
+                }
+                for (var ancestor = get_parent(); ancestor != null; ancestor = ancestor.get_parent()) {
+                    var viewport = ancestor as Viewport;
+                    if (viewport != null) viewport.scroll_to(this, null);
+                }
+                return Source.REMOVE;
+            });
+        }
+
+        private void on_cancel() {
+            if (auth_wait != null) {
+                auth_wait.end_quietly();
+                auth_wait = null;
+            }
+            if (active) {
+                active = false;
+                manager.cancel.begin();
+            }
+            closed();
+        }
+
+        private void on_started(int stages) {
+            end_auth_wait();
+            if (!active) return;
+            int per_line = stages > 8 ? (stages + 1) / 2 : stages;
+            Box? line = null;
+            for (int i = 0; i < stages; i++) {
+                if (i % per_line == 0) {
+                    line = new Box(Orientation.HORIZONTAL, 10);
+                    line.halign = Align.CENTER;
+                    marks_box.append(line);
+                }
+                var mark = new Image.from_gicon(new ThemedIcon.from_names({ "fingerprint-symbolic", "auth-fingerprint-symbolic" }));
+                mark.pixel_size = 24;
+                mark.width_request = 32;
+                mark.height_request = 32;
+                mark.add_css_class("fingerprint-stage");
+                mark.add_css_class("dim-label");
+                line.append(mark);
+                marks.add(mark);
+            }
+            marks_box.visible = stages > 0;
+            show_status(_("Waiting for authorization..."), null);
+            reveal();
+        }
+
+        private void on_scanning() {
+            if (!active || filled > 0 || status.has_css_class("warning")) return;
+            show_status(_("Touch the fingerprint sensor"), null);
+        }
+
+        private void on_stage_passed(int stage, int stages) {
+            if (!active) return;
+            while (filled < stage && filled < marks.size) {
+                fill(marks[filled]);
+                filled++;
+            }
+            if (stages > 0) {
+                show_status(_("%d of %d. Lift your finger and touch the sensor again.").printf(stage, stages), null);
+            } else {
+                show_status(_("Lift your finger and touch the sensor again"), null);
+            }
+        }
+
+        private void on_retry(string message) {
+            if (!active) return;
+            show_status(message, "warning");
+        }
+
+        private void on_finished(bool success, string message) {
+            end_auth_wait();
+            if (!active) return;
+            active = false;
+            hint.visible = false;
+            cancel_btn.visible = !success;
+            retry_btn.visible = !success;
+            done_btn.visible = success;
+            if (success) {
+                while (filled < marks.size) {
+                    fill(marks[filled]);
+                    filled++;
+                }
+                show_status(message, "success");
+            } else {
+                show_status(message, "error");
+            }
+        }
+
+        private void show_status(string text, string? style) {
+            status.label = text;
+            foreach (string name in new string[] { "warning", "success", "error" }) {
+                status.remove_css_class(name);
+            }
+            if (style != null) status.add_css_class(style);
+        }
+
+        private static bool styled = false;
+
+        private static void ensure_style() {
+            if (styled) return;
+            var display = Gdk.Display.get_default();
+            if (display == null) return;
+            styled = true;
+            var provider = new CssProvider();
+            provider.load_from_string(ENROLL_CSS);
+            StyleContext.add_provider_for_display(display, provider, STYLE_PROVIDER_PRIORITY_USER + 1);
+        }
+
+        private const string ENROLL_CSS = """
+.fingerprint-enroll .fingerprint-stage.done {
+    color: @accent_color;
+}
+.fingerprint-enroll .fingerprint-status.warning {
+    color: @warning_color;
+}
+.fingerprint-enroll .fingerprint-status.error {
+    color: @error_color;
+}
+.fingerprint-enroll .fingerprint-status.success {
+    color: @success_color;
+}
+""";
+
+        private void fill(Image mark) {
+            mark.remove_css_class("dim-label");
+            mark.add_css_class("done");
+            if (!Gtk.Settings.get_default().gtk_enable_animations) return;
+            var anim = new Singularity.Animation.TimedAnimation(mark, 0, 1, 320,
+                Singularity.Animation.TimedAnimation.Easing.EASE_OUT_CUBIC);
+            anim.tick.connect(() => {
+                mark.opacity = 0.4 + 0.6 * anim.value;
+                mark.pixel_size = 24 + (int) Math.round(6 * Math.sin(Math.PI * anim.value));
+            });
+            anim.done.connect(() => {
+                mark.opacity = 1;
+                mark.pixel_size = 24;
+            });
+            anim.play();
         }
     }
 }

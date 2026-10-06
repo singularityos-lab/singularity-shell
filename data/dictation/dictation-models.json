@@ -1,0 +1,86 @@
+{
+  "models": [
+    {
+      "id": "whisper-tiny-q5_1",
+      "engine": "whisper",
+      "name": "Whisper Tiny",
+      "language": "multilingual",
+      "size": 32152673,
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
+      "sha256": "818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7",
+      "file": "ggml-tiny-q5_1.bin"
+    },
+    {
+      "id": "whisper-tiny.en-q5_1",
+      "engine": "whisper",
+      "name": "Whisper Tiny English",
+      "language": "en",
+      "size": 32166155,
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en-q5_1.bin",
+      "sha256": "c77c5766f1cef09b6b7d47f21b546cbddd4157886b3b5d6d4f709e91e66c7c2b",
+      "file": "ggml-tiny.en-q5_1.bin"
+    },
+    {
+      "id": "whisper-base-q5_1",
+      "engine": "whisper",
+      "name": "Whisper Base",
+      "language": "multilingual",
+      "size": 59707625,
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
+      "sha256": "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898",
+      "file": "ggml-base-q5_1.bin"
+    },
+    {
+      "id": "whisper-base.en-q5_1",
+      "engine": "whisper",
+      "name": "Whisper Base English",
+      "language": "en",
+      "size": 59721011,
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin",
+      "sha256": "4baf70dd0d7c4247ba2b81fafd9c01005ac77c2f9ef064e00dcf195d0e2fdd2f",
+      "file": "ggml-base.en-q5_1.bin"
+    },
+    {
+      "id": "whisper-small-q5_1",
+      "engine": "whisper",
+      "name": "Whisper Small",
+      "language": "multilingual",
+      "size": 190085487,
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+      "sha256": "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
+      "file": "ggml-small-q5_1.bin"
+    },
+    {
+      "id": "whisper-large-v3-turbo-q5_0",
+      "engine": "whisper",
+      "name": "Whisper Large Turbo",
+      "language": "multilingual",
+      "size": 574041195,
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+      "sha256": "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+      "file": "ggml-large-v3-turbo-q5_0.bin"
+    },
+    {
+      "id": "vosk-model-small-en-us-0.15",
+      "engine": "vosk",
+      "name": "Vosk Small English",
+      "language": "en",
+      "size": 41205931,
+      "url": "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
+      "sha256": "30f26242c4eb449f948e42cb302dd7a686cb29a3423a8367f99ff41780942498",
+      "file": "vosk-model-small-en-us-0.15",
+      "archive": true
+    },
+    {
+      "id": "vosk-model-small-it-0.22",
+      "engine": "vosk",
+      "name": "Vosk Small Italian",
+      "language": "it",
+      "size": 49665141,
+      "url": "https://alphacephei.com/vosk/models/vosk-model-small-it-0.22.zip",
+      "sha256": "9ec65e75861d1c6c2e457cccd932705340dcdf233f5b239f00733b4de0bf3267",
+      "file": "vosk-model-small-it-0.22",
+      "archive": true
+    }
+  ]
+}

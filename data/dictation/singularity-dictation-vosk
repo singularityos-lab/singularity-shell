@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import sys
+import zipfile
+
+
+def check():
+    try:
+        import vosk
+    except ImportError:
+        return 1
+    return 0
+
+
+def extract(archive, destination):
+    destination = os.path.realpath(destination)
+    with zipfile.ZipFile(archive) as bundle:
+        for member in bundle.namelist():
+            target = os.path.realpath(os.path.join(destination, member))
+            if not target.startswith(destination + os.sep):
+                return 1
+        bundle.extractall(destination)
+    return 0
+
+
+def run(model_path, rate):
+    import vosk
+    vosk.SetLogLevel(-1)
+    recognizer = vosk.KaldiRecognizer(vosk.Model(model_path), rate)
+    last_partial = ""
+    stream = sys.stdin.buffer
+    while True:
+        data = stream.read(3200)
+        if not data:
+            break
+        if recognizer.AcceptWaveform(data):
+            text = json.loads(recognizer.Result()).get("text", "")
+            if text:
+                print(json.dumps({"text": text}), flush=True)
+            last_partial = ""
+        else:
+            partial = json.loads(recognizer.PartialResult()).get("partial", "")
+            if partial and partial != last_partial:
+                print(json.dumps({"partial": partial}), flush=True)
+                last_partial = partial
+    text = json.loads(recognizer.FinalResult()).get("text", "")
+    if text:
+        print(json.dumps({"text": text}), flush=True)
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--extract", nargs=2, metavar=("ARCHIVE", "DIR"))
+    parser.add_argument("--model")
+    parser.add_argument("--rate", type=int, default=16000)
+    args = parser.parse_args()
+    if args.check:
+        return check()
+    if args.extract:
+        return extract(*args.extract)
+    if not args.model:
+        parser.error("--model is required")
+    return run(args.model, args.rate)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

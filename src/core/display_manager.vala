@@ -308,6 +308,7 @@ namespace Singularity {
                 xml.append_printf("    <transform>%s</transform>\n", transform_name(m.transform));
                 xml.append_printf("    <enabled>%s</enabled>\n", m.enabled ? "yes" : "no");
                 xml.append_printf("    <adaptiveSync>%s</adaptiveSync>\n", m.vrr_enabled ? "yes" : "no");
+                DisplayColor.get_default().append_output_xml(xml, m);
                 xml.append("  </output>\n");
             }
             xml.append("</outputs>\n");
@@ -316,6 +317,11 @@ namespace Singularity {
             if (Singularity.Compositor.LabwcBackend.get_default().write_config("output.xml", xml.str)) {
                 message("DisplayManager: saved labwc output.xml");
             }
+        }
+
+        public void apply_color() {
+            save_labwc_output_xml();
+            Singularity.Compositor.LabwcBackend.get_default().reconfigure();
         }
 
         // Save JSON config for our own startup-apply

@@ -1,0 +1,10 @@
+option('power-helper', type: 'boolean', value: true,
+  description: 'Build and install singularity-power-helper and its polkit action, used to write battery charge limits')
+option('firewall-helper', type: 'boolean', value: true,
+  description: 'Build and install singularity-firewall-helper and its polkit action, used by Settings to manage an nftables firewall when firewalld is absent')
+option('firewall-state-file', type: 'string', value: '/var/lib/singularity/firewall.state',
+  description: 'State file of singularity-firewall-helper; must match the firewall-state-file option of libsingularity')
+option('crash-handler', type: 'boolean', value: true,
+  description: 'Build singularity-crash-handler, a core_pattern helper that saves crash reports for the shell. It is installed but not enabled; see the example sysctl drop-in in datadir/singularity/crash')
+option('crash-spool-dir', type: 'string', value: '/var/lib/singularity/crashes',
+  description: 'Directory where singularity-crash-handler keeps crash reports, one subdirectory per user')

@@ -10,6 +10,7 @@
 
 gboolean singularity_osk_set_layout(const char *layout, const char *variant);
 void singularity_osk_press(guint evdev_code, guint modifiers);
+gboolean singularity_osk_press_keysym(guint keysym, guint modifiers);
 char *singularity_osk_label(guint evdev_code, gboolean shifted);
 
 #endif

@@ -77,11 +77,17 @@ namespace Singularity {
 
     private class TilingSlotOrganizer : Gtk.Window {
         private const int HEIGHT = 112;
+        private const double OPEN_SCALE = 0.12;
+        private const double CLOSE_SCALE = 0.2;
+        private const double SEED_SCALE = 10.0;
         private const int PADDING = 12;
         private const int GAP = 7;
         private Gtk.Fixed slots;
         private Overlay card;
+        private Singularity.Animation.MotionBin card_motion;
         private Box seed;
+        private Singularity.Animation.MotionBin seed_motion;
+        private bool closing = false;
         private ArrayList<TilingSlotPreview> items =
             new ArrayList<TilingSlotPreview>();
         private TilingSlotPreview? dragged_item;
@@ -93,8 +99,6 @@ namespace Singularity {
         private int preview_height = 76;
         private int initial_cursor_x;
         private bool cursor_moved = false;
-        private uint seed_timeout_id = 0;
-        private uint close_timeout_id = 0;
         private Singularity.Animation.TimedAnimation? reorder_animation;
 
         public TilingSlotOrganizer(Gtk.Application app, TilingManager manager,
@@ -132,7 +136,8 @@ namespace Singularity {
             card = new Overlay();
             card.add_css_class("tiling-slot-organizer");
             card.set_size_request(width, HEIGHT);
-            set_child(card);
+            card_motion = new Singularity.Animation.MotionBin(card);
+            set_child(card_motion);
 
             slots = new Gtk.Fixed();
             slots.overflow = Overflow.HIDDEN;
@@ -140,14 +145,16 @@ namespace Singularity {
 
             seed = new Box(Orientation.HORIZONTAL, 0);
             seed.add_css_class("tiling-slot-seed");
-            seed.halign = Align.CENTER;
-            seed.valign = Align.CENTER;
-            card.add_overlay(seed);
+            seed_motion = new Singularity.Animation.MotionBin(seed);
+            seed_motion.halign = Align.CENTER;
+            seed_motion.valign = Align.CENTER;
+            card.add_overlay(seed_motion);
 
             build_items(width);
             map.connect(() => {
                 var surface = get_surface();
                 if (surface != null) surface.set_input_region(new Cairo.Region());
+                play_open();
             });
         }
 
@@ -166,10 +173,20 @@ namespace Singularity {
                 items.add(item);
                 if (windows[i] == dragged) dragged_item = item;
             }
-            seed_timeout_id = Timeout.add(190, () => {
-                seed_timeout_id = 0;
-                seed.visible = false;
-                return Source.REMOVE;
+        }
+
+        private void play_open() {
+            card_motion.opacity = 0.0;
+            if (!Singularity.Motion.reduced()) card_motion.scale = OPEN_SCALE;
+            Singularity.Motion.tween(card_motion, "opacity", 1.0,
+                Singularity.Motion.Duration.MEDIUM, Singularity.Motion.Curve.ENTER);
+            Singularity.Motion.tween(card_motion, "scale", 1.0,
+                Singularity.Motion.Duration.MEDIUM, Singularity.Motion.Curve.ENTER);
+            Singularity.Motion.tween(seed_motion, "scale-x", SEED_SCALE,
+                Singularity.Motion.Duration.MEDIUM, Singularity.Motion.Curve.STANDARD);
+            Singularity.Motion.tween(seed_motion, "opacity", 0.0,
+                Singularity.Motion.Duration.MEDIUM, Singularity.Motion.Curve.STANDARD).done.connect(() => {
+                seed_motion.visible = false;
             });
         }
 
@@ -200,8 +217,8 @@ namespace Singularity {
                 items[i].start_x = items[i].current_x;
                 items[i].target_x = slot_x(i);
             }
-            var animation = new Singularity.Animation.TimedAnimation(
-                slots, 0, 1, 150);
+            var animation = new Singularity.Animation.TimedAnimation.with_curve(
+                slots, 0, 1, Singularity.Motion.Duration.SMALL, Singularity.Motion.Curve.STANDARD);
             reorder_animation = animation;
             animation.tick.connect(() => {
                 foreach (var item in items) {
@@ -215,33 +232,118 @@ namespace Singularity {
         }
 
         public void close_animated() {
-            if (close_timeout_id != 0) return;
-            card.add_css_class("closing");
-            close_timeout_id = Timeout.add(140, () => {
-                close_timeout_id = 0;
-                close();
-                return Source.REMOVE;
-            });
+            if (closing) return;
+            closing = true;
+            Singularity.Motion.tween(card_motion, "scale", CLOSE_SCALE,
+                Singularity.Motion.Duration.SMALL, Singularity.Motion.Curve.EXIT);
+            Singularity.Motion.tween(card_motion, "opacity", 0.0,
+                Singularity.Motion.Duration.SMALL, Singularity.Motion.Curve.EXIT).done.connect(() => close());
         }
 
         protected override void dispose() {
-            if (seed_timeout_id != 0) {
-                Source.remove(seed_timeout_id);
-                seed_timeout_id = 0;
-            }
-            if (close_timeout_id != 0) {
-                Source.remove(close_timeout_id);
-                close_timeout_id = 0;
-            }
             reorder_animation?.reset();
             base.dispose();
         }
     }
 
+    public struct PanelA11yToggle {
+        public string label;
+        public string schema;
+        public string key;
+        public bool invert;
+    }
+
     public class Panel : Gtk.Window {
+        private static GLib.Settings? a11y_schema(string id) {
+            var src = GLib.SettingsSchemaSource.get_default();
+            if (src == null || src.lookup(id, true) == null) return null;
+            return new GLib.Settings(id);
+        }
+
+        private PanelA11yToggle[] a11y_toggles;
+        private HashTable<string, GLib.Settings> a11y_settings;
+        private Button? a11y_button;
+
+        private bool a11y_toggle_on(PanelA11yToggle t) {
+            var gs = a11y_settings.get(t.schema);
+            if (gs == null || !gs.settings_schema.has_key(t.key)) return false;
+            return gs.get_boolean(t.key) != t.invert;
+        }
+
+        private bool a11y_large_text() {
+            var iface = a11y_settings.get("org.gnome.desktop.interface");
+            return iface != null && iface.settings_schema.has_key("text-scaling-factor")
+                && iface.get_double("text-scaling-factor") > 1.01;
+        }
+
+        private void a11y_sync() {
+            bool any = _settings.get_boolean("accessibility-menu") || a11y_large_text();
+            foreach (var t in a11y_toggles) {
+                if (a11y_toggle_on(t)) any = true;
+            }
+            a11y_button.visible = any;
+        }
+
+        private void a11y_menu() {
+            var menu = new Singularity.Widgets.ContextMenu(a11y_button);
+            var iface = a11y_settings.get("org.gnome.desktop.interface");
+            menu.add_item(_("Large Text"), a11y_large_text() ? "object-select-symbolic" : null, () => {
+                if (iface != null) iface.set_double("text-scaling-factor", a11y_large_text() ? 1.0 : 1.25);
+            });
+            foreach (var t in a11y_toggles) {
+                var gs = a11y_settings.get(t.schema);
+                if (gs == null || !gs.settings_schema.has_key(t.key)) continue;
+                string key = t.key;
+                menu.add_item(t.label, a11y_toggle_on(t) ? "object-select-symbolic" : null, () => {
+                    if (key == "reduce-motion") Singularity.Motion.get_default().set_reduced(!gs.get_boolean(key));
+                    else gs.set_boolean(key, !gs.get_boolean(key));
+                });
+            }
+            menu.closed.connect(() => Idle.add(() => {
+                menu.unparent();
+                return Source.REMOVE;
+            }));
+            menu.popup();
+        }
+
+        private Widget build_accessibility_button() {
+            a11y_toggles = {
+                { _("Screen Reader"), "org.gnome.desktop.a11y.applications", "screen-reader-enabled", false },
+                { _("Zoom"), "org.gnome.desktop.a11y.applications", "screen-magnifier-enabled", false },
+                { _("Screen Keyboard"), "dev.sinty.desktop", "screen-keyboard-enabled", false },
+                { _("High Contrast"), "org.gnome.desktop.a11y.interface", "high-contrast", false },
+                { _("Reduced Motion"), "dev.sinty.desktop", "reduce-motion", false },
+                { _("Visual Alerts"), "org.gnome.desktop.wm.preferences", "visual-bell", false },
+                { _("Sticky Keys"), "org.gnome.desktop.a11y.keyboard", "stickykeys-enable", false },
+                { _("Slow Keys"), "org.gnome.desktop.a11y.keyboard", "slowkeys-enable", false },
+                { _("Bounce Keys"), "org.gnome.desktop.a11y.keyboard", "bouncekeys-enable", false },
+                { _("Mouse Keys"), "org.gnome.desktop.a11y.keyboard", "mousekeys-enable", false },
+                { _("Locate Pointer"), "org.gnome.desktop.interface", "locate-pointer", false }
+            };
+            a11y_settings = new HashTable<string, GLib.Settings>(str_hash, str_equal);
+            foreach (var t in a11y_toggles) {
+                if (a11y_settings.contains(t.schema)) continue;
+                var gs = a11y_schema(t.schema);
+                if (gs == null) continue;
+                a11y_settings.insert(t.schema, gs);
+                gs.changed.connect(() => a11y_sync());
+            }
+            a11y_button = new Button.from_icon_name("preferences-desktop-accessibility-symbolic");
+            a11y_button.has_frame = false;
+            a11y_button.valign = Align.CENTER;
+            a11y_button.add_css_class("accessibility-button");
+            a11y_button.tooltip_text = _("Accessibility");
+            a11y_button.clicked.connect(() => a11y_menu());
+            _settings.changed["accessibility-menu"].connect(() => a11y_sync());
+            a11y_sync();
+            return a11y_button;
+        }
+
         private Label clock_label;
         private Label app_title_label;
         private CenterBox main_box;
+        private Singularity.Animation.MotionBin intro_motion;
+        private const double INTRO_DISTANCE = 44.0;
         private Box left_box;
         private Box center_box;
         private Box right_box;
@@ -322,7 +424,8 @@ namespace Singularity {
             main_box.orientation = Orientation.HORIZONTAL;
             main_box.add_css_class("panel");
             main_box.overflow = Overflow.VISIBLE;
-            overlay.set_child(main_box);
+            intro_motion = new Singularity.Animation.MotionBin(main_box);
+            overlay.set_child(intro_motion);
             if (is_primary && !is_greeter_mode) main_box.opacity = 0;
 
             _sig_background_effect = _settings.changed["background-effect"].connect(
@@ -383,7 +486,7 @@ namespace Singularity {
 
             workspace_btn = new Button();
             workspace_btn.add_css_class("activities-button");
-            var ws_icon = new Image.from_icon_name("dev.sinty.workspaces");
+            var ws_icon = new Image.from_icon_name("dev.sinty.workspaces-symbolic");
             ws_icon.pixel_size = 24;
             workspace_btn.set_child(ws_icon);
             workspace_btn.visible = false;
@@ -579,7 +682,17 @@ namespace Singularity {
                 update_battery_label();
             });
             _settings.changed["show-battery-percentage"].connect(() => update_battery_label());
-            layout_items["system"] = sys_btn;
+            var system_area = new Box(Orientation.HORIZONTAL, 4);
+            system_area.valign = Align.CENTER;
+            system_area.append(new SidebarWaitIndicator());
+            system_area.append(new MicrophoneIndicator());
+            system_area.append(new InputIndicator());
+            system_area.append(new RecordingIndicator());
+            system_area.append(new ScreenSharingIndicator());
+            system_area.append(new NearbyIndicator());
+            system_area.append(build_accessibility_button());
+            system_area.append(sys_btn);
+            layout_items["system"] = system_area;
 
             var notif_btn = new Button();
             notif_btn.has_frame = false;
@@ -608,14 +721,12 @@ namespace Singularity {
             nm.history_changed.connect(() => {
                 notif_badge.visible = (nm.get_history().length() > 0);
             });
-            _settings.changed["do-not-disturb"].connect(() => {
-                bool dnd = _settings.get_boolean("do-not-disturb");
-                notif_icon.icon_name = dnd ? "notifications-disabled-symbolic" : "preferences-system-notifications-symbolic";
-            });
+            var focus = FocusManager.get_default();
+            focus.changed.connect(() => FocusQuickTile.sync_indicator(notif_btn, notif_icon));
 
             // Initial state
             notif_badge.visible = (nm.get_history().length() > 0);
-            notif_icon.icon_name = _settings.get_boolean("do-not-disturb") ? "notifications-disabled-symbolic" : "preferences-system-notifications-symbolic";
+            FocusQuickTile.sync_indicator(notif_btn, notif_icon);
 
             // Secondary panels: hide status icons and notifications, show clock only
             sys_btn.visible = is_primary;
@@ -965,11 +1076,12 @@ namespace Singularity {
         public void play_intro() {
             if (!is_primary || is_greeter_mode) return;
             main_box.opacity = 1.0;
-            main_box.add_css_class("panel-intro");
-            GLib.Timeout.add(560, () => {
-                main_box.remove_css_class("panel-intro");
-                return GLib.Source.REMOVE;
-            });
+            intro_motion.opacity = 0.0;
+            if (!Singularity.Motion.reduced()) intro_motion.translate_y = -INTRO_DISTANCE;
+            Singularity.Motion.tween(intro_motion, "opacity", 1.0,
+                Singularity.Motion.Duration.MEDIUM, Singularity.Motion.Curve.ENTER);
+            Singularity.Motion.tween(intro_motion, "translate-y", 0.0,
+                Singularity.Motion.Duration.LARGE, Singularity.Motion.Curve.EMPHASIZED);
         }
 
         public void set_overview_mode(bool enabled, bool instant = false) {
@@ -990,10 +1102,6 @@ namespace Singularity {
         }
 
         private void update_overview_surface_mode() {
-            if (_overview_active || _workspace_overview_active)
-                set_exclusive_zone(this, 0);
-            else
-                update_visibility();
             update_flat_mode();
         }
 
@@ -1309,7 +1417,7 @@ namespace Singularity {
 
         private static string icon_for_corner_action(string? action) {
             switch (action) {
-                case "workspaces": return "dev.sinty.workspaces";
+                case "workspaces": return "dev.sinty.workspaces-symbolic";
                 case "overview":   return "view-app-grid-symbolic";
                 case "settings":   return "emblem-system-symbolic";
                 default:           return "go-next-symbolic";

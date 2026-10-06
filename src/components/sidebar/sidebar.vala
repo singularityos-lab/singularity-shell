@@ -26,11 +26,11 @@ namespace Singularity {
             set_anchor(this, GtkLayerShell.Edge.BOTTOM, false); // Dynamic height
             set_margin(this, GtkLayerShell.Edge.TOP, 0);
             set_margin(this, GtkLayerShell.Edge.BOTTOM, 10);
-            set_margin(this, GtkLayerShell.Edge.RIGHT, 40);
+            set_margin(this, GtkLayerShell.Edge.RIGHT, 0);
             // Fixed width for the whole sidebar, every page identical. Sized so
             // the Desktop page fits exactly two wallpaper columns (2x172 card +
             // gaps + paddings); narrower stacked them one per row with space wasted.
-            set_default_size(440, -1);
+            set_default_size(SidebarWidth.CARD, -1);
             set_keyboard_mode(this, GtkLayerShell.KeyboardMode.ON_DEMAND);
             desktop_settings = new GLib.Settings("dev.sinty.desktop");
             add_css_class("singularity");
@@ -41,15 +41,18 @@ namespace Singularity {
             add_css_class("sidebar-window");
             main_box = new Box(Orientation.VERTICAL, 0);
             main_box.add_css_class("sidebar");
-            // Pin the inner width so the sidebar stays this size on every page
-            // instead of resizing to each page's natural width.
-            main_box.width_request = 416;
+            main_box.width_request = SidebarWidth.CARD;
             // Reserve space around the card for the drop shadow.
             main_box.margin_top    = 20;
             main_box.margin_bottom = 20;
             main_box.margin_start  = 20;
-            main_box.margin_end    = 20;
-            set_child(main_box);
+            main_box.margin_end    = 20 + EDGE_GAP;
+            _content_bin = new Singularity.Animation.MotionBin(main_box);
+            _content_bin.notify["translate-x"].connect(() => {
+                int shift = (int) Math.round(_content_bin.translate_x);
+                if (shift != _blur_shift) update_background_effect();
+            });
+            set_child(_content_bin);
 
             var sidebar_scroll = new ScrolledWindow();
             this.sidebar_scroll = sidebar_scroll;
@@ -68,10 +71,16 @@ namespace Singularity {
 
             main_stack = new Stack();
             main_stack.vhomogeneous = false; // Size according to visible child
+            main_stack.hhomogeneous = false;
             main_stack.transition_type = StackTransitionType.SLIDE_LEFT_RIGHT;
 
             sidebar_scroll.set_child(main_stack);
-            main_box.append(sidebar_scroll);
+            _wait_bar = new SidebarWaitBar();
+            _wait_bar.notify["visible"].connect(() => apply_max_height());
+            var column = new Box(Orientation.VERTICAL, 0);
+            column.append(_wait_bar);
+            column.append(sidebar_scroll);
+            main_box.append(new SidebarWidth(column));
 
             _background_effect_handler = desktop_settings.changed["background-effect"].connect(
                 update_background_effect);
@@ -89,6 +98,7 @@ namespace Singularity {
             system_view.open_settings_page.connect((page) => {
                 open_page(page);
             });
+            system_view.open_detail_page.connect(open_tile_detail);
             // settings_view initialized on demand
             main_stack.add_named(system_view, "system");
             // settings_view added on demand
@@ -115,6 +125,8 @@ namespace Singularity {
             });
             ((Gtk.Widget)this).add_controller(key_controller);
 
+            watch_polkit_agent.begin();
+
             // Close when focus leaves the sidebar (click outside).
             // The check is deferred by one event-loop cycle so that popovers and
             // drop-down popups that are children of this window (SelectionRow,
@@ -124,7 +136,8 @@ namespace Singularity {
                     GLib.Idle.add(() => {
                         if (!is_active && visible && _can_close_on_focus_loss
                             && !desktop_settings.get_boolean("bar-layout-edit-mode")
-                            && !Singularity.DebugManager.get_default().sidebar_pinned) {
+                            && !Singularity.DebugManager.get_default().sidebar_pinned
+                            && !hold_for_shell_dialog()) {
                             animated_close();
                         }
                         return GLib.Source.REMOVE;
@@ -133,14 +146,97 @@ namespace Singularity {
             });
         }
 
+        private async void watch_polkit_agent() {
+            try {
+                _polkit_agent = yield new DBusProxy.for_bus(BusType.SESSION, DBusProxyFlags.DO_NOT_AUTO_START,
+                    null, "dev.sinty.PolkitAgent", "/dev/sinty/PolkitAgent/Authentication",
+                    "dev.sinty.PolkitAgent.Authentication");
+                Variant? current = _polkit_agent.get_cached_property("Authenticating");
+                _polkit_busy = current != null && current.get_boolean();
+                _polkit_agent.g_signal.connect((sender, name, parameters) => {
+                    if (name == "AuthenticatingChanged") set_polkit_busy(parameters.get_child_value(0).get_boolean());
+                });
+                _polkit_agent.notify["g-name-owner"].connect(() => {
+                    if (_polkit_agent.g_name_owner == null) set_polkit_busy(false);
+                });
+            } catch (GLib.Error e) {
+                warning("Cannot watch the authentication agent: %s", e.message);
+            }
+        }
+
+        private void set_polkit_busy(bool busy) {
+            _polkit_busy = busy;
+            if (busy || !_focus_held) return;
+            Timeout.add(250, () => {
+                regain_focus();
+                return GLib.Source.REMOVE;
+            });
+        }
+
+        private bool hold_for_shell_dialog() {
+            if (_polkit_busy) {
+                _focus_held = true;
+                return true;
+            }
+            Gtk.Window? dialog = null;
+            foreach (unowned Gtk.Window window in application.get_windows()) {
+                if (window == this || !window.visible) continue;
+                if (!(window is Singularity.Widgets.AppDialog) && !(window is Singularity.Shell.ShellDialog)) continue;
+                if (GtkLayerShell.is_layer_window(window)
+                    && GtkLayerShell.get_keyboard_mode(window) == GtkLayerShell.KeyboardMode.EXCLUSIVE) continue;
+                dialog = window;
+                break;
+            }
+            if (dialog == null) return false;
+            _focus_held = true;
+            ulong handler = 0;
+            handler = dialog.notify["visible"].connect(() => {
+                if (dialog.visible) return;
+                dialog.disconnect(handler);
+                regain_focus();
+            });
+            return true;
+        }
+
+        private void regain_focus() {
+            if (!_focus_held) return;
+            _focus_held = false;
+            if (!visible || is_active || _polkit_busy) {
+                _focus_held = visible && _polkit_busy;
+                return;
+            }
+            _can_close_on_focus_loss = false;
+            close_layer_window (this);
+            present();
+            Timeout.add(400, () => {
+                _can_close_on_focus_loss = true;
+                return GLib.Source.REMOVE;
+            });
+        }
+
         private void update_background_effect() {
             var mode = Singularity.Style.BackgroundEffect.read(desktop_settings);
             if (get_mapped()) {
                 Graphene.Rect bounds;
                 if (main_box.compute_bounds(this, out bounds)) {
+                    _blur_shift = (int) Math.round(_content_bin.translate_x);
+                    int x = (int) bounds.origin.x + _blur_shift;
+                    int width = int.min((int) bounds.size.width, get_width() - x);
+                    if (width < 1) {
+                        x = 0;
+                        width = 1;
+                    }
                     Singularity.Style.BackgroundEffect.apply(this, mode,
-                        (int) bounds.origin.x, (int) bounds.origin.y,
-                        (int) bounds.size.width, (int) bounds.size.height);
+                        x, (int) bounds.origin.y,
+                        width, (int) bounds.size.height);
+                    var surface = get_surface();
+                    if (surface != null) {
+                        var region = new Cairo.Region.rectangle(Cairo.RectangleInt() {
+                            x = (int) bounds.origin.x, y = (int) bounds.origin.y,
+                            width = (int) bounds.size.width, height = (int) bounds.size.height
+                        });
+                        surface.set_input_region(region);
+                    }
                     return;
                 }
             }
@@ -167,81 +263,73 @@ namespace Singularity {
         private void animated_close() {
             if (!visible) return;
             _is_closing = true;
-            if (!Gtk.Settings.get_default().gtk_enable_animations) {
-                slide_animation = null;
-                _is_closing = false;
-                _can_close_on_focus_loss = false;
-                opacity = 1;
-                GtkLayerShell.set_margin(this, GtkLayerShell.Edge.RIGHT, 40);
-                close_layer_window (this);
-                return;
+            if (!Singularity.Motion.reduced()) {
+                Singularity.Motion.spring_to(_content_bin, "translate-x", SLIDE_DISTANCE,
+                    Singularity.Motion.Spring.GENTLE);
             }
-            // Null before skip so old done handler sees slide_animation != old_anim
-            var old = slide_animation;
-            slide_animation = null;
-            if (old != null) old.skip();
-            var anim = new Singularity.Animation.TimedAnimation(
-                this, 1, 0, 140,
-                Singularity.Animation.TimedAnimation.Easing.EASE_IN_CUBIC
-            );
-            slide_animation = anim;
-            anim.tick.connect(() => {
-                opacity = anim.value;
-                int current_margin = (int)(-50 + (40 - (-50)) * anim.value);
-                GtkLayerShell.set_margin(this, GtkLayerShell.Edge.RIGHT, current_margin);
+            var fade = Singularity.Motion.tween(_content_bin, "opacity", 0.0,
+                Singularity.Motion.Duration.SMALL.exit_ms(), Singularity.Motion.Curve.EXIT);
+            fade.done.connect(() => {
+                if (_is_closing) finish_close();
             });
-            anim.done.connect(() => {
-                if (slide_animation == anim) {
-                    slide_animation = null;
-                    _is_closing = false;
-                    _can_close_on_focus_loss = false;
-                    close_layer_window (this);
-                }
-            });
-            anim.play();
+        }
+
+        private void finish_close() {
+            Singularity.Motion.cancel(_content_bin, "translate-x");
+            Singularity.Motion.cancel(_content_bin, "opacity");
+            _is_closing = false;
+            _can_close_on_focus_loss = false;
+            _content_bin.reset_transform();
+            _content_bin.opacity = 1.0;
+            close_layer_window (this);
         }
 
         private void animated_open(string page_name) {
+            bool entering = !visible || _is_closing;
             _is_closing = false;
             main_stack.visible_child_name = page_name;
             _can_close_on_focus_loss = false;
-            if (!Gtk.Settings.get_default().gtk_enable_animations) {
-                slide_animation = null;
-                opacity = 1;
-                GtkLayerShell.set_margin(this, GtkLayerShell.Edge.RIGHT, 40);
-                present();
-                Timeout.add(400, () => { _can_close_on_focus_loss = true; return false; });
-                return;
+            if (!visible) {
+                _content_bin.opacity = 0.0;
+                _content_bin.translate_x = Singularity.Motion.reduced() ? 0.0 : SLIDE_DISTANCE;
             }
-            var old = slide_animation;
-            slide_animation = null;
-            if (old != null) old.skip();
-            opacity = 0;
-            GtkLayerShell.set_margin(this, GtkLayerShell.Edge.RIGHT, -50);
-            var anim = new Singularity.Animation.TimedAnimation(
-                this, 0, 1, 150,
-                Singularity.Animation.TimedAnimation.Easing.EASE_OUT_CUBIC
-            );
-            slide_animation = anim;
-            anim.tick.connect(() => {
-                opacity = anim.value;
-                int current_margin = (int)(-50 + (40 - (-50)) * anim.value);
-                GtkLayerShell.set_margin(this, GtkLayerShell.Edge.RIGHT, current_margin);
-            });
-            anim.play();
             present();
+            if (entering) {
+                if (Singularity.Motion.reduced()) {
+                    Singularity.Motion.cancel(_content_bin, "translate-x");
+                    _content_bin.translate_x = 0.0;
+                } else {
+                    Singularity.Motion.spring_to(_content_bin, "translate-x", 0.0,
+                        Singularity.Motion.Spring.GENTLE);
+                }
+                Singularity.Motion.tween(_content_bin, "opacity", 1.0,
+                    Singularity.Motion.Duration.SMALL, Singularity.Motion.Curve.ENTER);
+            }
             Timeout.add(400, () => { _can_close_on_focus_loss = true; return false; });
         }
 
         private void ensure_calendar_view() {
             if (calendar_view != null) return;
-            ((SingularityApp)application).ensure_goa_calendar();
+            ((SingularityApp)application).ensure_online_calendars();
             var calendar_page = new CalendarPage();
             calendar_page.back_clicked.connect(() => {
                 toggle_calendar();
             });
             calendar_view = calendar_page;
             main_stack.add_named(calendar_view, "calendar");
+        }
+
+        private void open_tile_detail(string title, Widget content) {
+            var previous = main_stack.get_child_by_name("tile-detail");
+            if (previous != null) main_stack.remove(previous);
+            var page = new SettingsPage(title);
+            page.back_btn.visible = true;
+            page.back_clicked.connect(() => {
+                main_stack.visible_child_name = "system";
+            });
+            page.add_widget(content);
+            main_stack.add_named(page, "tile-detail");
+            animated_open("tile-detail");
         }
 
         private void ensure_notifications_view() {
@@ -255,9 +343,15 @@ namespace Singularity {
             main_stack.add_named(notifications_view, "notifications");
         }
 
-        private Singularity.Animation.TimedAnimation? slide_animation;
+        private const double SLIDE_DISTANCE = 96.0;
+        private const int EDGE_GAP = 40;
+        private Singularity.Animation.MotionBin _content_bin;
+        private int _blur_shift = 0;
         private bool _can_close_on_focus_loss = false;
         private bool _is_closing = false;
+        private bool _focus_held = false;
+        private DBusProxy? _polkit_agent = null;
+        private bool _polkit_busy = false;
 
         public void toggle() {
             if (visible && !_is_closing) {
@@ -265,6 +359,10 @@ namespace Singularity {
             } else {
                 animated_open("system");
             }
+        }
+
+        public void dismiss() {
+            if (visible && !_is_closing) animated_close();
         }
 
         public void toggle_system() {
@@ -332,6 +430,35 @@ namespace Singularity {
             }
         }
 
+        private SidebarWaitBar? _wait_bar = null;
+        private int _base_max_height = 0;
+
+        private void apply_max_height() {
+            if (_base_max_height <= 0) _base_max_height = sidebar_scroll.max_content_height;
+            int bar = _wait_bar != null && _wait_bar.visible ? 56 : 0;
+            sidebar_scroll.max_content_height = int.max(300, _base_max_height - bar);
+        }
+
+        internal void capture_wait_state(SidebarWaitTicket ticket) {
+            ticket.main_page = main_stack.visible_child_name ?? "system";
+            ticket.settings_page = settings_view != null ? settings_view.current_page_name : "";
+            ticket.scroll = sidebar_scroll.vadjustment.value;
+        }
+
+        internal void restore_wait_state(SidebarWaitTicket ticket) {
+            if (ticket.main_page == "settings" && settings_view != null) settings_view.show_page_name(ticket.settings_page);
+            if (!visible || _is_closing || main_stack.visible_child_name != ticket.main_page) {
+                animated_open(ticket.main_page != "" ? ticket.main_page : "system");
+            } else {
+                present();
+            }
+            double value = ticket.scroll;
+            Timeout.add(200, () => {
+                sidebar_scroll.vadjustment.value = value;
+                return GLib.Source.REMOVE;
+            });
+        }
+
         public SettingsView get_settings_view() {
             ensure_settings_view();
             return settings_view;
@@ -394,8 +521,9 @@ namespace Singularity {
             open_file_picker_async.begin(filter_name, patterns, (owned) callback);
         }
 
-        private async void open_file_picker_async(string? filter_name, string[]? patterns,
+        private async void open_file_picker_async(string? filter_name, owned string[]? patterns,
                                                   owned FilePickerCallback callback) {
+            SidebarWaitTicket? ticket = null;
             try {
                 var bus = yield Bus.get(BusType.SESSION);
                 string unique = bus.get_unique_name();
@@ -422,6 +550,12 @@ namespace Singularity {
                         if (resume != null) { SourceFunc cb = (owned) resume; resume = null; cb(); }
                     });
 
+                ticket = SidebarWait.get_default().begin(this, _("Waiting for Files"), "folder-symbolic", () => {
+                    bus.call.begin("org.freedesktop.portal.Desktop", handle, "org.freedesktop.portal.Request", "Close",
+                        null, null, DBusCallFlags.NONE, -1, null);
+                    uri = null;
+                    if (resume != null) { SourceFunc cb = (owned) resume; resume = null; cb(); }
+                });
                 var options = new VariantBuilder(new VariantType("a{sv}"));
                 options.add("{sv}", "handle_token", new Variant.string(token));
                 options.add("{sv}", "modal", new Variant.boolean(true));
@@ -438,10 +572,12 @@ namespace Singularity {
                     "org.freedesktop.portal.FileChooser", "OpenFile",
                     new Variant("(ssa{sv})", "", "Select File", options),
                     new VariantType("(o)"), DBusCallFlags.NONE, -1, null);
-                yield;
+                if (resume != null) yield;
                 bus.signal_unsubscribe(sub);
+                ticket.end();
                 if (uri != null) callback(File.new_for_uri(uri));
             } catch (Error e) {
+                if (ticket != null) ticket.end_quietly();
                 warning("open_file_picker: %s", e.message);
             }
         }
@@ -455,7 +591,8 @@ namespace Singularity {
                 if (monitor != null) {
                     // top_margin(10) + panel + bottom_margin(10) + dock + buffer(20)
                     int reserved = 10 + panel_height + 10 + dock_height + 20;
-                    sidebar_scroll.max_content_height = int.max(400, monitor.geometry.height - reserved);
+                    _base_max_height = int.max(400, monitor.geometry.height - reserved);
+                    apply_max_height();
                 }
             }
         }

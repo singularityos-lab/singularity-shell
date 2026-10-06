@@ -36,6 +36,7 @@ namespace Singularity.SidebarPages {
             add_group(group);
             devices_group = new PreferencesGroup(_("Devices"));
             add_group(devices_group);
+            add_group(new NearbyBluetoothGroup());
         }
 
         private void update_state() {
@@ -81,6 +82,9 @@ namespace Singularity.SidebarPages {
                 string dev_path = device.path;
                 string? status = device.connected ? _("Connected") :
                     (device.paired ? _("Paired") : null);
+                if (device.connected && device.battery >= 0) {
+                    status = _("%s · %d%%").printf(status, device.battery);
+                }
                 var row = new ActionRow(device.name, status,
                     BluetoothManager.bt_icon_for(device.icon));
                 row.activatable = false;

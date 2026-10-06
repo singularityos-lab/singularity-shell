@@ -540,11 +540,12 @@ namespace Singularity {
                     if (name.has_suffix(".desktop")) {
                         var app = new DesktopAppInfo.from_filename(file.get_path());
                         if (app != null) {
+                            if (!ParentalEnforcer.get_default().allows(app)) return;
                             app.launch(null, Gdk.Display.get_default().get_app_launch_context());
                             return;
                         }
                     }
-                    AppInfo.launch_default_for_uri(file.get_uri(), Gdk.Display.get_default().get_app_launch_context());
+                    Singularity.Widgets.FileOpener.open(file, null);
                 }
             } catch (Error e) {
                 warning("Failed to open file: %s", e.message);
@@ -555,6 +556,7 @@ namespace Singularity {
             try {
                 var uris = new List<string>();
                 uris.append(file.get_uri());
+                if (!ParentalEnforcer.get_default().allows(app)) return;
                 app.launch_uris(uris, Gdk.Display.get_default().get_app_launch_context());
             } catch (Error e) {
                 warning("Failed to open with %s: %s", app.get_name(), e.message);

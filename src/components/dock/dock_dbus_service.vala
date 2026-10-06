@@ -14,8 +14,11 @@ namespace Singularity {
      * (no sandboxing).
      */
     [DBus (name = "dev.sinty.Dock")]
-    public class DockDBusService : Object, Singularity.DockItemExtension {
+    public class DockDBusService : Object, Singularity.DockItemExtension, Singularity.DockContextMenuProvider {
         public signal void action_invoked(string app_id, string action_id);
+
+        private HashMap<string, Variant> _menus = new HashMap<string, Variant>();
+        private DBusConnection? _connection = null;
 
         private HashMap<string, Variant> _suffix_specs = new HashMap<string, Variant>();
         private HashMap<string, Gdk.Texture> _icon_overrides = new HashMap<string, Gdk.Texture>();
@@ -68,6 +71,7 @@ namespace Singularity {
             foreach (var nid in to_clear) {
                 _suffix_specs.unset(nid);
                 _icon_overrides.unset(nid);
+                _menus.unset(nid);
                 _owner_of.unset(nid);
                 this.changed(nid);
             }
@@ -83,6 +87,7 @@ namespace Singularity {
                 "dev.sinty.Dock",
                 BusNameOwnerFlags.REPLACE | BusNameOwnerFlags.ALLOW_REPLACEMENT,
                 (conn) => {
+                    _connection = conn;
                     try {
                         _reg_id = conn.register_object("/dev/sinty/Dock", this);
                     } catch (Error e) {
@@ -208,6 +213,117 @@ namespace Singularity {
             // Only clear owner tracking if no suffix is still registered.
             if (!_suffix_specs.has_key(nid)) _owner_of.unset(nid);
             this.changed(nid);
+        }
+
+        /**
+         * Sets the dynamic entries of the dock menu of `app_id`. Each entry
+         * is an a{sv} with `id` and `label` strings, an optional `icon`
+         * string and `enabled` boolean, or `separator` set to true. Picking
+         * an entry emits MenuItemActivated to the caller only; an entry with
+         * a `reply` object path is answered by calling
+         * dev.sinty.DockMenu1.ActivateItem there instead, and its copy reply
+         * is executed by the shell. The entries are dropped when the caller
+         * leaves the bus.
+         */
+        public void SetMenu(string app_id, HashTable<string, Variant>[] items, GLib.BusName sender)
+                throws GLib.DBusError, GLib.IOError {
+            var builder = new VariantBuilder(new VariantType("aa{sv}"));
+            foreach (var item in items) {
+                var dict = new VariantDict();
+                item.foreach((key, value) => dict.insert_value(key, value));
+                builder.add_value(dict.end());
+            }
+            string nid = normalize_id(app_id);
+            _menus[nid] = builder.end();
+            track_owner(nid, sender);
+        }
+
+        /** Removes the dynamic dock menu entries of `app_id`. */
+        public void ClearMenu(string app_id) throws GLib.DBusError, GLib.IOError {
+            string nid = normalize_id(app_id);
+            _menus.unset(nid);
+            if (!_suffix_specs.has_key(nid) && !_icon_overrides.has_key(nid)) _owner_of.unset(nid);
+        }
+
+        [DBus (visible = false)]
+        public bool populate_context_menu(Singularity.Widgets.ContextMenu menu,
+                                          Singularity.DockContextMenuRequest request) {
+            string nid = normalize_id(request.app_id);
+            if (!_menus.has_key(nid)) return false;
+            bool added = false;
+            var iter = _menus[nid].iterator();
+            Variant? entry = null;
+            while ((entry = iter.next_value()) != null) {
+                var dict = new VariantDict(entry);
+                bool separator = false;
+                if (dict.lookup("separator", "b", out separator) && separator) {
+                    if (added) menu.add_separator();
+                    continue;
+                }
+                string? item_id = null;
+                string? label = null;
+                if (!dict.lookup("id", "s", out item_id) || !dict.lookup("label", "s", out label)) continue;
+                string? icon = null;
+                dict.lookup("icon", "s", out icon);
+                bool enabled;
+                if (!dict.lookup("enabled", "b", out enabled)) enabled = true;
+                string? reply_path = null;
+                dict.lookup("reply", "o", out reply_path);
+                if (enabled) {
+                    string captured_app = nid;
+                    string captured_item = item_id;
+                    if (reply_path != null) {
+                        string captured_path = reply_path;
+                        menu.add_item(label, icon, () => request_reply.begin(captured_app, captured_path, captured_item));
+                    } else {
+                        menu.add_item(label, icon, () => emit_menu_item_activated(captured_app, captured_item));
+                    }
+                } else {
+                    var row = new Singularity.Widgets.MenuRow(label, icon);
+                    row.halign = Align.FILL;
+                    row.sensitive = false;
+                    menu.add_widget(row);
+                }
+                added = true;
+            }
+            return added;
+        }
+
+        private async void request_reply(string nid, string path, string item_id) {
+            if (_connection == null || !_owner_of.has_key(nid)) return;
+            yield call_reply(_connection, _owner_of[nid], path, item_id, false);
+        }
+
+        [DBus (visible = false)]
+        public static async bool call_reply(DBusConnection connection, string bus_name, string path,
+                                            string item_id, bool auto_start) {
+            try {
+                var reply = yield connection.call(bus_name, path, "dev.sinty.DockMenu1", "ActivateItem",
+                    new Variant("(s)", item_id), new VariantType("(a{sv})"),
+                    auto_start ? DBusCallFlags.NONE : DBusCallFlags.NO_AUTO_START, 5000, null);
+                var dict = new VariantDict(reply.get_child_value(0));
+                string? text = null;
+                if (!dict.lookup("copy-text", "s", out text)) return true;
+                bool sensitive;
+                if (!dict.lookup("copy-sensitive", "b", out sensitive)) sensitive = false;
+                uint32 clear_after;
+                if (!dict.lookup("copy-clear-after", "u", out clear_after)) clear_after = 0;
+                SearchClipboard.copy(text, sensitive, clear_after);
+                return true;
+            } catch (Error e) {
+                warning("DockDBusService: ActivateItem on %s failed: %s", bus_name, e.message);
+                return false;
+            }
+        }
+
+        private void emit_menu_item_activated(string nid, string item_id) {
+            if (_connection == null || !_owner_of.has_key(nid)) return;
+            try {
+                _connection.emit_signal(_owner_of[nid], "/dev/sinty/Dock", "dev.sinty.Dock",
+                    "MenuItemActivated", new Variant("(ss)", nid, item_id));
+            } catch (Error e) {
+                warning("DockDBusService: MenuItemActivated failed: %s", e.message);
+            }
         }
 
         // Spec -> widget

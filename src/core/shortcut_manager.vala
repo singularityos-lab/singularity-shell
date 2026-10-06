@@ -22,13 +22,48 @@ namespace Singularity {
             this.secondary_accelerator = secondary_accel;
         }
     }
+    public class CustomKeybinding : Object {
+        public string id;
+        public string name;
+        public string accelerator;
+        public string command;
+        public string app_id;
+        public string action;
+
+        public CustomKeybinding(string id, string name, string accelerator,
+                                string command, string app_id, string action) {
+            this.id = id;
+            this.name = name;
+            this.accelerator = accelerator;
+            this.command = command;
+            this.app_id = app_id;
+            this.action = action;
+        }
+
+        public bool is_app_action {
+            get { return app_id != "" && action != ""; }
+        }
+
+        public DesktopAppInfo? app_info() {
+            if (app_id == "") return null;
+            string desktop_id = app_id.has_suffix(".desktop") ? app_id : app_id + ".desktop";
+            return new DesktopAppInfo(desktop_id);
+        }
+    }
+
     [DBus (name = "dev.sinty.desktop.Shortcuts")]
     public class ShortcutManager : Object {
         public List<Shortcut> shortcuts;
+        [DBus (visible = false)]
+        public List<CustomKeybinding> custom_keybindings = new List<CustomKeybinding>();
+        [DBus (visible = false)]
+        public signal void custom_keybindings_changed();
         private GLib.Settings settings;
         private string? last_synced_xkb_layout = null;
         private string? last_synced_xkb_variant = null;
         private GLib.Settings? wm_settings;
+        private HashTable<string, GLib.Settings> external_settings =
+            new HashTable<string, GLib.Settings>(str_hash, str_equal);
         private GLib.FileMonitor? capslock_monitor = null;
         private GLib.FileMonitor? numlock_monitor = null;
         private ulong screenshot_handler_id = 0;
@@ -41,6 +76,9 @@ namespace Singularity {
         public signal void workspace_overview_triggered();
         public signal void workspace_overview_hide_triggered();
         public signal void emoji_picker_triggered();
+        public signal void clipboard_history_triggered();
+        public signal void shortcut_cheatsheet_triggered();
+        public signal void accessibility_feedback(string feature, bool enabled);
 
         public ShortcutManager() {
             shortcuts = new List<Shortcut>();
@@ -66,6 +104,8 @@ namespace Singularity {
             register_shortcut("Desktop", "Reveal the desktop", "<Super>d", "toggle_desktop_reveal");
             register_shortcut("Terminal", "Open terminal", "<Super>Return", "spawn_terminal");
             register_shortcut("Emoji Picker", "Open the emoji picker", "<Super>period", "toggle_emoji_picker");
+            register_shortcut("Clipboard History", "Open the clipboard history", "<Super>v", "toggle_clipboard_history");
+            register_shortcut("Keyboard Shortcuts", "Show the keyboard shortcuts", "<Super>slash", "toggle_shortcut_cheatsheet");
             register_shortcut("Command Palette", "Open the command palette", "<Super>Tab", "run_command");
             register_shortcut("Command Palette (alt)", "Open the command palette", "<Shift><Alt>F2", "run_command", "run_command_alt");
             register_shortcut("Re-tile Windows", "Re-arrange windows in grid", "<Super>r", "retile_windows");
@@ -75,7 +115,23 @@ namespace Singularity {
             register_shortcut("Picture in Picture Region", "Show a selected window region in picture in picture", "<Super><Shift>p", "pip_region");
             register_shortcut("Picture in Picture Window", "Show the focused window in picture in picture", "<Super><Alt>p", "pip_window");
             register_shortcut("Lock Screen", "Lock the screen", "<Super>l", "lock_screen");
+            register_shortcut("Screen Reader", "Turn the screen reader on or off", "<Super><Alt>s", "toggle_screen_reader");
+            register_shortcut("Zoom", "Turn zoom on or off", "<Super><Alt>8", "toggle_zoom");
+            register_shortcut("Zoom In", "Increase the zoom level", "<Super><Alt>equal", "zoom_in");
+            register_shortcut("Zoom Out", "Decrease the zoom level", "<Super><Alt>minus", "zoom_out");
+            register_shortcut("Dictation", "Start or stop dictation in the focused text field", "<Super>h", "toggle_dictation");
+            register_shortcut("Switch Input Method", "Switch between the keyboard layout and input methods", "<Control>space", "switch_input_method");
             load_custom_shortcuts();
+            load_custom_keybindings();
+            settings.changed["custom-keybindings"].connect(() => {
+                load_custom_keybindings();
+                write_labwc_rc_xml();
+                custom_keybindings_changed();
+            });
+            if (settings.settings_schema.has_key("portal-global-shortcuts"))
+                settings.changed["portal-global-shortcuts"].connect(() => write_labwc_rc_xml());
+            settings.changed["input-method-engines"].connect(() => write_labwc_rc_xml());
+            settings.changed["dictation-enabled"].connect(() => write_labwc_rc_xml());
             Idle.add(() => {
                 write_labwc_rc_xml();
                 apply_gtk_decoration_layout();
@@ -112,6 +168,18 @@ namespace Singularity {
             settings.changed["workspaces-per-monitor"].connect(() => {
                 write_labwc_rc_xml();
             });
+            foreach (string key in new string[] {"tablet-output", "tablet-keep-aspect", "tablet-left-handed",
+                    "tablet-area-custom", "tablet-area", "tablet-pressure-curve", "tablet-mouse-mode",
+                    "tablet-stylus-buttons", "tablet-pad-buttons"}) {
+                settings.changed[key].connect(() => write_labwc_rc_xml());
+            }
+            Singularity.Tablet.TabletManager.get_default().changed.connect(() => write_labwc_rc_xml());
+            foreach (string key in new string[] {"gestures-enabled", "gesture-fingers", "gesture-direction",
+                    "gesture-two-dimensional", "gesture-sensitivity", "gesture-threshold"}) {
+                settings.changed[key].connect(() => {
+                    write_labwc_rc_xml();
+                });
+            }
             foreach (string key in new string[] {"touchpad-two-finger-scroll", "touchpad-edge-scroll",
                     "touchpad-edge-natural-scroll", "touchpad-circular-scroll"}) {
                 settings.changed[key].connect(() => {
@@ -121,6 +189,10 @@ namespace Singularity {
             Gtk.Settings.get_default().notify["gtk-enable-animations"].connect(() => {
                 write_labwc_rc_xml();
             });
+            Singularity.Motion.get_default().changed.connect(() => {
+                write_labwc_rc_xml();
+            });
+            watch_accessibility_settings();
             if (wm_settings != null) {
                 wm_settings.changed["button-layout"].connect(() => {
                     write_labwc_rc_xml();
@@ -222,6 +294,149 @@ namespace Singularity {
         // Write ~/.config/labwc/rc.xml from the current shortcut list, then
         // ask labwc to reconfigure so the new keybinds take effect immediately.
 
+        private GLib.Settings? external_settings_for(string schema_id) {
+            var existing = external_settings.lookup(schema_id);
+            if (existing != null) return existing;
+            var source = GLib.SettingsSchemaSource.get_default();
+            if (source == null || source.lookup(schema_id, true) == null) return null;
+            var created = new GLib.Settings(schema_id);
+            external_settings.insert(schema_id, created);
+            return created;
+        }
+
+        private Variant? external_value(string schema_id, string key) {
+            var external = external_settings_for(schema_id);
+            if (external == null || !external.settings_schema.has_key(key)) return null;
+            return external.get_value(key);
+        }
+
+        private bool external_bool(string schema_id, string key, bool fallback) {
+            var value = external_value(schema_id, key);
+            return value != null && value.is_of_type(VariantType.BOOLEAN) ? value.get_boolean() : fallback;
+        }
+
+        private int external_int(string schema_id, string key, int fallback) {
+            var value = external_value(schema_id, key);
+            if (value == null) return fallback;
+            if (value.is_of_type(VariantType.INT32)) return value.get_int32();
+            if (value.is_of_type(VariantType.UINT32)) return (int) value.get_uint32();
+            return fallback;
+        }
+
+        private double external_double(string schema_id, string key, double fallback) {
+            var value = external_value(schema_id, key);
+            return value != null && value.is_of_type(VariantType.DOUBLE) ? value.get_double() : fallback;
+        }
+
+        private string external_string(string schema_id, string key, string fallback) {
+            var value = external_value(schema_id, key);
+            return value != null && value.is_of_type(VariantType.STRING) ? value.get_string() : fallback;
+        }
+
+        private void watch_accessibility_settings() {
+            string[,] watched = {
+                { "org.gnome.desktop.a11y.keyboard", "" },
+                { "org.gnome.desktop.a11y.mouse", "" },
+                { "org.gnome.desktop.a11y.magnifier", "mag-factor" },
+                { "org.gnome.desktop.a11y.magnifier", "invert-lightness" },
+                { "org.gnome.desktop.a11y.magnifier", "show-cross-hairs" },
+                { "org.gnome.desktop.a11y.applications", "screen-magnifier-enabled" },
+                { "org.gnome.desktop.interface", "locate-pointer" },
+                { "org.gnome.desktop.wm.preferences", "visual-bell" },
+                { "org.gnome.desktop.wm.preferences", "visual-bell-type" },
+                { "org.gnome.desktop.wm.preferences", "focus-mode" },
+                { "org.gnome.desktop.peripherals.keyboard", "repeat" },
+                { "org.gnome.desktop.peripherals.keyboard", "delay" },
+                { "org.gnome.desktop.peripherals.keyboard", "repeat-interval" },
+                { "org.gnome.desktop.peripherals.mouse", "double-click" }
+            };
+            for (int i = 0; i < watched.length[0]; i++) {
+                var external = external_settings_for(watched[i, 0]);
+                if (external == null) continue;
+                string key = watched[i, 1];
+                if (key == "") {
+                    external.changed.connect(() => {
+                        write_labwc_rc_xml();
+                    });
+                } else if (external.settings_schema.has_key(key)) {
+                    external.changed[key].connect(() => {
+                        write_labwc_rc_xml();
+                    });
+                }
+            }
+            if (settings.settings_schema.has_key("color-filter")) {
+                settings.changed["color-filter"].connect(() => {
+                    write_labwc_rc_xml();
+                });
+            }
+        }
+
+        private string yes_no(bool value) {
+            return value ? "yes" : "no";
+        }
+
+        private void append_accessibility_xml(StringBuilder xml, string dbus_shorts) {
+            const string KEYBOARD = "org.gnome.desktop.a11y.keyboard";
+            const string MOUSE = "org.gnome.desktop.a11y.mouse";
+            const string WM = "org.gnome.desktop.wm.preferences";
+            xml.append("  <accessibility>\n");
+            xml.append_printf("    <keyboardShortcuts>%s</keyboardShortcuts>\n",
+                yes_no(external_bool(KEYBOARD, "enable", false)));
+            xml.append_printf("    <stickyKeys><enabled>%s</enabled><twoKeyOff>%s</twoKeyOff><modifierBeep>%s</modifierBeep></stickyKeys>\n",
+                yes_no(external_bool(KEYBOARD, "stickykeys-enable", false)),
+                yes_no(external_bool(KEYBOARD, "stickykeys-two-key-off", true)),
+                yes_no(external_bool(KEYBOARD, "stickykeys-modifier-beep", false)));
+            xml.append_printf("    <slowKeys><enabled>%s</enabled><delay>%d</delay></slowKeys>\n",
+                yes_no(external_bool(KEYBOARD, "slowkeys-enable", false)),
+                external_int(KEYBOARD, "slowkeys-delay", 300).clamp(0, 10000));
+            xml.append_printf("    <bounceKeys><enabled>%s</enabled><delay>%d</delay></bounceKeys>\n",
+                yes_no(external_bool(KEYBOARD, "bouncekeys-enable", false)),
+                external_int(KEYBOARD, "bouncekeys-delay", 300).clamp(0, 10000));
+            xml.append_printf("    <mouseKeys><enabled>%s</enabled><maxSpeed>%d</maxSpeed><accelTime>%d</accelTime><initDelay>%d</initDelay></mouseKeys>\n",
+                yes_no(external_bool(KEYBOARD, "mousekeys-enable", false)),
+                external_int(KEYBOARD, "mousekeys-max-speed", 10).clamp(1, 500),
+                external_int(KEYBOARD, "mousekeys-accel-time", 300).clamp(0, 10000),
+                external_int(KEYBOARD, "mousekeys-init-delay", 160).clamp(0, 10000));
+            xml.append_printf("    <toggleKeys>%s</toggleKeys>\n",
+                yes_no(external_bool(KEYBOARD, "togglekeys-enable", false)));
+            xml.append_printf("    <locatePointer>%s</locatePointer>\n",
+                yes_no(external_bool("org.gnome.desktop.interface", "locate-pointer", false)));
+            xml.append_printf("    <secondaryClick><enabled>%s</enabled><time>%d</time></secondaryClick>\n",
+                yes_no(external_bool(MOUSE, "secondary-click-enabled", false)),
+                (int) Math.round(external_double(MOUSE, "secondary-click-time", 1.2).clamp(0.1, 10.0) * 1000));
+            xml.append_printf("    <dwellClick><enabled>%s</enabled><time>%d</time><threshold>%d</threshold></dwellClick>\n",
+                yes_no(external_bool(MOUSE, "dwell-click-enabled", false)),
+                (int) Math.round(external_double(MOUSE, "dwell-time", 1.2).clamp(0.1, 10.0) * 1000),
+                external_int(MOUSE, "dwell-threshold", 10).clamp(1, 100));
+            xml.append_printf("    <visualBell><enabled>%s</enabled><type>%s</type></visualBell>\n",
+                yes_no(external_bool(WM, "visual-bell", false)),
+                external_string(WM, "visual-bell-type", "fullscreen-flash") == "frame-flash"
+                    ? "frameFlash" : "fullscreenFlash");
+            string color_filter = settings.settings_schema.has_key("color-filter")
+                ? settings.get_string("color-filter") : "none";
+            xml.append_printf("    <colorFilter>%s</colorFilter>\n", Markup.escape_text(color_filter));
+            xml.append_printf("    <feedbackCommand>%s</feedbackCommand>\n", dbus_shorts);
+            xml.append("  </accessibility>\n");
+
+            const string MAGNIFIER = "org.gnome.desktop.a11y.magnifier";
+            char[] factor_buf = new char[double.DTOSTR_BUF_SIZE];
+            xml.append("  <magnifier>\n");
+            xml.append_printf("    <enabled>%s</enabled>\n",
+                yes_no(external_bool("org.gnome.desktop.a11y.applications", "screen-magnifier-enabled", false)));
+            xml.append("    <width>-1</width>\n    <height>-1</height>\n");
+            xml.append_printf("    <initScale>%s</initScale>\n",
+                external_double(MAGNIFIER, "mag-factor", 2.0).clamp(1.0, 32.0).format(factor_buf, "%.2f"));
+            xml.append_printf("    <invert>%s</invert>\n",
+                yes_no(external_bool(MAGNIFIER, "invert-lightness", false)));
+            xml.append_printf("    <crossHairs>%s</crossHairs>\n",
+                yes_no(external_bool(MAGNIFIER, "show-cross-hairs", false)));
+            xml.append("  </magnifier>\n");
+
+            string focus_mode = external_string(WM, "focus-mode", "click");
+            xml.append_printf("  <focus>\n    <followMouse>%s</followMouse>\n  </focus>\n",
+                yes_no(focus_mode == "sloppy" || focus_mode == "mouse"));
+        }
+
         public void write_labwc_rc_xml() {
             // Pin the session bus we actually own the name on: the session runs
             // under dbus-run-session (ephemeral address), not a fixed /run/user path.
@@ -292,7 +507,7 @@ namespace Singularity {
             xml.append("    </titlebar>\n");
             xml.append("  </theme>\n");
 
-            bool animations = Gtk.Settings.get_default().gtk_enable_animations;
+            bool animations = !Singularity.Motion.reduced();
             xml.append("  <core>\n    <decoration>server</decoration>\n");
             xml.append_printf("    <windowAnimations>%s</windowAnimations>\n", animations ? "yes" : "no");
             xml.append_printf("    <allowTearing>%s</allowTearing>\n",
@@ -300,10 +515,34 @@ namespace Singularity {
             xml.append_printf("    <xwaylandNativeScaling>%s</xwaylandNativeScaling>\n",
                 settings.get_boolean("xwayland-native-scaling") ? "yes" : "no");
             xml.append("  </core>\n");
+            xml.append_printf("  <animations>\n    <durationScale>%s</durationScale>\n  </animations>\n",
+                "%.2f".printf(Singularity.Motion.get_default().duration_scale.clamp(0.1, 10.0)).replace(",", "."));
+
+            append_accessibility_xml(xml, dbus_shorts);
+            xml.append(Singularity.Tablet.TabletManager.get_default().rc_xml(dbus_shorts));
 
             // Show the snap/tile preview overlay immediately instead of after
             // labwc's default 500ms, so the tiling rectangles appear instantly (#120).
             xml.append("  <snapping>\n    <overlay>\n      <delay inner=\"0\" outer=\"0\" />\n    </overlay>\n  </snapping>\n");
+
+            bool gestures = settings.get_boolean("gestures-enabled");
+            string gesture_fingers = settings.get_string("gesture-fingers");
+            string gesture_direction = settings.get_string("gesture-direction");
+            bool gesture_invert = gesture_direction == "inverted"
+                || (gesture_direction == "follow-scroll" && !settings.get_boolean("natural-scrolling"));
+            char[] sensitivity_buf = new char[double.DTOSTR_BUF_SIZE];
+            char[] threshold_buf = new char[double.DTOSTR_BUF_SIZE];
+            xml.append("  <gestures>\n");
+            xml.append_printf("    <enabled>%s</enabled>\n", gestures ? "yes" : "no");
+            xml.append_printf("    <fingers>%s</fingers>\n", gesture_fingers);
+            xml.append_printf("    <invert>%s</invert>\n", gesture_invert ? "yes" : "no");
+            xml.append_printf("    <twoDimensional>%s</twoDimensional>\n",
+                settings.get_boolean("gesture-two-dimensional") ? "yes" : "no");
+            xml.append_printf("    <sensitivity>%s</sensitivity>\n",
+                settings.get_double("gesture-sensitivity").clamp(0.5, 2.0).format(sensitivity_buf, "%.2f"));
+            xml.append_printf("    <threshold>%s</threshold>\n",
+                settings.get_double("gesture-threshold").clamp(8, 32).format(threshold_buf, "%.0f"));
+            xml.append("  </gestures>\n");
 
             // Pointer/touchpad behaviour from settings.
             bool mouse_accel = settings.get_boolean("mouse-acceleration");
@@ -338,15 +577,23 @@ namespace Singularity {
 
             xml.append("  <mouse>\n");
             xml.append("    <default />\n");
+            xml.append_printf("    <doubleClickTime>%d</doubleClickTime>\n",
+                external_int("org.gnome.desktop.peripherals.mouse", "double-click", 400).clamp(100, 2000));
             xml.append("    <context name=\"Titlebar\">\n");
             xml.append("      <mousebind direction=\"Up\" action=\"Scroll\" />\n");
             xml.append("      <mousebind direction=\"Down\" action=\"Scroll\" />\n");
             xml.append("    </context>\n");
-            xml.append_printf("    <gesturebind type=\"swipe\" fingers=\"3\" direction=\"Down\"><action name=\"Execute\"><command>%s hide_launcher</command></action></gesturebind>\n", dbus_shorts);
-            xml.append("    <gesturebind type=\"swipe\" fingers=\"4\" direction=\"Left\"><action name=\"GoToDesktop\" to=\"right\" wrap=\"yes\" /></gesturebind>\n");
-            xml.append("    <gesturebind type=\"swipe\" fingers=\"4\" direction=\"Right\"><action name=\"GoToDesktop\" to=\"left\" wrap=\"yes\" /></gesturebind>\n");
-            xml.append_printf("    <gesturebind type=\"swipe\" fingers=\"4\" direction=\"Down\"><action name=\"Execute\"><command>%s toggle_workspace_overview</command></action></gesturebind>\n", dbus_shorts);
-            xml.append_printf("    <gesturebind type=\"swipe\" fingers=\"4\" direction=\"Up\"><action name=\"Execute\"><command>%s hide_workspace_overview</command></action></gesturebind>\n", dbus_shorts);
+            if (gesture_fingers == "4") {
+                xml.append_printf("    <gesturebind type=\"swipe\" fingers=\"3\" direction=\"Down\"><action name=\"Execute\"><command>%s hide_launcher</command></action></gesturebind>\n", dbus_shorts);
+            }
+            if (gestures) {
+                foreach (string count in gesture_fingers == "both" ? new string[] { "3", "4" } : new string[] { gesture_fingers }) {
+                    xml.append_printf("    <gesturebind type=\"swipe\" fingers=\"%s\" direction=\"Left\"><action name=\"GoToDesktop\" to=\"right\" wrap=\"yes\" /></gesturebind>\n", count);
+                    xml.append_printf("    <gesturebind type=\"swipe\" fingers=\"%s\" direction=\"Right\"><action name=\"GoToDesktop\" to=\"left\" wrap=\"yes\" /></gesturebind>\n", count);
+                    xml.append_printf("    <gesturebind type=\"swipe\" fingers=\"%s\" direction=\"Down\"><action name=\"Execute\"><command>%s toggle_workspace_overview</command></action></gesturebind>\n", count, dbus_shorts);
+                    xml.append_printf("    <gesturebind type=\"swipe\" fingers=\"%s\" direction=\"Up\"><action name=\"Execute\"><command>%s hide_workspace_overview</command></action></gesturebind>\n", count, dbus_shorts);
+                }
+            }
             xml.append("  </mouse>\n");
 
             // Keyboard layout (xkb)
@@ -355,6 +602,12 @@ namespace Singularity {
             xml.append_printf("      <layout>%s</layout>\n", xkb_layout);
             if (xkb_variant != "") xml.append_printf("      <variant>%s</variant>\n", xkb_variant);
             xml.append("    </xkb>\n");
+            const string PERIPHERAL_KEYBOARD = "org.gnome.desktop.peripherals.keyboard";
+            int repeat_interval = external_int(PERIPHERAL_KEYBOARD, "repeat-interval", 30).clamp(1, 1000);
+            xml.append_printf("    <repeatRate>%d</repeatRate>\n",
+                external_bool(PERIPHERAL_KEYBOARD, "repeat", true) ? int.max(1, (1000 + repeat_interval / 2) / repeat_interval) : 0);
+            xml.append_printf("    <repeatDelay>%d</repeatDelay>\n",
+                external_int(PERIPHERAL_KEYBOARD, "delay", 500).clamp(100, 5000));
             // Static desktop-switching keybinds
             for (int i = 1; i <= 4; i++) {
                 xml.append_printf("    <keybind key=\"C-A-%d\"><action name=\"GoToDesktop\" to=\"%d\" /></keybind>\n", i, i);
@@ -375,8 +628,27 @@ namespace Singularity {
             foreach (var s in shortcuts) {
                 string key = accel_to_labwc(s.accelerator);
                 if (key == "") continue;
+                if (s.action_name == "switch_input_method" && settings.get_strv("input-method-engines").length == 0) continue;
+                if (s.action_name == "toggle_dictation" && !settings.get_boolean("dictation-enabled")) continue;
                 xml.append_printf("    <keybind key=\"%s\"><action name=\"Execute\"><command>%s %s</command></action></keybind>\n",
                     key, dbus_shorts, s.action_name);
+            }
+            foreach (var k in custom_keybindings) {
+                string key = accel_to_labwc(k.accelerator);
+                if (key == "") continue;
+                xml.append_printf("    <keybind key=\"%s\"><action name=\"Execute\"><command>%s custom:%s</command></action></keybind>\n",
+                    key, dbus_shorts, k.id);
+            }
+            if (settings.settings_schema.has_key("portal-global-shortcuts")) {
+                var portal_iter = settings.get_value("portal-global-shortcuts").iterator();
+                string p_app, p_id, p_desc, p_accel;
+                while (portal_iter.next("(ssss)", out p_app, out p_id, out p_desc, out p_accel)) {
+                    string key = accel_to_labwc(p_accel);
+                    if (key == "" || xml.str.contains("key=\"%s\"".printf(key))) continue;
+                    if (!GLib.DBus.is_name(p_app) || p_id.contains("<") || p_id.contains("&") || p_id.contains(" ")) continue;
+                    xml.append_printf("    <keybind key=\"%s\"><action name=\"Execute\"><command>%s portal:%s:%s</command></action></keybind>\n",
+                        key, dbus_shorts, p_app, p_id);
+                }
             }
             // XF86 hardware media/brightness keys as aliases
             xml.append_printf("    <keybind key=\"XF86AudioRaiseVolume\"><action name=\"Execute\"><command>%s volume_up</command></action></keybind>\n", dbus_shorts);
@@ -385,6 +657,8 @@ namespace Singularity {
             xml.append_printf("    <keybind key=\"XF86AudioMicMute\"><action name=\"Execute\"><command>%s mic_mute</command></action></keybind>\n", dbus_shorts);
             xml.append_printf("    <keybind key=\"XF86MonBrightnessUp\"><action name=\"Execute\"><command>%s brightness_up</command></action></keybind>\n", dbus_shorts);
             xml.append_printf("    <keybind key=\"XF86MonBrightnessDown\"><action name=\"Execute\"><command>%s brightness_down</command></action></keybind>\n", dbus_shorts);
+            xml.append_printf("    <keybind key=\"XF86PowerOff\" overrideInhibition=\"yes\"><action name=\"Execute\"><command>%s power_button</command></action></keybind>\n", dbus_shorts);
+            xml.append_printf("    <keybind key=\"XF86Sleep\" overrideInhibition=\"yes\"><action name=\"Execute\"><command>%s sleep_button</command></action></keybind>\n", dbus_shorts);
             xml.append("  </keyboard>\n</labwc_config>\n");
 
             var labwc = Singularity.Compositor.LabwcBackend.get_default();
@@ -474,49 +748,9 @@ namespace Singularity {
             write_decoration_layout_ini(layout);
 
             // 2. Write Gtk/DecorationLayout to ~/.xsettingsd for X11/XWayland apps.
-            string xsettings_path = GLib.Path.build_filename(
-                GLib.Environment.get_home_dir(), ".xsettingsd");
             try {
-                string content = "";
-                try { GLib.FileUtils.get_contents(xsettings_path, out content); } catch {}
-
-                // Replace or append the DecorationLayout line.
-                var lines = new GLib.StringBuilder();
-                bool found = false;
-                foreach (string line in content.split("\n")) {
-                    if (line.has_prefix("Gtk/DecorationLayout")) {
-                        lines.append_printf("Gtk/DecorationLayout \"%s\"\n", layout);
-                        found = true;
-                    } else if (line != "") {
-                        lines.append(line);
-                        lines.append_c('\n');
-                    }
-                }
-                if (!found) {
-                    lines.append_printf("Gtk/DecorationLayout \"%s\"\n", layout);
-                }
-                GLib.FileUtils.set_contents(xsettings_path, lines.str);
-
-                // Reload xsettingsd (SIGHUP) or start it if not running.
-                try {
-                    var pkill = new GLib.Subprocess.newv(
-                        { "pkill", "-HUP", "xsettingsd" },
-                        GLib.SubprocessFlags.STDOUT_SILENCE | GLib.SubprocessFlags.STDERR_SILENCE);
-                    pkill.wait_async.begin(null, (obj, res) => {
-                        try { pkill.wait_async.end(res); } catch {}
-                        if (pkill.get_exit_status() != 0) {
-                            try {
-                                new GLib.Subprocess.newv(
-                                    { "xsettingsd" },
-                                    GLib.SubprocessFlags.STDOUT_SILENCE | GLib.SubprocessFlags.STDERR_SILENCE);
-                            } catch (GLib.Error e2) {
-                                warning("xsettingsd launch: %s", e2.message);
-                            }
-                        }
-                    });
-                } catch (GLib.Error xe) {
-                    warning("xsettingsd: %s", xe.message);
-                }
+                XSettingsDaemon.get_default().update(
+                    { "Gtk/DecorationLayout" }, { "Gtk/DecorationLayout \"%s\"".printf(layout) });
             } catch (GLib.Error e) {
                 warning("apply_gtk_decoration_layout: %s", e.message);
             }
@@ -541,6 +775,112 @@ namespace Singularity {
                 } catch (GLib.Error e) {
                     warning("decoration-layout settings.ini (%s): %s", ver, e.message);
                 }
+            }
+        }
+
+        private void load_custom_keybindings() {
+            custom_keybindings = new List<CustomKeybinding>();
+            if (!settings.settings_schema.has_key("custom-keybindings")) return;
+            var list = settings.get_value("custom-keybindings");
+            var iter = list.iterator();
+            string id, name, accel, command, app_id, action;
+            while (iter.next("(ssssss)", out id, out name, out accel, out command, out app_id, out action))
+                custom_keybindings.append(new CustomKeybinding(id, name, accel, command, app_id, action));
+        }
+
+        private void save_custom_keybindings() {
+            var builder = new VariantBuilder(new VariantType("a(ssssss)"));
+            foreach (var k in custom_keybindings)
+                builder.add("(ssssss)", k.id, k.name, k.accelerator, k.command, k.app_id, k.action);
+            settings.set_value("custom-keybindings", builder.end());
+        }
+
+        [DBus (visible = false)]
+        public CustomKeybinding? find_custom_keybinding(string id) {
+            foreach (var k in custom_keybindings)
+                if (k.id == id) return k;
+            return null;
+        }
+
+        [DBus (visible = false)]
+        public void set_custom_keybinding(string? id, string name, string accelerator,
+                                          string command, string app_id, string action) {
+            var existing = id != null ? find_custom_keybinding(id) : null;
+            if (existing != null) {
+                existing.name = name;
+                existing.accelerator = accelerator;
+                existing.command = command;
+                existing.app_id = app_id;
+                existing.action = action;
+            } else {
+                string new_id = "custom-%lld".printf(GLib.get_real_time());
+                custom_keybindings.append(new CustomKeybinding(new_id, name, accelerator, command, app_id, action));
+            }
+            save_custom_keybindings();
+        }
+
+        [DBus (visible = false)]
+        public void set_custom_keybinding_accelerator(string id, string accelerator) {
+            var k = find_custom_keybinding(id);
+            if (k == null) return;
+            k.accelerator = accelerator;
+            save_custom_keybindings();
+        }
+
+        [DBus (visible = false)]
+        public void remove_custom_keybinding(string id) {
+            var k = find_custom_keybinding(id);
+            if (k == null) return;
+            custom_keybindings.remove(k);
+            save_custom_keybindings();
+        }
+
+        private void activate_portal_shortcut(string target) {
+            int split = target.index_of(":");
+            if (split <= 0) return;
+            string app_id = target.substring(0, split);
+            string shortcut_id = target.substring(split + 1);
+            Bus.get.begin(BusType.SESSION, null, (obj, res) => {
+                try {
+                    var conn = Bus.get.end(res);
+                    conn.call.begin("org.freedesktop.impl.portal.desktop.singularity", "/org/freedesktop/portal/desktop",
+                        "dev.sinty.portal.GlobalShortcuts", "Activate", new Variant("(ss)", app_id, shortcut_id),
+                        new VariantType("(u)"), DBusCallFlags.NO_AUTO_START, 2000, null, (o, r) => {
+                            try {
+                                conn.call.end(r);
+                            } catch (Error e) {
+                                warning("ShortcutManager: portal shortcut %s failed: %s", target, e.message);
+                            }
+                        });
+                } catch (Error e) {
+                    warning("ShortcutManager: %s", e.message);
+                }
+            });
+        }
+
+        private void run_custom_keybinding(string id) {
+            var k = find_custom_keybinding(id);
+            if (k == null) {
+                warning("ShortcutManager: no custom shortcut %s", id);
+                return;
+            }
+            var context = Gdk.Display.get_default().get_app_launch_context();
+            try {
+                if (k.is_app_action) {
+                    var info = k.app_info();
+                    if (info == null) {
+                        warning("ShortcutManager: %s is not installed", k.app_id);
+                        return;
+                    }
+                    if (!ParentalEnforcer.get_default().allows(info)) return;
+                    info.launch_action(k.action, context);
+                } else if (k.command.strip() != "") {
+                    if (!ParentalEnforcer.get_default().allows_command(k.command)) return;
+                    var info = AppInfo.create_from_commandline(k.command, k.name, AppInfoCreateFlags.NONE);
+                    info.launch(null, context);
+                }
+            } catch (Error e) {
+                warning("ShortcutManager: custom shortcut %s failed: %s", k.name, e.message);
             }
         }
 
@@ -598,6 +938,18 @@ namespace Singularity {
         }
 
         public void execute_action(string action_name) {
+            if (action_name.has_prefix("custom:")) {
+                run_custom_keybinding(action_name.substring(7));
+                return;
+            }
+            if (action_name.has_prefix("portal:")) {
+                activate_portal_shortcut(action_name.substring(7));
+                return;
+            }
+            if (action_name.has_prefix("tablet-key:")) {
+                Singularity.Tablet.TabletManager.send_shortcut(action_name.substring(11));
+                return;
+            }
             try {
                 switch (action_name) {
                     case "volume_up":    volume_up(); break;
@@ -616,10 +968,14 @@ namespace Singularity {
                     case "spawn_terminal": spawn_terminal(); break;
                     case "run_command": run_command(); break;
                     case "toggle_emoji_picker": emoji_picker_triggered(); break;
+                    case "toggle_clipboard_history": clipboard_history_triggered(); break;
+                    case "toggle_shortcut_cheatsheet": shortcut_cheatsheet_triggered(); break;
                     case "switch_windows_next": switch_windows_next(); break;
                     case "switch_windows_prev": switch_windows_prev(); break;
                     case "retile_windows": retile_windows(); break;
                     case "lock_screen":    lock_screen(); break;
+                    case "power_button": PowerKeyManager.get_default().power_pressed(); break;
+                    case "sleep_button": PowerKeyManager.get_default().sleep_pressed(); break;
                     case "screenshot_tool":     screenshot_tool_action(); break;
                     case "screenshot_region":   screenshot_region_action(); break;
                     case "screenshot_window":   screenshot_window_action(); break;
@@ -636,11 +992,55 @@ namespace Singularity {
                     case "send_to_workspace_2": send_focused_to_workspace(1); break;
                     case "send_to_workspace_3": send_focused_to_workspace(2); break;
                     case "send_to_workspace_4": send_focused_to_workspace(3); break;
-                    default: warning("Unknown action: %s", action_name); break;
+                    case "toggle_screen_reader":
+                        toggle_external_bool("org.gnome.desktop.a11y.applications", "screen-reader-enabled");
+                        break;
+                    case "toggle_zoom":
+                        toggle_external_bool("org.gnome.desktop.a11y.applications", "screen-magnifier-enabled");
+                        break;
+                    case "zoom_in": step_zoom(0.5); break;
+                    case "zoom_out": step_zoom(-0.5); break;
+                    case "toggle_dictation": Singularity.Dictation.DictationService.get_default().toggle(); break;
+                    case "switch_input_method": switch_input_method(); break;
+                    default:
+                        if (action_name.has_prefix("a11y:")) {
+                            handle_accessibility_feedback(action_name.substring(5));
+                        } else {
+                            warning("Unknown action: %s", action_name);
+                        }
+                        break;
                 }
             } catch (Error e) {
                 warning("Failed to execute action %s: %s", action_name, e.message);
             }
+        }
+
+        private void toggle_external_bool(string schema_id, string key) {
+            var external = external_settings_for(schema_id);
+            if (external == null || !external.settings_schema.has_key(key)) return;
+            external.set_boolean(key, !external.get_boolean(key));
+        }
+
+        private void step_zoom(double step) {
+            var magnifier = external_settings_for("org.gnome.desktop.a11y.magnifier");
+            if (magnifier == null || !magnifier.settings_schema.has_key("mag-factor")) return;
+            magnifier.set_double("mag-factor", (magnifier.get_double("mag-factor") + step).clamp(1.25, 20.0));
+        }
+
+        private void handle_accessibility_feedback(string event) {
+            string[] parts = event.split(":");
+            if (parts.length != 2) return;
+            string feature = parts[0];
+            bool enabled = parts[1] == "on";
+            var keyboard = external_settings_for("org.gnome.desktop.a11y.keyboard");
+            if (keyboard != null) {
+                if (feature == "sticky-keys" && keyboard.get_boolean("stickykeys-enable") != enabled) {
+                    keyboard.set_boolean("stickykeys-enable", enabled);
+                } else if (feature == "slow-keys" && keyboard.get_boolean("slowkeys-enable") != enabled) {
+                    keyboard.set_boolean("slowkeys-enable", enabled);
+                }
+            }
+            accessibility_feedback(feature, enabled);
         }
 
         private void send_focused_to_workspace(int index) {
@@ -711,6 +1111,18 @@ namespace Singularity {
                 audio.icon_name,
                 audio.is_muted ? -1 : audio.volume
             );
+        }
+
+        private void switch_input_method() {
+            var sources = Singularity.InputMethods.InputSources.get_default();
+            if (sources.configured().length == 0) return;
+            ulong handler = 0;
+            handler = sources.changed.connect(() => {
+                sources.disconnect(handler);
+                Singularity.Shell.OsdOverlay.get_default().show_osd("input-keyboard-symbolic", -1,
+                    sources.name_for(sources.current));
+            });
+            sources.cycle();
         }
 
         public void mic_mute() throws Error {
@@ -802,6 +1214,7 @@ namespace Singularity {
                     string? categories = info.get_categories();
                     if (categories == null || !(";" + categories + ";").contains(";TerminalEmulator;"))
                         continue;
+                    if (ParentalEnforcer.get_default().hides(info.get_id())) continue;
                     try {
                         info.launch(null, Gdk.Display.get_default().get_app_launch_context());
                         return true;

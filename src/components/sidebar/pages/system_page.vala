@@ -7,10 +7,12 @@ namespace Singularity.SidebarPages {
         private SettingsView view;
         private EntryRow hostname_row;
         private SystemComponents.Component[] _components;
+        private SettingsSubpages subpages;
 
         public SystemPage(SettingsView view) {
             base(_("About"));
             this.view = view;
+            subpages = new SettingsSubpages(view, this, "system");
             back_clicked.connect(() => {
                 view.go_home();
             });
@@ -33,8 +35,8 @@ namespace Singularity.SidebarPages {
             header.append(copy_btn);
 
             var logo_box = new Box(Orientation.VERTICAL, 12);
-            logo_box.margin_top = 24;
-            logo_box.margin_bottom = 24;
+            logo_box.margin_top = 12;
+            logo_box.margin_bottom = 4;
             logo_box.halign = Align.CENTER;
             var logo = new Image.from_icon_name("computer-symbolic");
             logo.icon_name = get_distro_icon_name();
@@ -52,14 +54,17 @@ namespace Singularity.SidebarPages {
             hostname_row.add_suffix(apply_btn);
             device_group.add_row(hostname_row);
             add_group(device_group);
-            var hw_group = new PreferencesGroup(_("Hardware Information"));
+            var hardware_page = subpages.create(_("Hardware"));
+            var software_page = subpages.create(_("Software"));
+            var components_page = subpages.create(_("System Components"));
+            var hw_group = new PreferencesGroup();
             hw_group.add_row(create_info_row("Model", get_hardware_model()));
             hw_group.add_row(create_info_row("Memory", get_memory_info()));
             hw_group.add_row(create_info_row("Processor", get_processor_info()));
             hw_group.add_row(create_info_row("Graphics", get_graphics_info()));
             hw_group.add_row(create_info_row("Disk Capacity", get_disk_info()));
-            add_group(hw_group);
-            var sw_group = new PreferencesGroup(_("Software Information"));
+            hardware_page.add_group(hw_group);
+            var sw_group = new PreferencesGroup();
             sw_group.add_row(create_info_row("Firmware Version", get_firmware_version()));
             if (OsIdentity.has_host_identity()) {
                 sw_group.add_row(create_info_row("Host OS", host_identity.menu_label()));
@@ -75,10 +80,27 @@ namespace Singularity.SidebarPages {
             sw_group.add_row(create_info_row("Singularity Desktop", SingularityApp.VERSION));
             sw_group.add_row(create_info_row("Windowing System", "Wayland"));
             sw_group.add_row(create_info_row("Kernel Version", get_kernel_version()));
-            add_group(sw_group);
+            software_page.add_group(sw_group);
+
+            var details_group = new PreferencesGroup(_("Details"));
+            details_group.add_row(subpages.link(_("Hardware"), get_hardware_model(),
+                "computer-symbolic", hardware_page, "system-hardware"));
+            string os_summary = OsIdentity.has_host_identity() ? host_identity.menu_label() : runtime_identity.menu_label();
+            details_group.add_row(subpages.link(_("Software"), os_summary,
+                "system-software-install-symbolic", software_page, "system-software"));
+            add_group(details_group);
+            var security_group = details_group;
+            var security_row = new ActionRow(_("Device Security"), DeviceSecurityPage.summary(), "security-high-symbolic");
+            security_row.activatable = true;
+            var security_chevron = new Image.from_icon_name("go-next-symbolic");
+            security_chevron.add_css_class("dim-label");
+            security_chevron.valign = Align.CENTER;
+            security_row.add_suffix(security_chevron);
+            security_row.activated.connect(open_security);
+            security_group.add_row(security_row);
 
             _components = SystemComponents.collect();
-            var comp_group = new PreferencesGroup(_("System Components"),
+            var comp_group = new PreferencesGroup(null,
                 _("Versions, licenses and build details of the components the session relies on"));
             foreach (var c in _components) {
                 if (c.caps.length == 0) {
@@ -121,9 +143,11 @@ namespace Singularity.SidebarPages {
                 }
                 comp_group.add_row(row);
             }
-            add_group(comp_group);
+            components_page.add_group(comp_group);
+            details_group.add_row(subpages.link(_("System Components"), _("Versions and licenses of what the session relies on"),
+                "application-x-addon-symbolic", components_page, "system-components"));
 
-            var graphics_group = new PreferencesGroup(_("Graphics"));
+            var graphics_group = new PreferencesGroup(_("Advanced"));
             var gfx_settings = new GLib.Settings("dev.sinty.desktop");
             string[] gfx_labels = { _("Automatic"), _("Hardware acceleration"), _("Software") };
             string[] gfx_values = { "auto", "hardware", "software" };
@@ -140,7 +164,7 @@ namespace Singularity.SidebarPages {
             graphics_group.add_row(gfx_row);
             add_group(graphics_group);
 
-            var preview_group = new PreferencesGroup(_("Experimental"));
+            var preview_group = graphics_group;
             var settings = new GLib.Settings("dev.sinty.desktop");
             bool preview_enabled = settings.get_boolean("preview-features-enabled");
             var preview_row = new SwitchRow(_("Preview Features"), _("Enable experimental features like Auto-Tiling"), preview_enabled);
@@ -149,7 +173,13 @@ namespace Singularity.SidebarPages {
             var dev_row = new SwitchRow(_("Developer Mode"), _("Show the Developer settings page"), settings.get_boolean("developer-mode"));
             settings.bind("developer-mode", dev_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
             preview_group.add_row(dev_row);
-            add_group(preview_group);
+        }
+
+        private void open_security() {
+            var page = new DeviceSecurityPage(view);
+            page.back_btn.visible = true;
+            page.back_clicked.connect(() => view.navigate_to("system"));
+            view.open_subpage(page, "device-security");
         }
 
         private void copy_info_markdown() {

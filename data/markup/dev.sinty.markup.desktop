@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Markup
+Comment=Annotate screenshots and images
+Icon=accessories-screenshot
+Exec=singularity-markup %f
+MimeType=image/png;image/jpeg;image/webp;
+NoDisplay=true
+Terminal=false
+Categories=Graphics;

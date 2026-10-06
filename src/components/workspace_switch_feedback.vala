@@ -4,14 +4,82 @@ using Gee;
 
 namespace Singularity {
 
-    public class WorkspaceSwitchFeedback : Gtk.Window {
+    private class WorkspaceMarkers : Gtk.Widget {
         private const int ACTIVE_WIDTH = 26;
         private const int INACTIVE_WIDTH = 10;
+        private const int HEIGHT = 10;
+        private const int GAP = 6;
         private const double ACTIVE_OPACITY = 1.0;
         private const double INACTIVE_OPACITY = 0.22;
+        private double[] levels = {};
+
+        public int count {
+            get { return levels.length; }
+        }
+
+        construct {
+            add_css_class("workspace-switch-markers");
+        }
+
+        public void set_count(int value) {
+            levels = new double[value];
+            queue_resize();
+        }
+
+        public double get_level(int index) {
+            return index >= 0 && index < levels.length ? levels[index] : 0.0;
+        }
+
+        public void set_level(int index, double value) {
+            if (index < 0 || index >= levels.length || levels[index] == value) return;
+            levels[index] = value;
+            queue_draw();
+        }
+
+        private int content_width() {
+            if (levels.length == 0) return 0;
+            return levels.length * INACTIVE_WIDTH + (ACTIVE_WIDTH - INACTIVE_WIDTH)
+                + (levels.length - 1) * GAP;
+        }
+
+        public override Gtk.SizeRequestMode get_request_mode() {
+            return Gtk.SizeRequestMode.CONSTANT_SIZE;
+        }
+
+        public override void measure(Gtk.Orientation orientation, int for_size,
+                                     out int minimum, out int natural,
+                                     out int minimum_baseline, out int natural_baseline) {
+            minimum = natural = orientation == Gtk.Orientation.HORIZONTAL ? content_width() : HEIGHT;
+            minimum_baseline = natural_baseline = -1;
+        }
+
+        public override void snapshot(Gtk.Snapshot snapshot) {
+            var color = get_color();
+            float x = (float) ((get_width() - content_width()) / 2.0);
+            float y = (float) ((get_height() - HEIGHT) / 2.0);
+            foreach (double level in levels) {
+                float width = (float) (INACTIVE_WIDTH + (ACTIVE_WIDTH - INACTIVE_WIDTH) * level);
+                var rect = Graphene.Rect().init(x, y, width, HEIGHT);
+                var rounded = Gsk.RoundedRect().init_from_rect(rect, HEIGHT / 2.0f);
+                var fill = color;
+                fill.alpha = (float) (color.alpha * (INACTIVE_OPACITY
+                    + (ACTIVE_OPACITY - INACTIVE_OPACITY) * level));
+                snapshot.push_rounded_clip(rounded);
+                snapshot.append_color(fill, rect);
+                snapshot.pop();
+                x += width + GAP;
+            }
+        }
+    }
+
+    public class WorkspaceSwitchFeedback : Gtk.Window {
+        private const double OPEN_SCALE = 0.82;
+        private const double CLOSE_SCALE = 0.9;
+        private const int SHADOW_SPACE = 40;
         private Box card;
-        private Box marker_box;
-        private ArrayList<Box> markers = new ArrayList<Box>();
+        private Singularity.Animation.MotionBin card_motion;
+        private bool closing = false;
+        private WorkspaceMarkers markers;
         private AppSystem app_system;
         private int active_index = -1;
         private int from_index = -1;
@@ -40,11 +108,16 @@ namespace Singularity {
 
             card = new Box(Orientation.HORIZONTAL, 0);
             card.add_css_class("workspace-switch-feedback");
-            marker_box = new Box(Orientation.HORIZONTAL, 6);
-            marker_box.halign = Align.CENTER;
-            marker_box.valign = Align.CENTER;
-            card.append(marker_box);
-            set_child(card);
+            markers = new WorkspaceMarkers();
+            markers.halign = Align.CENTER;
+            markers.valign = Align.CENTER;
+            card.append(markers);
+            card_motion = new Singularity.Animation.MotionBin(card);
+            card_motion.margin_top = SHADOW_SPACE;
+            card_motion.margin_bottom = SHADOW_SPACE;
+            card_motion.margin_start = SHADOW_SPACE;
+            card_motion.margin_end = SHADOW_SPACE;
+            set_child(card_motion);
 
             map.connect(() => {
                 var surface = get_surface();
@@ -78,13 +151,13 @@ namespace Singularity {
             if (app_system.workspaces_per_monitor()
                     && app_system.get_active_monitor() != monitor) return;
             sync_workspace_state(false);
-            if (markers.size < 2 || active_index < 0) return;
+            if (markers.count < 2 || active_index < 0) return;
             cancel_hide();
             animation?.reset();
             from_index = active_index;
             target_index = direction == 1
-                ? (active_index + 1) % markers.size
-                : (active_index - 1 + markers.size) % markers.size;
+                ? (active_index + 1) % markers.count
+                : (active_index - 1 + markers.count) % markers.count;
             gesture_active = true;
             set_progress(0);
             show_feedback();
@@ -93,9 +166,9 @@ namespace Singularity {
         private void finish_gesture(bool committed) {
             double start = transition_progress();
             double target = committed ? 1.0 : 0.0;
-            var settle = new Singularity.Animation.TimedAnimation(
-                marker_box, start, target, 192,
-                Singularity.Animation.TimedAnimation.Easing.EASE_OUT_CUBIC);
+            var settle = new Singularity.Animation.TimedAnimation.with_curve(
+                markers, start, target, Singularity.Motion.Duration.MEDIUM.exit_ms(),
+                Singularity.Motion.Curve.STANDARD);
             animation = settle;
             settle.tick.connect(() => set_progress(settle.value));
             settle.done.connect(() => {
@@ -115,7 +188,7 @@ namespace Singularity {
                 if (workspace.active) next_active = count;
                 count++;
             }
-            if (count != markers.size) rebuild_markers(count);
+            if (count != markers.count) rebuild_markers(count);
             if (next_active < 0) return;
             if (active_index < 0 || !animate_change || gesture_active) {
                 active_index = next_active;
@@ -128,16 +201,7 @@ namespace Singularity {
         }
 
         private void rebuild_markers(int count) {
-            while (marker_box.get_first_child() != null)
-                marker_box.remove(marker_box.get_first_child());
-            markers.clear();
-            for (int i = 0; i < count; i++) {
-                var marker = new Box(Orientation.HORIZONTAL, 0);
-                marker.add_css_class("workspace-switch-marker");
-                marker.set_size_request(INACTIVE_WIDTH, 10);
-                marker_box.append(marker);
-                markers.add(marker);
-            }
+            markers.set_count(count);
             if (active_index >= count) active_index = -1;
             set_resting_state();
         }
@@ -149,9 +213,9 @@ namespace Singularity {
             target_index = target;
             set_progress(0);
             show_feedback();
-            var transition = new Singularity.Animation.TimedAnimation(
-                marker_box, 0, 1, 220,
-                Singularity.Animation.TimedAnimation.Easing.EASE_OUT_CUBIC);
+            var transition = new Singularity.Animation.TimedAnimation.with_curve(
+                markers, 0, 1, Singularity.Motion.Duration.MEDIUM,
+                Singularity.Motion.Curve.STANDARD);
             animation = transition;
             transition.tick.connect(() => set_progress(transition.value));
             transition.done.connect(() => {
@@ -164,55 +228,53 @@ namespace Singularity {
 
         private void set_progress(double progress) {
             progress = progress.clamp(0, 1);
-            for (int i = 0; i < markers.size; i++) {
+            for (int i = 0; i < markers.count; i++) {
                 if (i == from_index) {
-                    apply_marker(markers[i], 1.0 - progress);
+                    markers.set_level(i, 1.0 - progress);
                 } else if (i == target_index) {
-                    apply_marker(markers[i], progress);
+                    markers.set_level(i, progress);
                 } else {
-                    apply_marker(markers[i], 0);
+                    markers.set_level(i, 0);
                 }
             }
         }
 
         private double transition_progress() {
-            if (from_index < 0 || from_index >= markers.size) return 0;
-            return (ACTIVE_WIDTH - markers[from_index].width_request)
-                / (double)(ACTIVE_WIDTH - INACTIVE_WIDTH);
-        }
-
-        private void apply_marker(Box marker, double active) {
-            marker.set_size_request((int)Math.round(INACTIVE_WIDTH
-                + (ACTIVE_WIDTH - INACTIVE_WIDTH) * active), 10);
-            marker.opacity = INACTIVE_OPACITY
-                + (ACTIVE_OPACITY - INACTIVE_OPACITY) * active;
+            if (from_index < 0 || from_index >= markers.count) return 0;
+            return 1.0 - markers.get_level(from_index);
         }
 
         private void set_resting_state() {
-            for (int i = 0; i < markers.size; i++)
-                apply_marker(markers[i], i == active_index ? 1 : 0);
+            for (int i = 0; i < markers.count; i++)
+                markers.set_level(i, i == active_index ? 1 : 0);
         }
 
         private void show_feedback() {
-            card.remove_css_class("closing");
-            card.add_css_class("opening");
+            bool appearing = !visible || closing;
+            closing = false;
             present();
-            Idle.add(() => {
-                card.remove_css_class("opening");
-                return Source.REMOVE;
-            });
+            if (!appearing) return;
+            card_motion.opacity = 0.0;
+            if (!Singularity.Motion.reduced()) card_motion.scale = OPEN_SCALE;
+            Singularity.Motion.tween(card_motion, "opacity", 1.0,
+                Singularity.Motion.Duration.SMALL, Singularity.Motion.Curve.ENTER);
+            Singularity.Motion.tween(card_motion, "scale", 1.0,
+                Singularity.Motion.Duration.SMALL, Singularity.Motion.Curve.ENTER);
         }
 
         private void schedule_hide() {
             cancel_hide();
             hide_timeout_id = Timeout.add(420, () => {
                 hide_timeout_id = 0;
-                card.add_css_class("closing");
-                hide_timeout_id = Timeout.add(150, () => {
-                    hide_timeout_id = 0;
+                closing = true;
+                Singularity.Motion.tween(card_motion, "scale", CLOSE_SCALE,
+                    Singularity.Motion.Duration.SMALL, Singularity.Motion.Curve.EXIT);
+                Singularity.Motion.tween(card_motion, "opacity", 0.0,
+                    Singularity.Motion.Duration.SMALL, Singularity.Motion.Curve.EXIT).done.connect(() => {
+                    if (!closing) return;
+                    closing = false;
                     visible = false;
-                    card.remove_css_class("closing");
-                    return Source.REMOVE;
+                    card_motion.reset_transform();
                 });
                 return Source.REMOVE;
             });

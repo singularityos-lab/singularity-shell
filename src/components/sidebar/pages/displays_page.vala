@@ -3,39 +3,40 @@ using Singularity.Widgets;
 
 namespace Singularity.SidebarPages {
 
-    private delegate void TimeChanged(string time);
-
     public class DisplaysPage : SettingsPage {
         private DisplayManager display_manager;
         private Singularity.Shell.MonitorPreview preview;
         private ListBox monitor_list;
         private PreferencesGroup settings_group;
         private SelectionRow resolution_row;
-        private PreferencesRow scale_row;
-        private Scale scale_scale;
+        private ActionRow scale_row;
+        private Label scale_value;
+        private SettingsPage scale_page;
+        private Button scale_apply_btn;
+        private Singularity.Shell.ScaleChooser scale_chooser;
+        private HashTable<string, double?> applied_scales = new HashTable<string, double?>(str_hash, str_equal);
         private SelectionRow orientation_row;
         private SwitchRow enabled_row;
         private SwitchRow vrr_row;
         private Button apply_btn;
         private Button shell_monitor_btn;
         private bool is_dirty = false;
+        private bool syncing_controls = false;
         private DisplayManager.Monitor? selected_monitor = null;
         private MonitorOsd _osd;
 
-        private NightLightManager night_light;
+        private SettingsView view;
+        private ActionRow color_nav_row;
+        private ActionRow brightness_nav_row;
+        private ActionRow night_light_nav_row;
+        private SettingsPage brightness_page;
+        private SettingsPage hot_corners_page;
+        private SettingsPage legacy_apps_page;
         private GLib.Settings nl_settings;
-        private SwitchRow night_light_row;
-        private SwitchRow adaptive_row;
-        private PreferencesRow temp_row;
-        private Scale temp_scale;
-        private PreferencesRow from_row;
-        private TimePicker from_picker;
-        private PreferencesRow to_row;
-        private TimePicker to_picker;
-        private SwitchRow dark_theme_row;
 
         public DisplaysPage(SettingsView view) {
             base(_("Displays"));
+            this.view = view;
             back_clicked.connect(() => {
                 view.go_home();
             });
@@ -46,17 +47,13 @@ namespace Singularity.SidebarPages {
             apply_btn.add_css_class("flat");
             apply_btn.add_css_class("suggested-action");
             apply_btn.visible = false;
-            apply_btn.clicked.connect(() => {
-                display_manager.apply_configuration();
-                display_manager.save_configuration();
-                set_dirty(false);
-            });
+            apply_btn.clicked.connect(apply_changes);
             header.append(apply_btn);
             var preview_frame = new Frame(null);
             preview_frame.add_css_class("monitor-preview-container");
             preview = new Singularity.Shell.MonitorPreview();
             preview.vexpand = false;
-            preview.height_request = 200;
+            preview.height_request = 130;
             preview.shell_monitor_name = display_manager.shell_monitor_name;
             preview.layout_changed.connect(() => set_dirty(true));
             preview.shell_monitor_changed.connect(on_preview_shell_monitor_changed);
@@ -75,8 +72,8 @@ namespace Singularity.SidebarPages {
             build_settings_ui();
             build_brightness_ui();
             build_hot_corners_ui();
-            build_night_light_ui();
             build_legacy_apps_ui();
+            build_nav_ui();
             on_monitors_changed();
             map.connect(() => {
                 var app = GLib.Application.get_default() as Gtk.Application;
@@ -89,7 +86,15 @@ namespace Singularity.SidebarPages {
             });
         }
 
+        private void apply_changes() {
+            display_manager.apply_configuration();
+            foreach (var m in display_manager.get_monitors()) applied_scales.insert(m.name, m.scale);
+            display_manager.save_configuration();
+            set_dirty(false);
+        }
+
         private void set_dirty(bool dirty) {
+            if (scale_apply_btn != null) scale_apply_btn.visible = dirty;
             is_dirty = dirty;
             apply_btn.visible = dirty;
         }
@@ -97,6 +102,7 @@ namespace Singularity.SidebarPages {
         private void build_settings_ui() {
             enabled_row = new SwitchRow(_("Enabled"), _("Enable or disable this display"));
             enabled_row.switch_btn.notify["active"].connect(() => {
+                if (syncing_controls) return;
                 if (selected_monitor != null) {
                     selected_monitor.enabled = enabled_row.active;
                     preview.queue_draw();
@@ -108,32 +114,38 @@ namespace Singularity.SidebarPages {
             resolution_row = new SelectionRow(_("Resolution"), {});
             resolution_row.selected.connect(on_resolution_changed);
             settings_group.add_row(resolution_row);
-            scale_row = new PreferencesRow();
-            var scale_box = new Box(Orientation.VERTICAL, 12);
-            scale_box.margin_top = 12;
-            scale_box.margin_bottom = 12;
-            scale_box.margin_start = 12;
-            scale_box.margin_end = 12;
-            var scale_lbl = new Label(_("Scale"));
-            scale_lbl.add_css_class("title");
-            scale_lbl.halign = Align.START;
-            scale_box.append(scale_lbl);
-            scale_scale = new Scale.with_range(Orientation.HORIZONTAL, 1.0, 3.0, 0.25);
-            scale_scale.draw_value = true;
-            scale_scale.hexpand = true;
-            scale_scale.value_changed.connect(() => {
+            scale_page = make_subpage(_("Scale"));
+            scale_apply_btn = new Button.with_label(_("Apply"));
+            scale_apply_btn.add_css_class("flat");
+            scale_apply_btn.add_css_class("suggested-action");
+            scale_apply_btn.visible = false;
+            scale_apply_btn.clicked.connect(apply_changes);
+            scale_page.header.append(scale_apply_btn);
+            var scale_group = new PreferencesGroup(_("Size"));
+            scale_group.description = _("Make text and controls bigger or smaller");
+            scale_page.add_group(scale_group);
+            var chooser_row = new PreferencesRow();
+            scale_row = make_nav_row(_("Scale"), "", "zoom-in-symbolic");
+            scale_value = new Label("");
+            scale_value.add_css_class("dim-label");
+            scale_row.add_suffix(scale_value);
+            scale_row.activated.connect(() => view.open_subpage(scale_page, "displays-scale"));
+            scale_chooser = new Singularity.Shell.ScaleChooser();
+            scale_chooser.changed.connect((value) => {
                 if (selected_monitor != null) {
-                    selected_monitor.scale = scale_scale.get_value();
+                    selected_monitor.scale = value;
+                    scale_value.label = "%.0f%%".printf(value * 100);
                     preview.queue_draw();
                     set_dirty(true);
                 }
             });
-            scale_box.append(scale_scale);
-            scale_row.set_child(scale_box);
+            chooser_row.set_child(scale_chooser);
+            scale_group.add_row(chooser_row);
             settings_group.add_row(scale_row);
             string[] orientations = { "Landscape", "Portrait", "Landscape Flipped", "Portrait Flipped" };
             orientation_row = new SelectionRow(_("Orientation"), orientations);
             orientation_row.selected.connect((val) => {
+                if (syncing_controls) return;
                 if (selected_monitor != null) {
                     int transform = 0;
                     switch (val) {
@@ -150,6 +162,7 @@ namespace Singularity.SidebarPages {
             settings_group.add_row(orientation_row);
             vrr_row = new SwitchRow(_("Variable Refresh Rate"), _("Reduce screen tearing for games (requires VRR-capable display)"));
             vrr_row.switch_btn.notify["active"].connect(() => {
+                if (syncing_controls) return;
                 if (selected_monitor != null) {
                     selected_monitor.vrr_enabled = vrr_row.active;
                     set_dirty(true);
@@ -252,7 +265,8 @@ namespace Singularity.SidebarPages {
         private bool syncing_brightness = false;
 
         private void build_brightness_ui() {
-            brightness_group = new PreferencesGroup(_("Brightness"));
+            brightness_page = make_subpage(_("Brightness"));
+            brightness_group = new PreferencesGroup(_("Levels"));
             brightness_scale = brightness_slider(_("Brightness"), _("Current brightness of this display"), 0, 100);
             brightness_min_scale = brightness_slider(_("Minimum Brightness"), _("The darkest the display gets at 0%"), 0, 99);
             brightness_max_scale = brightness_slider(_("Maximum Brightness"), _("The brightest the display gets at 100%"), 1, 100);
@@ -261,7 +275,7 @@ namespace Singularity.SidebarPages {
             });
             brightness_min_scale.value_changed.connect(store_brightness_limits);
             brightness_max_scale.value_changed.connect(store_brightness_limits);
-            add_group(brightness_group);
+            brightness_page.add_group(brightness_group);
             BrightnessManager.get_default().displays_changed.connect(update_brightness_controls);
         }
 
@@ -292,8 +306,9 @@ namespace Singularity.SidebarPages {
             }
             shown_brightness = selected_monitor != null
                 ? BrightnessManager.get_default().for_connector(selected_monitor.name) : null;
-            brightness_group.visible = shown_brightness != null;
+            if (brightness_nav_row != null) brightness_nav_row.visible = shown_brightness != null;
             if (shown_brightness == null) return;
+            brightness_group.description = selected_monitor.description ?? selected_monitor.name ?? "";
             sync_brightness_controls();
             shown_brightness_handler = shown_brightness.changed.connect(sync_brightness_controls);
         }
@@ -309,8 +324,8 @@ namespace Singularity.SidebarPages {
         private void update_controls() {
             update_brightness_controls();
             if (selected_monitor == null) return;
+            syncing_controls = true;
             SignalHandler.block_matched(enabled_row.switch_btn, SignalMatchType.DATA, 0, 0, null, null, null);
-            SignalHandler.block_matched(scale_scale, SignalMatchType.DATA, 0, 0, null, null, null);
             enabled_row.active = selected_monitor.enabled;
             string[] modes_arr = {};
             string current_mode_str = "";
@@ -327,7 +342,19 @@ namespace Singularity.SidebarPages {
             }
             resolution_row.set_items(modes_arr);
             resolution_row.current_value = current_mode_str;
-            scale_scale.set_value(selected_monitor.scale);
+            if (!applied_scales.contains(selected_monitor.name)) {
+                applied_scales.insert(selected_monitor.name, selected_monitor.scale);
+            }
+            int mode_w = selected_monitor.current_mode != null ? selected_monitor.current_mode.width : 0;
+            int mode_h = selected_monitor.current_mode != null ? selected_monitor.current_mode.height : 0;
+            if (selected_monitor.transform % 2 == 1) {
+                int swap = mode_w;
+                mode_w = mode_h;
+                mode_h = swap;
+            }
+            double? applied = applied_scales.lookup(selected_monitor.name);
+            scale_chooser.set_monitor(mode_w, mode_h, selected_monitor.phys_width, selected_monitor.phys_height,
+                applied ?? selected_monitor.scale, selected_monitor.scale);
             string[] orientations = { "Landscape", "Portrait", "Landscape Flipped", "Portrait Flipped" };
             if (selected_monitor.transform <= 3) {
                 orientation_row.current_value = orientations[selected_monitor.transform];
@@ -335,22 +362,25 @@ namespace Singularity.SidebarPages {
                 orientation_row.current_value = "Landscape";
             }
             SignalHandler.unblock_matched(enabled_row.switch_btn, SignalMatchType.DATA, 0, 0, null, null, null);
-            SignalHandler.unblock_matched(scale_scale, SignalMatchType.DATA, 0, 0, null, null, null);
             resolution_row.sensitive = selected_monitor.enabled;
             scale_row.sensitive = selected_monitor.enabled;
+            scale_value.label = "%.0f%%".printf(selected_monitor.scale * 100);
             orientation_row.sensitive = selected_monitor.enabled;
             vrr_row.visible = selected_monitor.vrr_supported;
             vrr_row.active = selected_monitor.vrr_enabled;
+            syncing_controls = false;
             update_shell_monitor_btn();
         }
 
         private void on_resolution_changed(string val) {
+            if (syncing_controls) return;
             if (selected_monitor == null) return;
             foreach (var mode in selected_monitor.modes) {
                 string s = "%dx%d @ %.2fHz".printf(mode.width, mode.height, mode.refresh / 1000.0);
                 if (mode.preferred) s += " (Preferred)";
                 if (s == val) {
                     selected_monitor.current_mode = mode;
+                    update_controls();
                     preview.queue_draw();
                     set_dirty(true);
                     break;
@@ -421,8 +451,10 @@ namespace Singularity.SidebarPages {
         }
 
         private void build_hot_corners_ui() {
-            var hot_corners_group = new PreferencesGroup(_("Hot Corners"));
-            add_group(hot_corners_group);
+            hot_corners_page = make_subpage(_("Hot Corners"));
+            var hot_corners_group = new PreferencesGroup(_("Corner Actions"));
+            hot_corners_group.description = _("Choose what happens when the pointer reaches a corner of the screen");
+            hot_corners_page.add_group(hot_corners_group);
 
             var corners_row = new PreferencesRow();
 
@@ -480,8 +512,9 @@ namespace Singularity.SidebarPages {
         }
 
         private void build_legacy_apps_ui() {
-            var group = new PreferencesGroup(_("Legacy Apps"));
-            add_group(group);
+            legacy_apps_page = make_subpage(_("Legacy Apps"));
+            var group = new PreferencesGroup(_("X11 Apps"));
+            legacy_apps_page.add_group(group);
             var s = new GLib.Settings("dev.sinty.desktop");
             var row = new SwitchRow(_("Sharp Scaling"),
                 _("Render X11 apps at full resolution on scaled displays. Some apps may look smaller"),
@@ -490,102 +523,68 @@ namespace Singularity.SidebarPages {
             group.add_row(row);
         }
 
-        private void build_night_light_ui() {
-            night_light = SystemMonitor.get_default().night_light;
-            nl_settings = new GLib.Settings("dev.sinty.desktop");
-            var group = new PreferencesGroup(_("Night Light"));
-            add_group(group);
-
-            night_light_row = new SwitchRow(_("Night Light"), _("Warm the screen color temperature in the evening"));
-            nl_settings.bind("night-light-enabled", night_light_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
-            group.add_row(night_light_row);
-
-            adaptive_row = new SwitchRow(_("Adaptive Schedule"), _("Turn on automatically on a daily schedule"));
-            nl_settings.bind("night-light-adaptive", adaptive_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
-            adaptive_row.switch_btn.notify["active"].connect(() => update_night_light_controls());
-            group.add_row(adaptive_row);
-
-            from_row = make_time_row(_("From"), "weather-clear-night-symbolic",
-                nl_settings.get_string("night-light-adaptive-from"), (t) => night_light.set_schedule_from(t), out from_picker);
-            group.add_row(from_row);
-
-            to_row = make_time_row(_("To"), "weather-clear-symbolic",
-                nl_settings.get_string("night-light-adaptive-to"), (t) => night_light.set_schedule_to(t), out to_picker);
-            group.add_row(to_row);
-
-            dark_theme_row = new SwitchRow(_("Dark Theme"), _("Switch to the dark appearance during the schedule"));
-            nl_settings.bind("night-light-dark-theme", dark_theme_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
-            group.add_row(dark_theme_row);
-
-            temp_row = new PreferencesRow();
-            var temp_box = new Box(Orientation.VERTICAL, 12);
-            temp_box.margin_top = 12;
-            temp_box.margin_bottom = 12;
-            temp_box.margin_start = 12;
-            temp_box.margin_end = 12;
-            var temp_lbl = new Label(_("Temperature"));
-            temp_lbl.add_css_class("title");
-            temp_lbl.halign = Align.START;
-            temp_box.append(temp_lbl);
-            temp_scale = new Scale.with_range(Orientation.HORIZONTAL,
-                (double) NightLightManager.TEMP_MIN, (double) NightLightManager.TEMP_MAX, 100);
-            temp_scale.draw_value = true;
-            temp_scale.hexpand = true;
-            temp_scale.value_changed.connect(() => {
-                night_light.set_temperature((int) temp_scale.get_value());
-            });
-            temp_box.append(temp_scale);
-            var temp_hint = new Label(_("Color temperature in Kelvin — lower values are warmer"));
-            temp_hint.add_css_class("dim-label");
-            temp_hint.halign = Align.START;
-            temp_hint.wrap = true;
-            temp_box.append(temp_hint);
-            temp_row.set_child(temp_box);
-            group.add_row(temp_row);
-
-            night_light.changed.connect(() => update_night_light_controls());
-            update_night_light_controls();
+        private SettingsPage make_subpage(string title) {
+            var page = new SettingsPage(title);
+            page.back_btn.visible = true;
+            page.back_clicked.connect(() => view.navigate_to("displays"));
+            return page;
         }
 
-        private PreferencesRow make_time_row(string title, string icon_name, string initial,
-                                             TimeChanged on_changed, out TimePicker picker) {
-            var row = new PreferencesRow();
-            var box = new Box(Orientation.HORIZONTAL, 12);
-            box.margin_top = 8;
-            box.margin_bottom = 8;
-            box.margin_start = 12;
-            box.margin_end = 12;
-            var icon = new Image.from_icon_name(icon_name);
-            box.append(icon);
-            var lbl = new Label(title);
-            lbl.add_css_class("title");
-            lbl.halign = Align.START;
-            lbl.hexpand = true;
-            box.append(lbl);
-            picker = new TimePicker(initial);
-            var p = picker;
-            p.changed.connect(() => on_changed(p.time));
-            box.append(picker);
-            row.set_child(box);
+        private ActionRow make_nav_row(string title, string subtitle, string icon_name) {
+            var row = new ActionRow(title, subtitle, icon_name);
+            row.activatable = true;
+            var chevron = new Image.from_icon_name("go-next-symbolic");
+            chevron.add_css_class("dim-label");
+            row.add_suffix(chevron);
             return row;
         }
 
-        private void update_night_light_controls() {
-            if (temp_scale == null) return;
-            SignalHandler.block_matched(temp_scale, SignalMatchType.DATA, 0, 0, null, null, null);
-            temp_scale.set_value((double) nl_settings.get_int("night-light-temperature"));
-            SignalHandler.unblock_matched(temp_scale, SignalMatchType.DATA, 0, 0, null, null, null);
-            from_picker.time = nl_settings.get_string("night-light-adaptive-from");
-            to_picker.time = nl_settings.get_string("night-light-adaptive-to");
-            from_row.visible = adaptive_row.active;
-            to_row.visible = adaptive_row.active;
-            dark_theme_row.visible = adaptive_row.active;
-            if (night_light.enabled) {
-                night_light_row.subtitle = _("On");
-            } else if (night_light_row.active && adaptive_row.active) {
-                night_light_row.subtitle = _("Off until %s").printf(from_picker.time);
+        private void build_nav_ui() {
+            color_nav_row = make_nav_row(_("Color"), _("Color profile and HDR"), "preferences-color-symbolic");
+            color_nav_row.activated.connect(() => {
+                if (selected_monitor == null) return;
+                view.open_subpage(new DisplayColorPage(view, selected_monitor), "displays-color");
+            });
+            settings_group.add_row(color_nav_row);
+            brightness_nav_row = make_nav_row(_("Brightness"), _("Brightness and its limits"), "display-brightness-symbolic");
+            brightness_nav_row.visible = false;
+            brightness_nav_row.activated.connect(() => view.open_subpage(brightness_page, "displays-brightness"));
+            settings_group.add_row(brightness_nav_row);
+
+            var all_group = new PreferencesGroup(_("All Displays"));
+            add_group(all_group);
+            night_light_nav_row = make_nav_row(_("Night Light"), "", "night-light-symbolic");
+            night_light_nav_row.activated.connect(() =>
+                view.open_subpage(new NightLightPage(view), "displays-night-light"));
+            all_group.add_row(night_light_nav_row);
+            var corners_row = make_nav_row(_("Hot Corners"), _("Actions for the corners of the screen"), "view-grid-symbolic");
+            corners_row.activated.connect(() => view.open_subpage(hot_corners_page, "displays-hot-corners"));
+            all_group.add_row(corners_row);
+            var legacy_row = make_nav_row(_("Legacy Apps"), _("Scaling of X11 apps"), "application-x-executable-symbolic");
+            legacy_row.activated.connect(() => view.open_subpage(legacy_apps_page, "displays-legacy-apps"));
+            all_group.add_row(legacy_row);
+
+            var night_light = SystemMonitor.get_default().night_light;
+            night_light.changed.connect(update_night_light_subtitle);
+            nl_settings = new GLib.Settings("dev.sinty.desktop");
+            nl_settings.changed.connect((key) => {
+                if (key.has_prefix("night-light")) update_night_light_subtitle();
+            });
+            update_night_light_subtitle();
+        }
+
+        private void update_night_light_subtitle() {
+            var night_light = SystemMonitor.get_default().night_light;
+            var s = nl_settings;
+            if (!s.get_boolean("night-light-enabled")) {
+                night_light_nav_row.subtitle = _("Off");
+            } else if (!s.get_boolean("night-light-adaptive")) {
+                night_light_nav_row.subtitle = _("On");
+            } else if (s.get_string("night-light-schedule") == "sunset-sunrise") {
+                night_light_nav_row.subtitle = night_light.enabled ? _("On until sunrise") : _("Sunset to sunrise");
             } else {
-                night_light_row.subtitle = _("Off");
+                night_light_nav_row.subtitle = night_light.enabled ? _("On until %s").printf(s.get_string("night-light-adaptive-to"))
+                    : _("From %s to %s").printf(s.get_string("night-light-adaptive-from"), s.get_string("night-light-adaptive-to"));
             }
         }
     }

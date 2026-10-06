@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="dev.sinty.desktop.notifications" path="/dev/sinty/desktop/notifications/">
+    <key name="history-retention-days" type="i">
+      <default>7</default>
+      <summary>History retention</summary>
+      <description>Days a notification stays in the notification centre, also across restarts of the shell. 0 keeps notifications only until the shell restarts.</description>
+    </key>
+    <key name="history-limit" type="i">
+      <default>200</default>
+      <summary>History size</summary>
+      <description>Maximum number of notifications kept in the notification centre.</description>
+    </key>
+    <key name="sounds-enabled" type="b">
+      <default>true</default>
+      <summary>Notification sounds</summary>
+      <description>Play a sound when a notification arrives, for apps that allow sounds.</description>
+    </key>
+    <key name="sound-name" type="s">
+      <default>'message-new-instant'</default>
+      <summary>Default sound</summary>
+      <description>Sound theme name played for notifications that do not name their own sound.</description>
+    </key>
+    <key name="sound-command" type="s">
+      <default>''</default>
+      <summary>Sound player</summary>
+      <description>Command that plays a sound file, given as its last argument. Empty picks pw-play, paplay or canberra-gtk-play, whichever exists.</description>
+    </key>
+    <key name="lock-screen-enabled" type="b">
+      <default>true</default>
+      <summary>Notifications on the lock screen</summary>
+      <description>Show notifications on the lock screen, following the setting of each app.</description>
+    </key>
+    <key name="known-applications" type="as">
+      <default>[]</default>
+      <summary>Apps that sent notifications</summary>
+      <description>Keys of the apps that have sent notifications, listed in Settings.</description>
+    </key>
+    <key name="focus-mode" type="s">
+      <default>'do-not-disturb'</default>
+      <summary>Focus mode</summary>
+      <description>Focus mode turned on by the Do Not Disturb switch and the quick settings tile.</description>
+    </key>
+    <key name="focus-until" type="x">
+      <default>0</default>
+      <summary>Focus end time</summary>
+      <description>Unix time when the manually turned on Focus mode ends, 0 to keep it on until turned off.</description>
+    </key>
+  </schema>
+  <schema id="dev.sinty.desktop.notifications.application">
+    <key name="display-name" type="s">
+      <default>''</default>
+      <summary>App name</summary>
+      <description>Name the app used in its last notification.</description>
+    </key>
+    <key name="icon" type="s">
+      <default>''</default>
+      <summary>App icon</summary>
+      <description>Icon the app used in its last notification.</description>
+    </key>
+    <key name="enabled" type="b">
+      <default>true</default>
+      <summary>Allow notifications</summary>
+      <description>Whether the app may show notifications.</description>
+    </key>
+    <key name="show-banners" type="b">
+      <default>true</default>
+      <summary>Banners</summary>
+      <description>Show a banner on screen when a notification arrives.</description>
+    </key>
+    <key name="sounds" type="b">
+      <default>true</default>
+      <summary>Sounds</summary>
+      <description>Play a sound when a notification arrives.</description>
+    </key>
+    <key name="lock-screen" type="s">
+      <choices>
+        <choice value="show"/>
+        <choice value="hide-content"/>
+        <choice value="hide"/>
+      </choices>
+      <default>'hide-content'</default>
+      <summary>Lock screen</summary>
+      <description>Show notifications on the lock screen with their content, without it, or not at all.</description>
+    </key>
+    <key name="priority" type="s">
+      <choices>
+        <choice value="normal"/>
+        <choice value="time-sensitive"/>
+      </choices>
+      <default>'normal'</default>
+      <summary>Priority</summary>
+      <description>Time-sensitive notifications break through Focus modes that allow them.</description>
+    </key>
+    <key name="grouping" type="s">
+      <choices>
+        <choice value="app"/>
+        <choice value="off"/>
+      </choices>
+      <default>'app'</default>
+      <summary>Grouping</summary>
+      <description>Stack the notifications of the app together, or show each one on its own.</description>
+    </key>
+  </schema>
+  <schema id="dev.sinty.desktop.clipboard" path="/dev/sinty/desktop/clipboard/">
+    <key name="history-enabled" type="b">
+      <default>true</default>
+      <summary>Clipboard history</summary>
+      <description>Remember copied text and images, opened with Super+V.</description>
+    </key>
+    <key name="history-limit" type="i">
+      <default>50</default>
+      <summary>Clipboard history size</summary>
+      <description>Maximum number of items kept, pinned items excluded.</description>
+    </key>
+    <key name="paste-on-select" type="b">
+      <default>true</default>
+      <summary>Paste on select</summary>
+      <description>Paste the chosen item into the focused app instead of only copying it.</description>
+    </key>
+  </schema>
+</schemalist>

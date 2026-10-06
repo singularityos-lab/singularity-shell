@@ -19,8 +19,14 @@ namespace Singularity {
             vol_box.margin_start = 12;
             vol_box.margin_end = 12;
             var vol_icon = new Image.from_icon_name("audio-volume-high-symbolic");
-            var vol_scale = new Scale.with_range(Orientation.HORIZONTAL, 0, 100, 1);
+            var vol_scale = new Scale.with_range(Orientation.HORIZONTAL, 0, audio.max_volume, 1);
             vol_scale.draw_value = true;
+            if (audio.max_volume > 100) vol_scale.add_mark(100, PositionType.BOTTOM, null);
+            audio.notify["max-volume"].connect(() => {
+                vol_scale.set_range(0, audio.max_volume);
+                vol_scale.clear_marks();
+                if (audio.max_volume > 100) vol_scale.add_mark(100, PositionType.BOTTOM, null);
+            });
             vol_scale.value_pos = PositionType.RIGHT;
             vol_scale.hexpand = true;
             vol_scale.set_value(audio.volume);
@@ -35,11 +41,19 @@ namespace Singularity {
             vol_box.append(vol_scale);
             vol_row.set_child(vol_box);
             out_group.add_row(vol_row);
+            var eq_row = EqualizerPage.entry_row(view);
+            out_group.add_row(eq_row);
+            EqualizerPage.register_search(this, view, eq_row);
             var output_device_rows = new List<Widget>();
             update_audio_devices_list(out_group, ref output_device_rows, audio);
             audio.devices_changed.connect(() => {
                 update_audio_devices_list(out_group, ref output_device_rows, audio);
             });
+            var eq_manager = EqualizerManager.get_default();
+            ulong eq_handler = eq_manager.changed.connect(() => {
+                update_audio_devices_list(out_group, ref output_device_rows, audio);
+            });
+            destroy.connect(() => eq_manager.disconnect(eq_handler));
             add_group(out_group);
             var in_group = new PreferencesGroup(_("Input"));
             var in_vol_row = new PreferencesRow();
@@ -78,6 +92,15 @@ namespace Singularity {
                 update_app_list(app_group, ref app_rows, audio);
             });
             add_group(app_group);
+
+            var media_group = new PreferencesGroup(_("Media"));
+            var media_settings = new GLib.Settings("dev.sinty.desktop");
+            var exclusive_row = new SwitchRow(_("One Player at a Time"),
+                _("Pause other media when something starts playing"),
+                media_settings.get_boolean("media-exclusive-playback"));
+            media_settings.bind("media-exclusive-playback", exclusive_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            media_group.add_row(exclusive_row);
+            add_group(media_group);
         }
 
         private void update_audio_devices_list(PreferencesGroup group, ref List<Widget> rows, AudioManager audio) {
@@ -85,7 +108,13 @@ namespace Singularity {
                 group.remove_row(row);
             }
             rows = new List<Widget>();
-            unowned var sinks = audio.sinks;
+            unowned var all_sinks = audio.sinks;
+            var equalizer = EqualizerManager.get_default();
+            var sinks = new List<AudioManager.AudioDevice?>();
+            foreach (var s in all_sinks) {
+                if (!equalizer.is_virtual(s.name)) sinks.append(s);
+            }
+            string routed = equalizer.routed_default();
             if (sinks.length() == 0) {
                 var lbl_row = new PreferencesRow();
                 var lbl = new Label(_("No output devices found"));
@@ -98,8 +127,9 @@ namespace Singularity {
                 return;
             }
             foreach (var sink in sinks) {
-                bool is_default = (sink.index == audio.default_sink_index);
-                var row = new ActionRow(sink.description, null, "audio-card-symbolic");
+                bool is_default = (sink.index == audio.default_sink_index) || (routed != "" && sink.name == routed);
+                string? detail = equalizer.is_equalizing(sink.name) ? _("Equalizer on") : null;
+                var row = new ActionRow(sink.description, detail, "audio-card-symbolic");
                 row.activatable = true;
                 if (is_default) {
                     row.add_suffix(new Image.from_icon_name("object-select-symbolic"));
@@ -153,7 +183,13 @@ namespace Singularity {
             }
         }
 
+        private string app_list_key = "";
+
         private void update_app_list(PreferencesGroup group, ref List<Widget> rows, AudioManager audio) {
+            var key = new StringBuilder();
+            foreach (var input in audio.sink_inputs) key.append_printf("%u:%s;", input.index, input.app_name);
+            if (rows.length() > 0 && key.str == app_list_key) return;
+            app_list_key = key.str;
             foreach (var row in rows) {
                 group.remove_row(row);
             }

@@ -215,13 +215,13 @@ namespace Singularity {
                 return;
             }
 
+            if (action_mode) {
+                schedule_action_results();
+                return;
+            }
             clear_suggestions();
             hide_preview();
             set_results_visible(false);
-            if (action_mode) {
-                show_action_results(query);
-                return;
-            }
 
             entry.primary_icon_name = query == ""
                 ? "system-search-symbolic" : "system-run-symbolic";
@@ -240,9 +240,14 @@ namespace Singularity {
             updating_text = false;
             clear_suggestions();
             show_action_results(query);
+            warm_settings_index();
         }
 
         private void leave_action_mode() {
+            if (action_debounce != 0) {
+                GLib.Source.remove(action_debounce);
+                action_debounce = 0;
+            }
             action_mode = false;
             action_prefix.visible = false;
             entry.remove_css_class("action-mode");
@@ -308,14 +313,36 @@ namespace Singularity {
                     labels.append(description);
                 }
                 row_box.append(labels);
+                var preview = SearchResultRow.build_result_preview(result.preview, 24);
+                if (preview != null) row_box.append(preview);
+                var actions = SearchResultRow.build_result_actions(result, () => close_dialog());
+                if (actions != null) row_box.append(actions);
                 row.set_child(row_box);
                 row.set_data<SearchResult>("search-result", result);
                 suggestions_list.append(row);
                 if (++count >= 10) break;
             }
+            suggestions_list.set_header_func(search_group_header);
             set_results_visible(count > 0);
             var first = suggestions_list.get_row_at_index(0);
             if (first != null) suggestions_list.select_row(first);
+        }
+
+        private void search_group_header(ListBoxRow row, ListBoxRow? before) {
+            SearchResult? result = row.get_data<SearchResult>("search-result");
+            SearchResult? previous = before != null ? before.get_data<SearchResult>("search-result") : null;
+            if (result == null || (previous != null && previous.provider.id == result.provider.id)
+                    || (previous == null && before == null && result.provider.id == "apps")) {
+                row.set_header(null);
+                return;
+            }
+            var label = new Label(result.provider.name);
+            label.add_css_class("dim-label");
+            label.add_css_class("caption");
+            label.halign = Align.START;
+            label.margin_start = 8;
+            label.margin_top = 6;
+            row.set_header(label);
         }
 
         private void show_action_results(string query) {
@@ -357,12 +384,43 @@ namespace Singularity {
                 suggestions_list.append(row);
                 count++;
             }
-            if (needle.char_count() >= 2) count += append_setting_results(needle);
+            if (needle.char_count() >= 2 && settings_index_ready) count += append_setting_results(needle);
             set_results_visible(count > 0);
             if (count > 0) suggestions_list.select_row(suggestions_list.get_row_at_index(0));
         }
 
         private Gee.List<SettingsEntry>? setting_entries = null;
+        private bool settings_index_ready = false;
+        private bool settings_index_warming = false;
+        private uint action_debounce = 0;
+
+        private void warm_settings_index() {
+            if (settings_index_ready || settings_index_warming) return;
+            var app = GLib.Application.get_default() as SingularityApp;
+            if (app == null) return;
+            settings_index_warming = true;
+            app.warm_settings_index.begin((obj, res) => {
+                app.warm_settings_index.end(res);
+                settings_index_warming = false;
+                settings_index_ready = true;
+                if (visible && action_mode) refresh_action_results();
+            });
+        }
+
+        private void schedule_action_results() {
+            if (action_debounce != 0) GLib.Source.remove(action_debounce);
+            action_debounce = GLib.Timeout.add(60, () => {
+                action_debounce = 0;
+                refresh_action_results();
+                return GLib.Source.REMOVE;
+            });
+        }
+
+        private void refresh_action_results() {
+            if (!action_mode) return;
+            clear_suggestions();
+            show_action_results(entry.text.strip());
+        }
 
         private int append_setting_results(string needle) {
             if (setting_entries == null) {
@@ -448,7 +506,7 @@ namespace Singularity {
             SearchResult? result = row.get_data<SearchResult>("search-result");
             if (result == null) return;
             result.activate();
-            close_dialog();
+            if (!result.keeps_open) close_dialog();
         }
 
         private void update_preview(ListBoxRow? row) {
@@ -619,6 +677,10 @@ namespace Singularity {
             string command = entry.text.strip();
             if (command == "") return;
             error_label.visible = false;
+            if (!ParentalEnforcer.get_default().allows_command(command)) {
+                show_error(_("This app is blocked by parental controls."));
+                return;
+            }
 
             string inner = command + "; exec \"${SHELL:-bash}\"";
             string wrapped = "sh -lc " + GLib.Shell.quote(inner);

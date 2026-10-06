@@ -19,27 +19,29 @@ namespace Singularity {
         }
 
         public void show_preview(string uri) throws Error {
-            var file = File.new_for_uri(uri);
-            try {
-                var info = file.query_info("standard::*,standard::icon,standard::content-type", FileQueryInfoFlags.NONE);
-                Idle.add(() => {
-                    if (dialog == null) {
-                        dialog = new PreviewDialog(app);
-                    }
-                    dialog.show_file(file, info);
-                    return false;
-                });
-            } catch (Error e) {
-                throw e;
-            }
+            show_previews({ uri }, 0, "");
+        }
+
+        public void show_previews(string[] uris, int index, string origin) throws Error {
+            if (uris.length == 0) throw new IOError.INVALID_ARGUMENT("No file to preview");
+            string[] list = uris;
+            int position = index.clamp(0, uris.length - 1);
+            string source = origin;
+            Idle.add(() => {
+                if (dialog == null) dialog = new PreviewDialog(app);
+                if (dialog.visible && dialog.current_uri == list[position]) {
+                    dialog.close_dialog();
+                } else {
+                    dialog.show_files(list, position, source);
+                }
+                return Source.REMOVE;
+            });
         }
 
         public void close_preview() throws Error {
             Idle.add(() => {
-                if (dialog != null) {
-                    dialog.close_dialog();
-                }
-                return false;
+                if (dialog != null) dialog.close_dialog();
+                return Source.REMOVE;
             });
         }
     }

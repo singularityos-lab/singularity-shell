@@ -19,6 +19,10 @@ gboolean singularity_ime_start(SingularityImeKeyFunc key_func, gpointer key_data
                                SingularityImePointerFunc pointer_func, gpointer pointer_data);
 void singularity_ime_set_grab(gboolean grab);
 void singularity_ime_forward_key(guint key, gboolean pressed);
+guint32 singularity_keysym_to_unicode(guint keysym);
+gboolean singularity_ime_key_forwarded(guint key);
+gboolean singularity_ime_active(void);
+void singularity_ime_preedit(const char *text, int cursor_begin, int cursor_end);
 void singularity_ime_replace(guint delete_before, guint delete_after, const char *text);
 void singularity_ime_popup_show(const guint8 *pixels, int width, int height, int stride, int scale);
 void singularity_ime_popup_hide(void);

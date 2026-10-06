@@ -9,9 +9,11 @@ namespace Singularity {
     public class Background : Gtk.Window {
         private Picture picture_a;
         private Picture picture_b;
-        private Stack wp_stack;
-        private bool _wp_showing_a = true;
-        private uint _wp_clear_id = 0;
+        private Gtk.Overlay wp_stack;
+        private Singularity.Animation.TimedAnimation? wp_fade = null;
+        private uint wp_fade_serial = 0;
+        private Singularity.Animation.MotionBin wp_motion;
+        private const double INTRO_SCALE = 1.06;
         // Live-toggle for the attribution overlay. Background.vala reads
         // show-wallpaper-attribution and routes through the existing
         // empty-title-and-empty-author early-return path when false, so
@@ -86,11 +88,11 @@ namespace Singularity {
             picture_b = new Picture();
             picture_b.content_fit = ContentFit.COVER;
 
-            wp_stack = new Stack();
-            wp_stack.transition_type = StackTransitionType.CROSSFADE;
-            wp_stack.transition_duration = 600;
-            wp_stack.add_named(picture_a, "a");
-            wp_stack.add_named(picture_b, "b");
+            wp_stack = new Gtk.Overlay();
+            wp_stack.set_child(picture_a);
+            picture_b.opacity = 0.0;
+            picture_b.can_target = false;
+            wp_stack.add_overlay(picture_b);
 
             // Attribution overlay. The label is bottom-left-anchored
             // (halign=START, valign=END, ATTRIBUTION_MARGIN gutter)
@@ -119,7 +121,8 @@ namespace Singularity {
             attribution_label.can_focus = false;
             attribution_label.can_target = false;
             wp_overlay = new Gtk.Overlay();
-            wp_overlay.set_child(wp_stack);
+            wp_motion = new Singularity.Animation.MotionBin(wp_stack);
+            wp_overlay.set_child(wp_motion);
             wp_overlay.add_overlay(attribution_label);
             set_child(wp_overlay);
 
@@ -136,8 +139,6 @@ namespace Singularity {
             // First load: set both pictures to avoid flash, no animation needed
             if (manager.display_texture != null) {
                 picture_a.set_paintable(manager.display_texture);
-                picture_b.set_paintable(manager.display_texture);
-                schedule_hidden_wallpaper_clear();
             }
             manager.wallpaper_changed.connect(() => {
                 update_wallpaper(manager);
@@ -187,11 +188,10 @@ namespace Singularity {
         }
 
         public void play_intro() {
-            wp_stack.add_css_class("wallpaper-intro");
-            GLib.Timeout.add(950, () => {
-                wp_stack.remove_css_class("wallpaper-intro");
-                return GLib.Source.REMOVE;
-            });
+            if (Singularity.Motion.reduced()) return;
+            wp_motion.scale = INTRO_SCALE;
+            Singularity.Motion.tween(wp_motion, "scale", 1.0,
+                Singularity.Motion.Duration.SCENE, Singularity.Motion.Curve.EMPHASIZED);
         }
 
         // Wallpaper attribution overlay (Background.vala).
@@ -326,33 +326,37 @@ namespace Singularity {
         }
 
         private void update_wallpaper(WallpaperManager manager) {
-            if (manager.display_texture == null) return;
-            // Write to the off-screen picture, then crossfade to it
-            if (_wp_showing_a) {
-                picture_b.set_paintable(manager.display_texture);
-                wp_stack.visible_child_name = "b";
-            } else {
-                picture_a.set_paintable(manager.display_texture);
-                wp_stack.visible_child_name = "a";
+            var texture = manager.display_texture;
+            if (texture == null) return;
+            if (wp_fade != null) {
+                var previous = wp_fade;
+                wp_fade = null;
+                wp_fade_serial++;
+                previous.pause();
+                if (picture_b.paintable != null && picture_b.opacity >= 0.5) picture_a.set_paintable(picture_b.paintable);
             }
-            _wp_showing_a = !_wp_showing_a;
-            schedule_hidden_wallpaper_clear();
-        }
-
-        private void schedule_hidden_wallpaper_clear() {
-            if (_wp_clear_id != 0) {
-                GLib.Source.remove(_wp_clear_id);
-                _wp_clear_id = 0;
+            if (picture_a.paintable == null || picture_a.paintable == texture) {
+                picture_a.set_paintable(texture);
+                picture_b.set_paintable(null);
+                picture_b.opacity = 0.0;
+                return;
             }
-            bool showing_a = _wp_showing_a;
-            _wp_clear_id = GLib.Timeout.add(650, () => {
-                _wp_clear_id = 0;
-                if (showing_a == _wp_showing_a) {
-                    if (_wp_showing_a) picture_b.set_paintable(null);
-                    else picture_a.set_paintable(null);
-                }
-                return GLib.Source.REMOVE;
+            picture_b.set_paintable(texture);
+            picture_b.opacity = 0.0;
+            var fade = new Singularity.Animation.TimedAnimation.with_curve(picture_b, 0.0, 1.0,
+                Singularity.Motion.Duration.SCENE, Singularity.Motion.Curve.LINEAR);
+            fade.reduced_mode = Singularity.Animation.ReducedMode.SHORTEN;
+            fade.set_sink((value) => picture_b.opacity = value);
+            uint serial = ++wp_fade_serial;
+            fade.done.connect(() => {
+                if (serial != wp_fade_serial) return;
+                wp_fade = null;
+                picture_a.set_paintable(texture);
+                picture_b.opacity = 0.0;
+                picture_b.set_paintable(null);
             });
+            wp_fade = fade;
+            fade.play();
         }
 
         private void show_context_menu(double x, double y) {

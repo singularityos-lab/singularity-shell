@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="singularity_process_unstable_v1">
+  <copyright>
+    Copyright © 2026 Singularity Desktop
+  </copyright>
+
+  <interface name="zsingularity_process_manager_v1" version="1">
+    <description summary="process owning a toplevel">
+      Lets the shell find the process behind a toplevel, so it can end an
+      application that stopped responding without guessing from process
+      names.
+    </description>
+
+    <enum name="source">
+      <entry name="none" value="0" summary="no process is known"/>
+      <entry name="wayland" value="1" summary="credentials of the Wayland client"/>
+      <entry name="x11" value="2" summary="_NET_WM_PID of the X11 window"/>
+    </enum>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager"/>
+    </request>
+
+    <request name="get_pid">
+      <description summary="ask for the process of a toplevel">
+        The compositor answers with a pid event for the toplevel.
+      </description>
+      <arg name="toplevel" type="object" interface="zwlr_foreign_toplevel_handle_v1"/>
+    </request>
+
+    <event name="pid">
+      <description summary="process of a toplevel">
+        The process id and where it comes from. For native clients it is
+        the peer of the Wayland connection. For X11 windows it is the
+        _NET_WM_PID property set by the client, which the client may leave
+        unset or set wrongly. Pid is zero and source is none when nothing
+        is known, and never names the X server itself.
+      </description>
+      <arg name="toplevel" type="object" interface="zwlr_foreign_toplevel_handle_v1"/>
+      <arg name="pid" type="int"/>
+      <arg name="source" type="uint" enum="source"/>
+    </event>
+  </interface>
+</protocol>

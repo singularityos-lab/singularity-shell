@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="singularity_key_hold_unstable_v1">
+  <copyright>
+    Copyright © 2026 Singularity Desktop
+  </copyright>
+
+  <interface name="zsingularity_key_hold_manager_v1" version="1">
+    <description summary="report a modifier held alone">
+      Lets the desktop shell know when the Super key is held down on its own
+      for longer than a delay, so it can show a shortcuts overview. While a
+      hold is active the compositor does not run keybinds for other keys and
+      forwards them to the focused surface instead, and the release of the
+      held key does not trigger its release keybind.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager"/>
+    </request>
+
+    <request name="set_delay">
+      <description summary="set the hold delay">
+        Sets how long the key must stay down alone, in milliseconds, before
+        the hold starts. Zero disables holds for this client. The default is
+        zero, so a client must opt in.
+      </description>
+      <arg name="delay_ms" type="uint"/>
+    </request>
+
+    <request name="finish">
+      <description summary="end the active hold">
+        Ends the active hold without waiting for the key release, so the
+        compositor runs keybinds again. The release of the key still does
+        not run its release keybind.
+      </description>
+    </request>
+
+    <enum name="end_reason">
+      <entry name="released" value="0"/>
+      <entry name="cancelled" value="1"/>
+    </enum>
+
+    <event name="hold_start">
+      <description summary="the key has been held alone past the delay"/>
+    </event>
+
+    <event name="hold_end">
+      <description summary="the hold ended">
+        Sent when the held key is released, or with reason cancelled when the
+        compositor gave up the hold, for example because the session locked.
+      </description>
+      <arg name="reason" type="uint" enum="end_reason"/>
+    </event>
+  </interface>
+</protocol>

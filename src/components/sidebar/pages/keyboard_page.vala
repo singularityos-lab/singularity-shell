@@ -33,8 +33,11 @@ namespace Singularity {
         private PreferencesGroup empty_group;
         private List<ShortcutSection> sections = new List<ShortcutSection>();
 
+        private SettingsView view;
+
         public KeyboardPage(SettingsView view) {
             base(_("Keyboard"));
+            this.view = view;
             back_clicked.connect(() => view.go_home());
 
             manager = SystemMonitor.get_default().shortcuts;
@@ -52,6 +55,7 @@ namespace Singularity {
             add_widget(shortcuts_box);
             rebuild_shortcuts();
             manager.shortcut_changed.connect(() => rebuild_shortcuts());
+            manager.custom_keybindings_changed.connect(() => rebuild_shortcuts());
 
             input_group = new PreferencesGroup(_("Input Sources"),
                 _("Choose the keyboard layouts available in the desktop"));
@@ -59,6 +63,15 @@ namespace Singularity {
             refresh_input_sources(view);
 
             var settings = new GLib.Settings("dev.sinty.desktop");
+            var languages_group = new PreferencesGroup(_("Input Methods and Dictation"));
+            languages_group.add_row(Singularity.SidebarPages.InputMethodsPage.entry_row(view));
+            languages_group.add_row(Singularity.SidebarPages.DictationPage.entry_row(view));
+            var all_apps_row = new SwitchRow(_("Check Spelling in All Apps"),
+                _("Suggest corrections near the cursor in other apps too. Press Tab to take one. Words are not underlined there."),
+                settings.get_boolean("spell-check-all-apps"));
+            settings.bind("spell-check-all-apps", all_apps_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            languages_group.add_row(all_apps_row);
+            add_group(languages_group);
             var typing_group = new PreferencesGroup(_("Typing"));
             var spell_row = new SwitchRow(_("Check Spelling"),
                 _("Underline misspelled words and suggest corrections"),
@@ -80,6 +93,14 @@ namespace Singularity {
                 settings.get_boolean("press-hold-accents"));
             settings.bind("press-hold-accents", accents_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
             typing_group.add_row(accents_row);
+            if (settings.settings_schema.has_key("shortcut-cheatsheet-hold")) {
+                var cheatsheet_row = new SwitchRow(_("Hold Super for Shortcuts"),
+                    _("Hold the Super key to see the shortcuts of the desktop and of the focused app"),
+                    settings.get_boolean("shortcut-cheatsheet-hold"));
+                settings.bind("shortcut-cheatsheet-hold", cheatsheet_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+                typing_group.add_row(cheatsheet_row);
+            }
+            typing_group.add_row(Singularity.SidebarPages.ClipboardSettingsPage.entry_row(view));
             add_group(typing_group);
 
             var pointer_group = new PreferencesGroup(_("Mouse & Touchpad"));
@@ -127,6 +148,85 @@ namespace Singularity {
             pointer_group.add_row(scroll_speed_row(settings, "mouse-scroll-speed",
                 _("Mouse Scroll Speed"), _("How far content moves for each wheel step")));
             add_group(pointer_group);
+
+            var gesture_group = new PreferencesGroup(_("Touchpad Gestures"),
+                _("Swipe left or right to change workspace, down for the workspace overview and up for the launcher."));
+            var gestures_row = new SwitchRow(_("Gestures"),
+                _("Turn off to leave every multi-finger swipe to applications"),
+                settings.get_boolean("gestures-enabled"));
+            settings.bind("gestures-enabled", gestures_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            gesture_group.add_row(gestures_row);
+
+            var fingers_row = choice_row(settings, "gesture-fingers", _("Fingers"),
+                { "3", "4", "both" }, { _("Three"), _("Four"), _("Three or Four") });
+            settings.bind("gestures-enabled", fingers_row, "visible", SettingsBindFlags.GET);
+            gesture_group.add_row(fingers_row);
+
+            var direction_row = choice_row(settings, "gesture-direction", _("Direction"),
+                { "natural", "inverted", "follow-scroll" },
+                { _("Content Follows Fingers"), _("Inverted"), _("Same as Scrolling") });
+            settings.bind("gestures-enabled", direction_row, "visible", SettingsBindFlags.GET);
+            gesture_group.add_row(direction_row);
+
+            var two_d_row = new SwitchRow(_("Change Direction Mid-Swipe"),
+                _("Switch workspace and open the overview, or move between workspaces in the overview, in one swipe"),
+                settings.get_boolean("gesture-two-dimensional"));
+            settings.bind("gesture-two-dimensional", two_d_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            settings.bind("gestures-enabled", two_d_row, "visible", SettingsBindFlags.GET);
+            gesture_group.add_row(two_d_row);
+
+            var sensitivity_row = scale_row(settings, "gesture-sensitivity", _("Sensitivity"),
+                _("Higher values need a shorter swipe for each step"), 50, 200, 100);
+            settings.bind("gestures-enabled", sensitivity_row, "visible", SettingsBindFlags.GET);
+            gesture_group.add_row(sensitivity_row);
+
+            var threshold_row = scale_row(settings, "gesture-threshold", _("Direction Delay"),
+                _("How far the fingers move before a gesture picks its first direction"), 8, 32, 1);
+            settings.bind("gestures-enabled", threshold_row, "visible", SettingsBindFlags.GET);
+            gesture_group.add_row(threshold_row);
+            add_group(gesture_group);
+        }
+
+        private SelectionRow choice_row(GLib.Settings settings, string key, string title, string[] ids, string[] labels) {
+            var options = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
+            for (int i = 0; i < ids.length; i++) {
+                var option = new Singularity.Core.AppSettingOption();
+                option.id = ids[i];
+                option.label = labels[i];
+                options.add(option);
+            }
+            var row = new SelectionRow.with_options(title, options, settings.get_string(key));
+            row.selected.connect((id) => settings.set_string(key, id));
+            settings.changed[key].connect(() => row.current_value = settings.get_string(key));
+            return row;
+        }
+
+        private ActionRow scale_row(GLib.Settings settings, string key, string title, string subtitle,
+                double min, double max, double factor) {
+            var row = new ActionRow(title, subtitle);
+            row.activatable = false;
+            var scale = new Scale.with_range(Orientation.HORIZONTAL, min, max, factor >= 100 ? 5 : 1);
+            scale.width_request = 170;
+            scale.draw_value = true;
+            scale.value_pos = PositionType.RIGHT;
+            if (factor >= 100) {
+                scale.add_mark(100, PositionType.BOTTOM, null);
+                scale.set_format_value_func((s, value) => "%.0f%%".printf(value));
+            } else {
+                scale.set_format_value_func((s, value) => "%.0f".printf(value));
+            }
+            scale.set_value(settings.get_double(key) * (factor >= 100 ? 100 : 1));
+            uint timeout = 0;
+            scale.value_changed.connect(() => {
+                if (timeout != 0) Source.remove(timeout);
+                timeout = Timeout.add(200, () => {
+                    timeout = 0;
+                    settings.set_double(key, scale.get_value() / (factor >= 100 ? 100 : 1));
+                    return Source.REMOVE;
+                });
+            });
+            row.add_suffix(scale);
+            return row;
         }
 
         private ActionRow scroll_speed_row(GLib.Settings settings, string key, string title, string subtitle) {
@@ -192,6 +292,15 @@ namespace Singularity {
                     _("Send the focused window to workspace %d").printf(i),
                     "<Control><Alt><Shift>%d".printf(i), "go-jump-symbolic");
             }
+
+            var custom = add_section(_("Custom"), _("Your own shortcuts for commands and app actions"));
+            foreach (var keybinding in manager.custom_keybindings)
+                add_custom_shortcut(custom, keybinding);
+            var add_row = new ActionRow(_("Add Shortcut"),
+                _("Run a command or an app action with a key combination"), "list-add-symbolic");
+            add_row.activated.connect(() => open_custom_editor(null));
+            custom.group.add_row(add_row);
+            custom.items.append(new ShortcutItem(add_row, "%s custom".printf(_("Add Shortcut")).down()));
 
             empty_group = new PreferencesGroup();
             empty_group.margin_top = 12;
@@ -283,6 +392,70 @@ namespace Singularity {
             section.items.append(new ShortcutItem(row, terms));
         }
 
+        private void add_custom_shortcut(ShortcutSection section, CustomKeybinding keybinding) {
+            string subtitle;
+            GLib.Icon? icon = null;
+            if (keybinding.is_app_action) {
+                var info = keybinding.app_info();
+                if (info == null) {
+                    if (keybinding.accelerator == "") return;
+                    subtitle = _("%s is not installed").printf(keybinding.app_id);
+                } else {
+                    subtitle = "%s, %s".printf(info.get_display_name(), info.get_action_name(keybinding.action));
+                    icon = info.get_icon();
+                }
+            } else {
+                subtitle = keybinding.command;
+            }
+            var row = new ActionRow(keybinding.name, subtitle, icon == null ? "system-run-symbolic" : null);
+            if (icon != null) {
+                var image = new Image.from_gicon(icon);
+                image.pixel_size = 24;
+                row.add_prefix(image);
+            }
+            row.activatable = false;
+
+            var edit_btn = new Button.from_icon_name("document-edit-symbolic");
+            edit_btn.add_css_class("flat");
+            edit_btn.tooltip_text = _("Edit");
+            edit_btn.valign = Align.CENTER;
+            edit_btn.clicked.connect(() => open_custom_editor(keybinding));
+            row.add_suffix(edit_btn);
+
+            var remove_btn = new Button.from_icon_name("user-trash-symbolic");
+            remove_btn.add_css_class("flat");
+            remove_btn.tooltip_text = _("Remove");
+            remove_btn.valign = Align.CENTER;
+            string id = keybinding.id;
+            remove_btn.clicked.connect(() => {
+                row.confirmation_requested(_("Remove"), _("Cancel"), ConfirmationSuggestedAction.CANCEL);
+            });
+            row.confirmed.connect(() => manager.remove_custom_keybinding(id));
+            row.add_suffix(remove_btn);
+
+            var shortcut_label = new ShortcutLabel(keybinding.accelerator);
+            shortcut_label.disabled_text = _("Disabled");
+            var key_btn = new Button();
+            key_btn.has_frame = false;
+            key_btn.add_css_class("flat");
+            key_btn.tooltip_text = _("Change Shortcut");
+            key_btn.set_child(shortcut_label);
+            string name = keybinding.name;
+            string accel = keybinding.accelerator;
+            key_btn.clicked.connect(() => show_capture_dialog(name, "system-run-symbolic", accel,
+                (new_accel) => manager.set_custom_keybinding_accelerator(id, new_accel)));
+            row.add_suffix(key_btn);
+
+            section.group.add_row(row);
+            section.items.append(new ShortcutItem(row,
+                "%s %s %s custom".printf(keybinding.name, subtitle, keybinding.accelerator).down()));
+        }
+
+        private void open_custom_editor(CustomKeybinding? keybinding) {
+            view.open_subpage(new Singularity.SidebarPages.CustomShortcutPage(view, manager, keybinding),
+                "custom-shortcut");
+        }
+
         private void add_fixed_shortcut(ShortcutSection section, string title, string description,
                                         string accelerator, string icon_name) {
             var row = new ActionRow(title, description, icon_name);
@@ -300,6 +473,9 @@ namespace Singularity {
                 case "toggle_desktop_reveal": return "user-desktop-symbolic";
                 case "spawn_terminal": return "utilities-terminal-symbolic";
                 case "toggle_emoji_picker": return "face-smile-symbolic";
+                case "toggle_clipboard_history": return "edit-paste-symbolic";
+                case "toggle_dictation": return "audio-input-microphone-symbolic";
+                case "switch_input_method": return "input-keyboard-symbolic";
                 case "run_command": return "system-run-symbolic";
                 case "lock_screen": return "system-lock-screen-symbolic";
                 case "screenshot_tool":
@@ -336,7 +512,16 @@ namespace Singularity {
             empty_group.visible = visible_rows == 0;
         }
 
+        private delegate void AcceleratorChosen(string accelerator);
+
         private void show_edit_dialog(Shortcut shortcut) {
+            string id = shortcut.id;
+            show_capture_dialog(_(shortcut.name), icon_for_action(shortcut.action_name), shortcut.accelerator,
+                (accel) => manager.update_shortcut(id, accel));
+        }
+
+        private void show_capture_dialog(string name, string icon_name, string accelerator,
+                                         owned AcceleratorChosen chosen) {
             var app = (Gtk.Application) GLib.Application.get_default();
             var dialog = new Singularity.Shell.ShellDialog(app);
             var content = new Box(Orientation.VERTICAL, 16);
@@ -348,11 +533,11 @@ namespace Singularity {
             content.valign = Align.CENTER;
             content.set_size_request(340, -1);
 
-            var icon = new Image.from_icon_name(icon_for_action(shortcut.action_name));
+            var icon = new Image.from_icon_name(icon_name);
             icon.pixel_size = 48;
             content.append(icon);
 
-            var title = new Label(_(shortcut.name));
+            var title = new Label(name);
             title.add_css_class("title-1");
             title.wrap = true;
             title.justify = Justification.CENTER;
@@ -362,7 +547,7 @@ namespace Singularity {
             hint.add_css_class("dim-label");
             content.append(hint);
 
-            var current = new ShortcutLabel(shortcut.accelerator);
+            var current = new ShortcutLabel(accelerator);
             current.disabled_text = _("Disabled");
             current.halign = Align.CENTER;
             content.append(current);
@@ -372,7 +557,7 @@ namespace Singularity {
             var disable_btn = new Button.with_label(_("Disable"));
             disable_btn.add_css_class("flat");
             disable_btn.clicked.connect(() => {
-                manager.update_shortcut(shortcut.id, "");
+                chosen("");
                 dialog.close_dialog();
             });
             actions.append(disable_btn);
@@ -401,7 +586,7 @@ namespace Singularity {
                 var modifiers = state & Gtk.accelerator_get_default_mod_mask();
                 string accel = Gtk.accelerator_name(keyval, modifiers);
                 if (accel != "") {
-                    manager.update_shortcut(shortcut.id, accel);
+                    chosen(accel);
                     dialog.close_dialog();
                 }
                 return true;

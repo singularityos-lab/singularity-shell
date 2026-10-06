@@ -74,6 +74,8 @@ void singularity_wayland_finish_output_config();
 void singularity_display_manager_update_adaptive_sync(void* head_handle, uint32_t state);
 
 void singularity_wayland_set_geometry(void* toplevel_handle, int32_t x, int32_t y, int32_t width, int32_t height);
+void singularity_wayland_set_geometry_animated(void* toplevel_handle, int32_t x, int32_t y, int32_t width, int32_t height);
+int singularity_wayland_can_animate_geometry(void);
 void singularity_wayland_set_close_gesture_progress(void* toplevel_handle, double progress);
 int singularity_wayland_get_window_geometry(void* toplevel_handle,
         int* x, int* y, int* w, int* h, int* maximized, int* fullscreen, char** connector);
@@ -107,5 +109,8 @@ void* singularity_wayland_get_window_monitor(void *handle);
 /* Newline-separated list of Wayland global interfaces the running compositor
  * advertises. Caller frees with g_free(). */
 char* singularity_wayland_list_globals(void);
+
+struct wl_display *singularity_wayland_display(void);
+int singularity_wayland_handle_is_valid(void *handle);
 
 #endif

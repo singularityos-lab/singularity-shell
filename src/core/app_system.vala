@@ -4,6 +4,18 @@ using Gdk;
 
 namespace Singularity {
 
+    public class OverviewWidgetSettingsStore : Object, OverviewWidgetConfigStore {
+        public Variant? load_config(string instance_id) {
+            return AppSystem.get_default().get_overview_widget_config(instance_id);
+        }
+
+        public void save_config(string instance_id, Variant? config) {
+            var app_system = AppSystem.get_default();
+            app_system.update_overview_widget_config(instance_id, config != null ? config.print(true) : "");
+            app_system.apps_changed();
+        }
+    }
+
     public class AppSystem : Object {
         private static AppSystem? _instance = null;
         private GLib.Settings settings;
@@ -27,6 +39,7 @@ namespace Singularity {
         public signal void window_output_changed(void* handle);
         public signal void app_focused(string? app_id);
         public signal void window_focused(void* handle);
+        public signal void window_state_changed(void* handle);
         public signal void app_opened(void* handle, string app_id);
         public signal void app_closed(void* handle);
         public signal void menu_model_changed(MenuModel? model);
@@ -277,6 +290,7 @@ namespace Singularity {
             // Re-scan installed apps when software is added or removed, so the
             // overview, command palette and settings stay current. AppInfoMonitor is
             // the standard GIO signal and covers every XDG_DATA_DIRS location.
+            ParentalEnforcer.get_default().policy_changed.connect(() => scan_apps());
             _app_info_monitor = GLib.AppInfoMonitor.@get();
             _app_info_monitor.changed.connect(() => {
                 if (_app_rescan_timer != 0) GLib.Source.remove(_app_rescan_timer);
@@ -376,6 +390,7 @@ namespace Singularity {
                         var gm = GameModeManager.get_default();
                         gm.on_fullscreen_app(win.app_id, win.is_fullscreen);
                     }
+                    self.window_state_changed(handle);
                     break;
                 }
             }
@@ -785,11 +800,33 @@ namespace Singularity {
                     if (_session_bus == null)
                         _session_bus = Bus.get_sync(BusType.SESSION);
                     var connection = _session_bus;
-                    string menu_path = "/" + bus_name.replace(".", "/") + "/menus/menubar";
-                    var gtk4_model = GLib.DBusMenuModel.get(connection, bus_name, menu_path);
-                    var app_ag = GLib.DBusActionGroup.get(connection, bus_name, "/" + bus_name.replace(".", "/"));
-                    var win_ag = GLib.DBusActionGroup.get(connection, bus_name,
-                        "/" + bus_name.replace(".", "/") + "/window/1");
+                    string app_path = app_object_path(bus_name);
+                    string menu_path = app_path + "/menus/menubar";
+                    string owner = bus_name;
+                    try {
+                        var reply = connection.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus",
+                            "org.freedesktop.DBus", "GetNameOwner", new Variant("(s)", bus_name),
+                            new VariantType("(s)"), DBusCallFlags.NONE, 250, null);
+                        owner = reply.get_child_value(0).get_string();
+                    } catch (Error e) {
+                    }
+                    var gtk4_model = GLib.DBusMenuModel.get(connection, owner, menu_path);
+                    var app_ag = GLib.DBusActionGroup.get(connection, owner, app_path);
+                    string win_path = resolve_window_path(connection, owner, app_path);
+                    var win_ag = GLib.DBusActionGroup.get(connection, owner, win_path);
+                    app_ag.action_state_changed.connect((name, state) => {
+                        if (name != WINDOW_PATH_ACTION || menu_generation != gen) return;
+                        if (!state.is_of_type(VariantType.STRING)) return;
+                        string path = state.get_string();
+                        if (path == "" || path == win_path || !Variant.is_object_path(path)) return;
+                        win_path = path;
+                        win_ag = GLib.DBusActionGroup.get(connection, owner, path);
+                        if (_menu_promoted && current_app_action_group == app_ag) {
+                            current_win_action_group = win_ag;
+                            menu_model_changed(current_menu_model);
+                        }
+                    });
+                    app_ag.list_actions();
                     // Touch model to trigger DBus subscription
                     gtk4_model.get_n_items();
                     _menu_promoted = false;
@@ -835,6 +872,12 @@ namespace Singularity {
             }
         }
 
+        public string? bus_name_for_app(string app_id) {
+            string safe_id = clean_string(app_id);
+            if (safe_id.has_suffix(".desktop")) safe_id = safe_id[0:safe_id.length - 8];
+            return derive_bus_name(safe_id);
+        }
+
         private string? derive_bus_name(string safe_id) {
             if (safe_id.length == 0) return null;
             if (safe_id.contains(".")) {
@@ -851,7 +894,45 @@ namespace Singularity {
         }
 
         // Validate a D-Bus well-known bus name: elements separated by dots,
-        // each element matches [A-Za-z_][A-Za-z0-9_]* (no hyphens allowed).
+        // each element matches [A-Za-z_-][A-Za-z0-9_-]*.
+
+        private const string WINDOW_PATH_ACTION = "active-window-path";
+
+        private static string app_object_path(string bus_name) {
+            return "/" + bus_name.replace(".", "/").replace("-", "_");
+        }
+
+        internal static string resolve_window_path(DBusConnection conn, string owner, string app_path) {
+            try {
+                var reply = conn.call_sync(owner, app_path, "org.gtk.Actions", "Describe",
+                    new Variant("(s)", WINDOW_PATH_ACTION), new VariantType("((bgav))"),
+                    DBusCallFlags.NONE, 250, null);
+                var states = reply.get_child_value(0).get_child_value(2);
+                if (states.n_children() > 0) {
+                    var state = states.get_child_value(0).get_variant();
+                    if (state.is_of_type(VariantType.STRING)) {
+                        string path = state.get_string();
+                        if (path != "" && Variant.is_object_path(path)) return path;
+                    }
+                }
+            } catch (Error e) {
+            }
+            try {
+                var reply = conn.call_sync(owner, app_path + "/window", "org.freedesktop.DBus.Introspectable",
+                    "Introspect", null, new VariantType("(s)"), DBusCallFlags.NONE, 250, null);
+                var info = new DBusNodeInfo.for_xml(reply.get_child_value(0).get_string());
+                uint64 best = 0;
+                foreach (var node in info.nodes) {
+                    uint64 id = 0;
+                    if (node.path != null && uint64.try_parse(node.path, out id) && id > 0
+                            && (best == 0 || id < best))
+                        best = id;
+                }
+                if (best > 0) return "%s/window/%s".printf(app_path, best.to_string());
+            } catch (Error e) {
+            }
+            return app_path + "/window/1";
+        }
 
         private static bool is_valid_dbus_name(string name) {
             if (name.length == 0) return false;
@@ -861,7 +942,7 @@ namespace Singularity {
                 if (part.length == 0) return false;
                 for (int i = 0; i < part.length; i++) {
                     char c = part[i];
-                    bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' ||
+                    bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' || c == '-' ||
                               (i > 0 && (c >= '0' && c <= '9'));
                     if (!ok) return false;
                 }
@@ -1055,12 +1136,29 @@ namespace Singularity {
             var final_menu = new GLib.Menu();
             if (app_model != null) {
                 int n = app_model.get_n_items();
+                int file_index = -1;
+                for (int i = 0; i < n && file_index < 0; i++) {
+                    string? lbl = null;
+                    app_model.get_item_attribute(i, Menu.ATTRIBUTE_LABEL, "s", out lbl);
+                    if (lbl != null && (lbl.replace("_", "") == "File" || lbl.replace("_", "") == _("File"))
+                            && app_model.get_item_link(i, Menu.LINK_SUBMENU) != null)
+                        file_index = i;
+                }
+                for (int i = 0; i < n && file_index < 0; i++) {
+                    if (app_model.get_item_link(i, Menu.LINK_SUBMENU) != null) file_index = i;
+                }
+                var entry_section = desktop_entry_actions(group);
                 for (int i = 0; i < n; i++) {
                     string? lbl = null;
                     app_model.get_item_attribute(i, Menu.ATTRIBUTE_LABEL, "s", out lbl);
                     var mi = new MenuItem(lbl, null);
                     MenuModel? sub = app_model.get_item_link(i, Menu.LINK_SUBMENU);
-                    if (sub != null) {
+                    if (sub != null && i == file_index && entry_section != null) {
+                        var merged = new GLib.Menu();
+                        merged.append_section(null, entry_section);
+                        merged.append_section(null, sub);
+                        mi.set_submenu(merged);
+                    } else if (sub != null) {
                         mi.set_submenu(sub);
                     } else {
                         MenuModel? sec = app_model.get_item_link(i, Menu.LINK_SECTION);
@@ -1077,27 +1175,8 @@ namespace Singularity {
             } else {
                 // Fallback: enrich File menu with desktop entry actions
                 var file_menu = new GLib.Menu();
-                if (current_menu_app_id.length > 0) {
-                    var ai = get_app_info(current_menu_app_id);
-                    var dai = ai as DesktopAppInfo;
-                    if (dai != null) {
-                        string[] entry_actions = dai.list_actions();
-                        int entry_counter = 0;
-                        foreach (string action_id in entry_actions) {
-                            string captured_aid = action_id.dup();
-                            entry_counter++;
-                            string gact_id = "entry-%d".printf(entry_counter);
-                            if (!group.has_action(gact_id)) {
-                                var act = new SimpleAction(gact_id, null);
-                                act.activate.connect(() => {
-                                    dai.launch_action(captured_aid, Gdk.Display.get_default().get_app_launch_context());
-                                });
-                                group.add_action(act);
-                            }
-                            file_menu.append(dai.get_action_name(captured_aid), "dbusmenu." + gact_id);
-                        }
-                    }
-                }
+                var entry_section = desktop_entry_actions(group);
+                if (entry_section != null) file_menu.append_section(null, entry_section);
                 file_menu.append("Quit", "dbusmenu.quit");
                 final_menu.append_submenu("File", file_menu);
             }
@@ -1109,6 +1188,31 @@ namespace Singularity {
             final_menu.append_submenu("Window", win_menu);
             current_menu_model = final_menu;
             menu_model_changed(final_menu);
+        }
+
+        private GLib.Menu? desktop_entry_actions(SimpleActionGroup group) {
+            if (current_menu_app_id.length == 0) return null;
+            var dai = get_app_info(current_menu_app_id) as DesktopAppInfo;
+            if (dai == null) return null;
+            string[] entry_actions = dai.list_actions();
+            if (entry_actions.length == 0) return null;
+            var section = new GLib.Menu();
+            int entry_counter = 0;
+            foreach (string action_id in entry_actions) {
+                string captured_aid = action_id.dup();
+                entry_counter++;
+                string gact_id = "entry-%d".printf(entry_counter);
+                if (!group.has_action(gact_id)) {
+                    var act = new SimpleAction(gact_id, null);
+                    act.activate.connect(() => {
+                        if (!ParentalEnforcer.get_default().allows(dai)) return;
+                        dai.launch_action(captured_aid, Gdk.Display.get_default().get_app_launch_context());
+                    });
+                    group.add_action(act);
+                }
+                section.append(dai.get_action_name(captured_aid), "dbusmenu." + gact_id);
+            }
+            return section;
         }
 
         private Dbusmenu.Menuitem? find_dbusmenu_item(Dbusmenu.Menuitem? item, int id) {
@@ -1510,7 +1614,7 @@ namespace Singularity {
             installed_apps_list = new List<AppInfo>();
             foreach (var app in _app_info_owner) {
                 string id = app.get_id();
-                if (id != null) {
+                if (id != null && !ParentalEnforcer.get_default().hides(id)) {
                     installed_apps_map.insert(id, app);
                     installed_apps_list.append(app);
                     index_steam_app(app);
@@ -1551,6 +1655,7 @@ namespace Singularity {
                         if (desktop_app == null) continue;
                         string? id = desktop_app.get_id();
                         if (id == null || installed_apps_map.contains(id)) continue;
+                        if (ParentalEnforcer.get_default().hides(id)) continue;
 
                         AppInfo app = desktop_app;
                         _app_info_owner.append(app);
@@ -1803,6 +1908,30 @@ namespace Singularity {
             _setting_grid_order = false;
         }
 
+        public void reset_grid_order() {
+            string[] order = {};
+            foreach (string item in get_grid_order()) {
+                if (item.has_prefix("widget:")) order += item;
+            }
+            var folder_ids = new Gee.ArrayList<string>();
+            _folders.foreach((fid, folder) => folder_ids.add(fid));
+            folder_ids.sort((a, b) => _folders.get(a).name.collate(_folders.get(b).name));
+            foreach (string fid in folder_ids) order += "folder:" + fid;
+
+            var in_folder = new HashTable<string, bool>(str_hash, str_equal);
+            _folders.foreach((fid, folder) => {
+                foreach (var app_id in folder.app_ids) in_folder.insert(app_id, true);
+            });
+            var apps = new Gee.ArrayList<AppInfo>();
+            foreach (var app in installed_apps_list) {
+                string? id = app.get_id();
+                if (id != null && app.should_show() && !in_folder.contains(id)) apps.add(app);
+            }
+            apps.sort((a, b) => a.get_display_name().casefold().collate(b.get_display_name().casefold()));
+            foreach (var app in apps) order += app.get_id();
+            set_grid_order(order);
+        }
+
         public void set_grid_order_quiet(string[] order) {
             settings.set_strv("app-grid-order", order);
         }
@@ -1974,8 +2103,19 @@ namespace Singularity {
             settings.set_value("overview-widgets", builder.end());
         }
 
+        public Variant? get_overview_widget_config(string instance_id) {
+            var inst = get_overview_widget(instance_id);
+            if (inst == null || inst.config_json == "") return null;
+            try {
+                return Variant.parse(null, inst.config_json);
+            } catch (Error e) {
+                return null;
+            }
+        }
+
         public AppInfo? get_app_info(string desktop_id) {
             if (desktop_id == null || desktop_id.strip() == "") return null;
+            if (ParentalEnforcer.get_default().hides(desktop_id)) return null;
 
             if (installed_apps_map.contains(desktop_id)) {
                 return installed_apps_map.get(desktop_id);
@@ -2027,6 +2167,7 @@ namespace Singularity {
 
         // Centralized app launch - injects MangoHud/GameMode env if enabled
         public static void launch_app(GLib.AppInfo app_info, GLib.List<GLib.File>? files = null) {
+            if (!ParentalEnforcer.get_default().allows(app_info)) return;
             var ctx = (GLib.AppLaunchContext) Gdk.Display.get_default().get_app_launch_context();
             var shell_settings = new GLib.Settings("dev.sinty.desktop");
             if (shell_settings.get_boolean("mangohud-auto")) {
@@ -2037,6 +2178,25 @@ namespace Singularity {
                         ctx.setenv("MANGOHUD", "1");
                     }
                 }
+            }
+            var desktop_info = app_info as GLib.DesktopAppInfo;
+            if (desktop_info != null && Singularity.Crash.Reporter.get_default().watches_launches()) {
+                var uris = new GLib.List<string>();
+                if (files != null) {
+                    foreach (var f in files) uris.append(f.get_uri());
+                }
+                string app_id = desktop_info.get_id() ?? "";
+                if (app_id.has_suffix(".desktop")) app_id = app_id.substring(0, app_id.length - 8);
+                string? program = desktop_info.get_executable();
+                string executable = program != null ? (GLib.Environment.find_program_in_path(program) ?? program) : "";
+                try {
+                    desktop_info.launch_uris_as_manager(uris, ctx,
+                        GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.DO_NOT_REAP_CHILD, null,
+                        (info, pid) => Singularity.Crash.LaunchWatcher.get_default().watch(pid, app_id, executable));
+                } catch (GLib.Error e) {
+                    warning("launch_app: %s", e.message);
+                }
+                return;
             }
             try {
                 app_info.launch(files, ctx);

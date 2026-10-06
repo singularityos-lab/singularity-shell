@@ -1,5 +1,4 @@
 using Gtk;
-using Goa;
 
 // glibc allocator tuning: the shell runs many threads (Mesa + GLib pools), so
 // cap malloc arenas to keep heap fragmentation from being pinned in the process.
@@ -63,8 +62,12 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     private uint _last_monitor_count = 0;
     public Singularity.Sidebar? sidebar = null;
     private Singularity.NotificationDisplay? notification_display = null;
+    private Singularity.MediaPlaybackGuard? media_guard = null;
+    private Singularity.EventReminders? event_reminders = null;
+    private Singularity.AccountAlerts? account_alerts = null;
     private Singularity.RunDialog? run_dialog = null;
     private Singularity.EmojiPicker? emoji_picker = null;
+    private Singularity.ClipboardPopup? clipboard_popup = null;
     private Singularity.OnScreenKeyboard? screen_keyboard = null;
     private Singularity.SettingsWindow? settings_window = null;
     private Singularity.BarLayoutEditOverlay? bar_layout_edit_overlay = null;
@@ -80,11 +83,11 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     public Singularity.HotCornerManager? hot_corner_manager = null;
     private Singularity.DebugHudWindow? _debug_hud = null;
     private Singularity.DevtoolsOverlay? _devtools_overlay = null;
-    private bool _goa_initialized = false;
 
     protected override void activate() {
         // SIGUSR1 = restart: exit cleanly so the wrapper script restarts us
         GLib.Unix.signal_add(Posix.Signal.USR1, () => {
+            Singularity.SystemMonitor.get_default().notifications.save_now();
             Process.exit(0);
             return GLib.Source.REMOVE;
         });
@@ -187,6 +190,10 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             apply_cursor_theme();
             apply_x_font_settings();
         });
+        if (settings.settings_schema.has_key(Singularity.Runtime.FILE_HISTORY_KEY)) {
+            settings.changed[Singularity.Runtime.FILE_HISTORY_KEY].connect(sync_file_history);
+            sync_file_history();
+        }
         Singularity.AppSystem.get_default();
         Singularity.wayland_set_desktop_gesture_callback(
             on_desktop_gesture, this);
@@ -196,11 +203,36 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
                 Singularity.SafeFeature.AUTOSTART)) {
             Timeout.add_seconds(1, () => {
                 launch_autostart_apps();
+                launch_first_run_tour();
                 return Source.REMOVE;
             });
         }
         var cal_manager = Singularity.Calendar.CalendarManager.get_default();
-        cal_manager.register_provider(new Singularity.Calendar.LocalProvider());
+        Singularity.Calendar.LocalProvider.register_all(cal_manager);
+        Singularity.Calendar.WebCalendarProvider.register_all(cal_manager);
+        Singularity.LidManager.get_default();
+        Singularity.IdleInhibitors.get_default().start();
+        Singularity.IdleManager.get_default().start();
+        Singularity.ScreenTimeTracker.get_default().start();
+        Singularity.SystemMonitor.get_default().night_light.refresh();
+        Singularity.ParentalEnforcer.get_default().start();
+        Singularity.PowerKeyManager.get_default();
+        Singularity.AccessibilityFeedback.get_default();
+        var osd_audio = Singularity.SystemMonitor.get_default().audio;
+        osd_audio.external_volume_changed.connect(() => {
+            Singularity.Shell.OsdOverlay.get_default().show_osd(osd_audio.icon_name, osd_audio.is_muted ? -1 : osd_audio.volume);
+        });
+        event_reminders = new Singularity.EventReminders();
+        Singularity.Crash.Reporter.get_default().start();
+        Timeout.add_seconds(3, () => {
+            ensure_online_calendars();
+            account_alerts = new Singularity.AccountAlerts();
+            account_alerts.open_requested.connect((page) => open_settings_page(page));
+            var updates_scheduler = Singularity.UpdatesScheduler.get_default();
+            updates_scheduler.open_requested.connect((page) => open_settings_page(page));
+            updates_scheduler.start();
+            return Source.REMOVE;
+        });
         Bus.own_name(
             BusType.SESSION,
             "org.freedesktop.Notifications",
@@ -218,6 +250,8 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             () => {},
             () => { warning("Lost name org.freedesktop.Notifications"); }
         );
+        Singularity.FocusService.export();
+        Singularity.NotificationLockService.export(Singularity.SystemMonitor.get_default().notifications);
 
         // Fan notifications out to plugins so they can react (e.g. Telegram
         // dock-bubble plugin) without each one re-implementing the daemon.
@@ -288,8 +322,16 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         notification_display = new Singularity.NotificationDisplay(this);
         sync_workspace_switch_feedbacks();
         settings.changed["screen-keyboard-enabled"].connect(sync_screen_keyboard);
+        settings.changed["mono-audio"].connect(() => {
+            Singularity.SystemMonitor.get_default().audio.set_mono(settings.get_boolean("mono-audio"));
+        });
+        Singularity.SystemMonitor.get_default().audio.set_mono(settings.get_boolean("mono-audio"));
+        Singularity.Widgets.MediaPlayerCard.stream_control = new Singularity.ShellMediaStreamControl(Singularity.SystemMonitor.get_default().audio);
+        Singularity.EqualizerManager.get_default();
+        media_guard = new Singularity.MediaPlaybackGuard();
         sync_screen_keyboard();
         Singularity.InputMethodService.get_default().start();
+        Singularity.Dictation.DictationBus.export();
         Gdk.Display.get_default().get_monitors().items_changed.connect(() => {
             Idle.add(() => {
                 sync_workspace_switch_feedbacks();
@@ -398,6 +440,15 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             ensure_run_dialog();
             run_dialog.toggle();
         });
+        Singularity.ClipboardHistory.get_default().start();
+        Singularity.StageManager.get_default().start(this);
+        Singularity.NearbyBridge.get_default().start();
+        Singularity.SnapController.get_default().start(this);
+        Singularity.SystemMonitor.get_default().shortcuts.clipboard_history_triggered.connect(() => {
+            if (clipboard_popup == null) clipboard_popup = new Singularity.ClipboardPopup(this);
+            clipboard_popup.toggle();
+        });
+        Singularity.ShortcutCheatsheet.setup(this);
         Singularity.SystemMonitor.get_default().shortcuts.emoji_picker_triggered.connect(() => {
             ensure_emoji_picker();
             emoji_picker.toggle();
@@ -430,6 +481,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         if (conn != null) {
             try {
                 conn.register_object<Singularity.Shell.ShellService>("/dev/sinty/Shell", this);
+                conn.register_object<Singularity.StageService>("/dev/sinty/Shell/Stage", new Singularity.StageService());
             } catch (IOError e) {
                 warning("Failed to register Shell Service: %s", e.message);
             }
@@ -453,6 +505,8 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         // Initialize Plugin Manager
         var plugin_manager = Singularity.PluginManager.get_default();
         var context = plugin_manager.get_context();
+        foreach (var tile in context.get_quick_tiles()) watch_tile_detail(tile);
+        context.quick_tile_added.connect(watch_tile_detail);
         context.panel_widget_added.connect((widget, align) => {
             if (panel != null) panel.add_widget(widget, align);
         });
@@ -469,6 +523,9 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             Singularity.OverviewWidgetRegistry.get_default().add(p));
         context.overview_widget_removed.connect((p) =>
             Singularity.OverviewWidgetRegistry.get_default().remove(p));
+        Singularity.OverviewWidgetRegistry.get_default().config_store =
+            new Singularity.OverviewWidgetSettingsStore();
+        Singularity.OverviewWidgetRegistry.get_default().close_overview_requested.connect(() => hide_overview());
         context.search_provider_added.connect((p) =>
             Singularity.SearchProviderRegistry.get_default().add(p));
         context.search_provider_removed.connect((p) =>
@@ -549,31 +606,8 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
 
     }
 
-    private async void init_goa() {
-        if (_goa_initialized) return;
-        _goa_initialized = true;
-        try {
-            var client = yield new global::Goa.Client(null);
-            var objects = client.get_accounts();
-            foreach (var object in objects) {
-                if (object.calendar != null) {
-                    var provider = new Singularity.Goa.GoaCalendarProvider(object);
-                    Singularity.Calendar.CalendarManager.get_default().register_provider(provider);
-                }
-            }
-            client.account_added.connect((object) => {
-                if (object.calendar != null) {
-                    var provider = new Singularity.Goa.GoaCalendarProvider(object);
-                    Singularity.Calendar.CalendarManager.get_default().register_provider(provider);
-                }
-            });
-        } catch (GLib.Error e) {
-            warning("Failed to initialize GOA: %s", e.message);
-        }
-    }
-
-    public void ensure_goa_calendar() {
-        init_goa.begin();
+    public void ensure_online_calendars() {
+        Singularity.Calendar.AccountCalendars.register_all(Singularity.Calendar.CalendarManager.get_default());
     }
 
     private void sync_screen_keyboard() {
@@ -809,6 +843,17 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         }
     }
 
+    private void watch_tile_detail(Singularity.QuickTile tile) {
+        tile.detail_page_requested.connect(() => {
+            if (sidebar != null) return;
+            ensure_sidebar();
+            Idle.add(() => {
+                tile.open_detail_page();
+                return Source.REMOVE;
+            });
+        });
+    }
+
     private void ensure_sidebar() {
         if (sidebar == null) {
             sidebar = new Singularity.Sidebar(this);
@@ -938,23 +983,36 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             secondary_overviews.foreach((p, ov) => {
                 if (ov.showing) ov.toggle();
             });
-            if (overview == null) {
-                overview = new Singularity.Overview(this, panel);
-                overview.shown.connect(() => {
-                    set_tiling_layout_hold(overview, true);
-                    if (panel != null) panel.set_overview_mode(true);
-                    if (dock != null) dock.set_overview_mode(true);
-                });
-                overview.hiding.connect(() => {
-                    if (panel != null) panel.set_overview_mode(false);
-                    if (dock != null) dock.set_overview_mode(false);
-                });
-                overview.hidden.connect(() => {
-                    set_tiling_layout_hold(overview, false);
-                });
-            }
+            ensure_overview();
             overview.toggle();
         }
+    }
+
+    private void ensure_overview() {
+        if (overview != null) return;
+        overview = new Singularity.Overview(this, panel);
+        overview.shown.connect(() => {
+            set_tiling_layout_hold(overview, true);
+            if (panel != null) panel.set_overview_mode(true);
+            if (dock != null) dock.set_overview_mode(true);
+        });
+        overview.hiding.connect(() => {
+            if (panel != null) panel.set_overview_mode(false);
+            if (dock != null) dock.set_overview_mode(false);
+        });
+        overview.hidden.connect(() => {
+            set_tiling_layout_hold(overview, false);
+        });
+    }
+
+    private void prebuild_overview() {
+        var surfaces = Singularity.ShellSurfaceRegistry.get_default();
+        if (surfaces.claimant(Singularity.ShellRole.OVERVIEW) != null
+                || surfaces.claimant(Singularity.ShellRole.LAUNCHER) != null)
+            return;
+        if (settings.get_string("app-launcher-mode") == "menu") return;
+        ensure_overview();
+        overview.prebuild();
     }
 
     private void hide_overview() {
@@ -1098,6 +1156,13 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             cancelled != 0, committed != 0);
     }
 
+    private bool desktop_gesture_fingers(uint32 fingers) {
+        if (!settings.get_boolean("gestures-enabled")) return false;
+        string mode = settings.get_string("gesture-fingers");
+        if (mode == "both") return fingers == 3 || fingers == 4;
+        return fingers.to_string() == mode;
+    }
+
     private Singularity.Overview? get_showing_launcher_overview() {
         if (overview != null && overview.showing) return overview;
         Singularity.Overview? found = null;
@@ -1110,21 +1175,22 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     private void handle_desktop_gesture(uint32 phase, uint32 fingers,
             uint32 direction,
             double dx, double dy, bool cancelled, bool committed) {
-        if (fingers == 4 && (direction == 1 || direction == 2)) {
+        bool desktop = desktop_gesture_fingers(fingers);
+        if (fingers == 3 && (direction == 1 || direction == 2)) {
+            tiling_manager.handle_scrolling_gesture(phase, dx, cancelled);
+            return;
+        }
+        if (desktop && (direction == 1 || direction == 2)) {
             foreach (var feedback in workspace_switch_feedbacks.values) {
                 feedback.handle_gesture(phase, direction, dx, cancelled, committed);
             }
             return;
         }
-        if (fingers == 3 && (direction == 1 || direction == 2)) {
-            tiling_manager.handle_scrolling_gesture(phase, dx, cancelled);
-            return;
-        }
-        if (fingers == 3 && direction == 4) {
+        if (fingers == 3 && direction == 4 && !desktop) {
             if (tiling_manager.handle_close_gesture(phase, dy, cancelled,
                     committed)) return;
         }
-        if (fingers != 4 || (direction != 3 && direction != 4)) return;
+        if (!desktop || (direction != 3 && direction != 4)) return;
         if (phase == 0) {
             gesture_workspace_claim = Singularity.ShellSurfaceRegistry.get_default()
                 .claimant(Singularity.ShellRole.WORKSPACES);
@@ -1171,7 +1237,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             else if (gesture_launcher_overview != null)
                 gesture_launcher_overview.update_gesture(dy);
             else {
-                foreach (var ws_overview in gesture_workspace_overviews) ws_overview.update_gesture(dy);
+                foreach (var ws_overview in gesture_workspace_overviews) ws_overview.update_gesture(dy, dx);
             }
         } else if (phase == 2) {
             bool commit = !cancelled && committed;
@@ -1215,6 +1281,10 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         if (panel != null) panel.play_intro();
         if (dock != null) dock.play_intro();
         foreach (var bg in backgrounds) bg.play_intro();
+        GLib.Timeout.add_seconds(2, () => {
+            prebuild_overview();
+            return GLib.Source.REMOVE;
+        });
     }
 
     private void setup_backgrounds() {
@@ -1265,6 +1335,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             color_name = hex;
         }
         Singularity.Style.StyleManager.get_default().apply_accent_color(color_name, wallpaper_path);
+        apply_icon_theme();
         // Sync to org.gnome.desktop.interface so GTK4/libadwaita apps pick up the accent color.
         // Wallpaper-derived and custom colors have no named equivalent; skip syncing.
         if (color_name != "wallpaper" && !color_name.has_prefix("#")) {
@@ -1436,6 +1507,16 @@ window.inactive.shadow.color: %s
         sidebar.open_page(page);
     }
 
+    public async void warm_settings_index() {
+        ensure_sidebar();
+        if (settings.get_boolean("settings-in-window")) {
+            ensure_settings_window();
+            yield settings_window.get_settings_view().warm_search_index();
+            return;
+        }
+        yield sidebar.get_settings_view().warm_search_index();
+    }
+
     public Gee.List<Singularity.SettingsEntry> settings_entries() {
         ensure_sidebar();
         if (settings.get_boolean("settings-in-window")) {
@@ -1464,6 +1545,31 @@ window.inactive.shadow.color: %s
         }
         ensure_sidebar();
         sidebar.open_app_details(info);
+    }
+
+    public string snapshot_component(string name) throws IOError {
+        Gtk.Widget? w = null;
+        if (name == "panel") w = panel;
+        else if (name == "dock") w = dock;
+        else if (name == "background" && backgrounds.length() > 0) w = backgrounds.nth_data(0);
+        if (w == null || !w.get_mapped() || w.get_width() <= 0 || w.get_height() <= 0) return "";
+        var native = w.get_native();
+        if (native == null || native.get_renderer() == null) return "";
+        int scale = w.get_scale_factor();
+        int width = w.get_width();
+        int height = w.get_height();
+        var paintable = new Gtk.WidgetPaintable(w);
+        var snap = new Gtk.Snapshot();
+        snap.scale(scale, scale);
+        paintable.snapshot(snap, width, height);
+        var node = snap.to_node();
+        if (node == null) return "";
+        var bounds = Graphene.Rect().init(0, 0, width * scale, height * scale);
+        var texture = native.get_renderer().render_texture(node, bounds);
+        string path = GLib.Path.build_filename(GLib.Environment.get_user_runtime_dir(),
+            "singularity-%s-snapshot.png".printf(name));
+        if (!texture.save_to_png(path)) return "";
+        return path;
     }
 
     public void open_app_settings(string app_id) throws IOError {
@@ -1689,40 +1795,48 @@ window.inactive.shadow.color: %s
         });
     }
 
+    private void sync_file_history() {
+        bool enabled = settings.get_boolean(Singularity.Runtime.FILE_HISTORY_KEY);
+        var source = GLib.SettingsSchemaSource.get_default();
+        var schema = source != null ? source.lookup("org.gnome.desktop.privacy", true) : null;
+        if (schema != null && schema.has_key("remember-recent-files")) {
+            var privacy = new GLib.Settings.full(schema, null, null);
+            if (privacy.get_boolean("remember-recent-files") != enabled)
+                privacy.set_boolean("remember-recent-files", enabled);
+        }
+        var gtk_settings = Gtk.Settings.get_default();
+        if (gtk_settings != null) gtk_settings.gtk_recent_files_enabled = enabled;
+    }
+
     private bool _autostart_done = false;
 
-    // Launch the .desktop entries in ~/.config/autostart that the Autostart
-    // settings page writes. should_show() honours Hidden, TryExec and
-    // OnlyShowIn/NotShowIn; X-GNOME-Autostart-enabled=false opts an entry out.
     private void launch_autostart_apps() {
         if (_autostart_done) return;
         _autostart_done = true;
-        string dir = GLib.Path.build_filename(
-            GLib.Environment.get_user_config_dir(), "autostart");
-        GLib.Dir d;
-        try {
-            d = GLib.Dir.open(dir, 0);
-        } catch (GLib.Error e) {
-            return;
-        }
-        string? name;
-        while ((name = d.read_name()) != null) {
-            if (!name.has_suffix(".desktop")) continue;
-            string path = GLib.Path.build_filename(dir, name);
+        var manager = new Singularity.AutostartManager();
+        foreach (var path in manager.launchable_entries()) {
             var info = new GLib.DesktopAppInfo.from_filename(path);
-            if (info == null || !info.should_show()) continue;
-            var kf = new GLib.KeyFile();
-            try {
-                kf.load_from_file(path, GLib.KeyFileFlags.NONE);
-                if (kf.has_key("Desktop Entry", "X-GNOME-Autostart-enabled")
-                        && !kf.get_boolean("Desktop Entry", "X-GNOME-Autostart-enabled"))
-                    continue;
-            } catch (GLib.Error e) {}
+            if (info == null) continue;
             try {
                 info.launch(null, null);
             } catch (GLib.Error e) {
-                warning("autostart: failed to launch %s: %s", name, e.message);
+                warning("autostart: failed to launch %s: %s", path, e.message);
             }
+        }
+    }
+
+    private void launch_first_run_tour() {
+        var schema = GLib.SettingsSchemaSource.get_default()?.lookup("dev.sinty.desktop", true);
+        if (schema == null || !schema.has_key("show-tour")) return;
+        var settings = new GLib.Settings("dev.sinty.desktop");
+        if (!settings.get_boolean("show-tour")) return;
+        var info = new GLib.DesktopAppInfo("dev.sinty.tour.desktop");
+        if (info == null) return;
+        settings.set_boolean("show-tour", false);
+        try {
+            info.launch(null, null);
+        } catch (GLib.Error e) {
+            warning("tour: %s", e.message);
         }
     }
 
@@ -1781,33 +1895,17 @@ window.inactive.shadow.color: %s
         }
 
         try {
-            string path = GLib.Path.build_filename(GLib.Environment.get_home_dir(), ".xsettingsd");
-            string body = "";
-            string existing = "";
-            if (GLib.FileUtils.test(path, FileTest.EXISTS)
-                    && GLib.FileUtils.get_contents(path, out existing)) {
-                foreach (string line in existing.split("\n")) {
-                    string clean = line.strip();
-                    if (clean == "" || clean.has_prefix("Gtk/FontName")
-                            || clean.has_prefix("Xft/Antialias")
-                            || clean.has_prefix("Xft/Hinting")
-                            || clean.has_prefix("Xft/HintStyle")
-                            || clean.has_prefix("Xft/RGBA")
-                            || clean.has_prefix("Xft/Lcdfilter")
-                            || clean.has_prefix("Xft/DPI")) continue;
-                    body += line + "\n";
-                }
-            }
             string escaped_font = font_name.replace("\\", "\\\\").replace("\"", "\\\"");
-            body += "Gtk/FontName \"%s\"\n".printf(escaped_font);
-            body += "Xft/Antialias %d\n".printf(antialias_value);
-            body += "Xft/Hinting %d\n".printf(hinting_value);
-            body += "Xft/HintStyle \"%s\"\n".printf(hintstyle);
-            body += "Xft/RGBA \"%s\"\n".printf(rgba);
-            body += "Xft/Lcdfilter \"lcddefault\"\n";
-            body += "Xft/DPI %d\n".printf(xsettings_dpi);
-            GLib.FileUtils.set_contents(path, body);
-            Process.spawn_command_line_async("/bin/sh -c 'pkill -HUP xsettingsd || xsettingsd'");
+            Singularity.XSettingsDaemon.get_default().update(
+                { "Gtk/FontName", "Xft/Antialias", "Xft/Hinting", "Xft/HintStyle",
+                  "Xft/RGBA", "Xft/Lcdfilter", "Xft/DPI" },
+                { "Gtk/FontName \"%s\"".printf(escaped_font),
+                  "Xft/Antialias %d".printf(antialias_value),
+                  "Xft/Hinting %d".printf(hinting_value),
+                  "Xft/HintStyle \"%s\"".printf(hintstyle),
+                  "Xft/RGBA \"%s\"".printf(rgba),
+                  "Xft/Lcdfilter \"lcddefault\"",
+                  "Xft/DPI %d".printf(xsettings_dpi) });
         } catch (GLib.Error e) {
             warning("x font settings: failed to update xsettingsd: %s", e.message);
         }
@@ -1858,9 +1956,29 @@ window.inactive.shadow.color: %s
         }
     }
 
+    private static string cursor_search_path() {
+        string[] dirs = {
+            GLib.Path.build_filename(GLib.Environment.get_user_data_dir(), "icons"),
+            GLib.Path.build_filename(GLib.Environment.get_home_dir(), ".icons")
+        };
+        foreach (unowned string d in GLib.Environment.get_system_data_dirs())
+            dirs += GLib.Path.build_filename(d, "icons");
+        dirs += "/usr/share/icons";
+        dirs += "/usr/share/pixmaps";
+        var seen = new GLib.GenericSet<string>(str_hash, str_equal);
+        string[] unique = {};
+        foreach (string d in dirs) {
+            if (seen.contains(d)) continue;
+            seen.add(d);
+            unique += d;
+        }
+        return string.joinv(":", unique);
+    }
+
     private void apply_cursor_theme() {
         string theme = settings.get_string("cursor-theme");
         if (theme == "") return;
+        GLib.Environment.set_variable("XCURSOR_PATH", cursor_search_path(), true);
 
         var gtk_settings = Gtk.Settings.get_default();
         if (gtk_settings != null) gtk_settings.gtk_cursor_theme_name = theme;
@@ -1877,18 +1995,8 @@ window.inactive.shadow.color: %s
         GLib.Environment.set_variable("XCURSOR_THEME", theme, true);
 
         try {
-            string path = GLib.Path.build_filename(GLib.Environment.get_home_dir(), ".xsettingsd");
-            string body = "";
-            string existing = "";
-            if (GLib.FileUtils.test(path, FileTest.EXISTS) && GLib.FileUtils.get_contents(path, out existing)) {
-                foreach (string line in existing.split("\n")) {
-                    if (line.strip() == "" || line.has_prefix("Gtk/CursorThemeName")) continue;
-                    body += line + "\n";
-                }
-            }
-            body += "Gtk/CursorThemeName \"%s\"\n".printf(theme);
-            GLib.FileUtils.set_contents(path, body);
-            Process.spawn_command_line_async("pkill -HUP xsettingsd");
+            Singularity.XSettingsDaemon.get_default().update(
+                { "Gtk/CursorThemeName" }, { "Gtk/CursorThemeName \"%s\"".printf(theme) });
         } catch (GLib.Error e) {
             warning("cursor theme: failed to update xsettingsd: %s", e.message);
         }
@@ -1915,12 +2023,13 @@ window.inactive.shadow.color: %s
                 foreach (string line in existing.split("\n")) {
                     string s = line.strip();
                     if (s == "" || s.has_prefix("XCURSOR_THEME") ||
-                        s.has_prefix("XCURSOR_SIZE")) continue;
+                        s.has_prefix("XCURSOR_SIZE") || s.has_prefix("XCURSOR_PATH")) continue;
                     body += line + "\n";
                 }
             }
             body += "XCURSOR_THEME=%s\n".printf(theme);
             body += "XCURSOR_SIZE=%d\n".printf(cursor_size);
+            body += "XCURSOR_PATH=%s\n".printf(cursor_search_path());
             GLib.FileUtils.set_contents(env_path, body);
             Process.spawn_command_line_async("labwc --reconfigure");
         } catch (GLib.Error e) {
@@ -1947,6 +2056,7 @@ window.inactive.shadow.color: %s
     private void apply_icon_theme() {
         string theme = settings.get_string("icon-theme");
         if (theme == "") return;
+        theme = Singularity.Style.StyleManager.resolve_icon_theme(theme);
 
         var gtk_settings = Gtk.Settings.get_default();
         if (gtk_settings != null) gtk_settings.gtk_icon_theme_name = theme;
@@ -1959,18 +2069,8 @@ window.inactive.shadow.color: %s
         }
 
         try {
-            string path = GLib.Path.build_filename(GLib.Environment.get_home_dir(), ".xsettingsd");
-            string body = "";
-            string existing = "";
-            if (GLib.FileUtils.test(path, FileTest.EXISTS) && GLib.FileUtils.get_contents(path, out existing)) {
-                foreach (string line in existing.split("\n")) {
-                    if (line.strip() == "" || line.has_prefix("Net/IconThemeName")) continue;
-                    body += line + "\n";
-                }
-            }
-            body += "Net/IconThemeName \"%s\"\n".printf(theme);
-            GLib.FileUtils.set_contents(path, body);
-            Process.spawn_command_line_async("pkill -HUP xsettingsd");
+            Singularity.XSettingsDaemon.get_default().update(
+                { "Net/IconThemeName" }, { "Net/IconThemeName \"%s\"".printf(theme) });
         } catch (GLib.Error e) {
             warning("icon theme: failed to update xsettingsd: %s", e.message);
         }
@@ -2040,21 +2140,10 @@ window.inactive.shadow.color: %s
         }
 
         // 2. XSettings: Support for XWayland and older apps
-        string xsettings_conf = GLib.Path.build_filename(GLib.Environment.get_home_dir(), ".xsettingsd");
-        string content = "Gtk/ShellShowsMenubar %d\n".printf(gtk_menu_enabled ? 1 : 0);
         try {
-            string body = "";
-            if (FileUtils.test(xsettings_conf, FileTest.EXISTS)) {
-                string current_content;
-                FileUtils.get_contents(xsettings_conf, out current_content);
-                foreach (string line in current_content.split("\n")) {
-                    if (line.strip() == "" || line.has_prefix("Gtk/ShellShowsMenubar")) continue;
-                    body += line + "\n";
-                }
-            }
-            FileUtils.set_contents(xsettings_conf, body + content);
-
-            Process.spawn_command_line_async("/bin/sh -c 'pkill -HUP xsettingsd || xsettingsd'");
+            Singularity.XSettingsDaemon.get_default().update(
+                { "Gtk/ShellShowsMenubar" },
+                { "Gtk/ShellShowsMenubar %d".printf(gtk_menu_enabled ? 1 : 0) });
         } catch (GLib.Error e) {
             warning("Could not configure xsettingsd: %s", e.message);
         }
@@ -2141,7 +2230,10 @@ window.inactive.shadow.color: %s
             printerr("Failed to setup logging: %s\n", e.message);
         }
         string host_bus_socket = "/run/host/run/dbus/system_bus_socket";
-        if (FileUtils.test(host_bus_socket, FileTest.EXISTS)) {
+        string? system_bus_override = Environment.get_variable("SINGULARITY_SYSTEM_BUS");
+        if (system_bus_override != null && system_bus_override != "") {
+            Environment.set_variable("DBUS_SYSTEM_BUS_ADDRESS", system_bus_override, true);
+        } else if (FileUtils.test(host_bus_socket, FileTest.EXISTS)) {
             Environment.set_variable("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=" + host_bus_socket, true);
         }
         if (Environment.get_variable("GSETTINGS_SCHEMA_DIR") == null) {

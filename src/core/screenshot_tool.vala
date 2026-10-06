@@ -16,6 +16,9 @@ namespace Singularity {
         private string _active_mode = "screen";
         private Gtk.Entry _delay_entry;
         private Gtk.Switch _cursor_switch;
+        private Gtk.Switch _audio_switch;
+        private ScreenRecordingRequest? _last_recording = null;
+        private GLib.Subprocess? _region_picker = null;
         private ulong screenshot_handler_id = 0;
         private bool _pending_region = false;
         private bool _pending_window = false;
@@ -168,10 +171,34 @@ namespace Singularity {
             cursor_box.append(_cursor_switch);
             row.append(cursor_box);
 
+            var audio_box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 8);
+            audio_box.valign = Gtk.Align.CENTER;
+            var audio_icon = new Gtk.Image.from_icon_name("audio-volume-high-symbolic");
+            audio_box.append(audio_icon);
+            _audio_switch = new Gtk.Switch();
+            _audio_switch.active = false;
+            _audio_switch.valign = Gtk.Align.CENTER;
+            _audio_switch.tooltip_text = _("Record system audio");
+            audio_box.append(_audio_switch);
+            row.append(audio_box);
+
             var mgr = SystemMonitor.get_default().notifications;
             mgr.action_invoked.connect((id, action) => {
                 _handle_notification_action(id, action);
             });
+
+            var recorder = ScreenRecorder.get_default();
+            recorder.finished.connect(_notify_recording_saved);
+            recorder.failed.connect(_notify_recording_failed);
+        }
+
+        public override void open_dialog() {
+            var recorder = ScreenRecorder.get_default();
+            if (recorder.busy) {
+                recorder.stop();
+                return;
+            }
+            base.open_dialog();
         }
 
         private Gtk.Button make_mode_button(string icon, string tooltip, string mode) {
@@ -322,42 +349,177 @@ namespace Singularity {
         }
 
         private void on_video_clicked() {
+            int delay_secs = current_delay();
+            string mode = _active_mode;
             hide();
-            _start_screencast();
-        }
 
-        private void _start_screencast() {
-            _start_screencast_async.begin();
-        }
-
-        private async void _start_screencast_async() {
-            string? found = Environment.find_program_in_path("wf-recorder");
-            if (found != null) {
-                try {
-                    var now = new DateTime.now_local();
-                    string out_path = Environment.get_home_dir()
-                        + "/Videos/Recording %s.mp4".printf(now.format("%Y-%m-%d %H-%M-%S"));
-                    Process.spawn_async(null,
-                        {"wf-recorder", "-f", out_path},
-                        null, SpawnFlags.SEARCH_PATH, null, null);
-                    var mgr = SystemMonitor.get_default().notifications;
-                    mgr.notify("Screenshot Tool", 0, "media-record-symbolic",
-                        "Screen Recording", "Recording started", {},
-                        new HashTable<string, Variant>(str_hash, str_equal), -1);
-                } catch (Error e) {
-                    warning("[ScreenshotTool] wf-recorder failed: %s", e.message);
-                }
+            if (mode == "region") {
+                _pick_recording_region(delay_secs);
                 return;
             }
+
+            var request = mode == "window" ? _window_recording_request() : _screen_recording_request();
+            if (request == null) {
+                _notify_recording_failed(_("Could not find the screen to record."));
+                return;
+            }
+            _start_recording_after(request, delay_secs);
+        }
+
+        private void _start_recording_after(ScreenRecordingRequest request, int delay_secs) {
+            request.cursor = _cursor_switch.active;
+            request.audio = _audio_switch.active;
+            _last_recording = request;
+            if (delay_secs > 0) {
+                GLib.Timeout.add_seconds(delay_secs, () => {
+                    ScreenRecorder.get_default().start(request);
+                    return GLib.Source.REMOVE;
+                });
+            } else {
+                ScreenRecorder.get_default().start(request);
+            }
+        }
+
+        private ScreenRecordingRequest? _screen_recording_request() {
+            if (_target_monitor == null) return null;
+            var request = new ScreenRecordingRequest();
+            request.output = _target_monitor.get_connector();
+            var geo = _target_monitor.get_geometry();
+            request.output_width = geo.width;
+            request.output_height = geo.height;
+            return request.output != null ? request : null;
+        }
+
+        private ScreenRecordingRequest? _window_recording_request() {
+            void* handle = focused_handle;
+            if (handle == null) return _screen_recording_request();
+
+            int x, y, w, h, maximized, fullscreen;
+            string? connector;
+            bool got_geometry = Singularity.wayland_get_window_geometry(handle,
+                out x, out y, out w, out h, out maximized, out fullscreen, out connector);
+
+            Gdk.Monitor? monitor = got_geometry ? monitor_for_connector(connector) : null;
+            if (monitor == null && got_geometry && w > 0 && h > 0) monitor = monitor_for_geometry(x, y, w, h);
+            if (monitor == null) monitor = _target_monitor;
+            if (monitor == null) return null;
+
+            var request = new ScreenRecordingRequest();
+            request.output = monitor.get_connector();
+            var geo = monitor.get_geometry();
+            request.output_width = geo.width;
+            request.output_height = geo.height;
+            if (got_geometry && w > 0 && h > 0) {
+                request.crop_x = x - geo.x;
+                request.crop_y = y - geo.y;
+                request.crop_width = w;
+                request.crop_height = h;
+            }
+
+            var win = AppSystem.get_default().get_window_by_handle(handle);
+            if (win != null) {
+                request.window_app_id = win.app_id;
+                request.window_title = win.title;
+            }
+            return request.output != null ? request : null;
+        }
+
+        private void _pick_recording_region(int delay_secs) {
+            if (_region_picker != null) return;
+            string helper = AppSystem.resolve_companion_bin("singularity-region-picker");
+            GLib.Subprocess picker;
+            try {
+                picker = new GLib.Subprocess(
+                    GLib.SubprocessFlags.STDOUT_PIPE | GLib.SubprocessFlags.STDERR_SILENCE, helper);
+            } catch (Error e) {
+                _notify_recording_failed(_("Could not open the region selector: %s").printf(e.message));
+                return;
+            }
+            _region_picker = picker;
+            picker.communicate_utf8_async.begin(null, null, (obj, res) => {
+                string? output = null;
+                try {
+                    picker.communicate_utf8_async.end(res, out output, null);
+                } catch (Error e) {
+                    output = null;
+                }
+                _region_picker = null;
+                if (!picker.get_if_exited() || picker.get_exit_status() != 0 || output == null) return;
+
+                int x, y, w, h;
+                if (!_parse_region(output, out x, out y, out w, out h)) {
+                    _notify_recording_failed(_("The selected region is not valid."));
+                    return;
+                }
+                var monitor = monitor_for_geometry(x, y, w, h);
+                if (monitor == null || monitor.get_connector() == null) {
+                    _notify_recording_failed(_("Could not find the screen to record."));
+                    return;
+                }
+                var geo = monitor.get_geometry();
+                var request = new ScreenRecordingRequest();
+                request.output = monitor.get_connector();
+                request.output_width = geo.width;
+                request.output_height = geo.height;
+                request.crop_x = x - geo.x;
+                request.crop_y = y - geo.y;
+                request.crop_width = w;
+                request.crop_height = h;
+                _start_recording_after(request, delay_secs);
+            });
+        }
+
+        private bool _parse_region(string value, out int x, out int y, out int width, out int height) {
+            x = y = width = height = 0;
+            string[] fields = value.strip().split(" ");
+            if (fields.length != 2) return false;
+            string[] position = fields[0].split(",");
+            string[] size = fields[1].split("x");
+            if (position.length != 2 || size.length != 2) return false;
+            return int.try_parse(position[0], out x)
+                && int.try_parse(position[1], out y)
+                && int.try_parse(size[0], out width)
+                && int.try_parse(size[1], out height)
+                && width > 0 && height > 0;
+        }
+
+        private void _notify_recording_saved(string path, string[] warnings) {
             var mgr = SystemMonitor.get_default().notifications;
-            mgr.notify("Screenshot Tool", 0, "media-record-symbolic",
-                "Screen Recording", "Install wf-recorder for screen recording",
-                {}, new HashTable<string, Variant>(str_hash, str_equal), -1);
+            string body = _("Saved as %s").printf(GLib.Path.get_basename(path));
+            foreach (var w in warnings) body += "\n" + w;
+            string[] actions = { "open", _("Open"), "show", _("Show in Files"), "share", _("Share") };
+            uint nid = mgr.notify(_("Screen Recording"), 0, "camera-video-symbolic",
+                _("Screen Recording Saved"), body, actions,
+                new HashTable<string, Variant>(str_hash, str_equal), -1);
+            _screenshot_notification_actions.set(nid, path);
+        }
+
+        private void _notify_recording_failed(string message) {
+            var mgr = SystemMonitor.get_default().notifications;
+            var hints = new HashTable<string, Variant>(str_hash, str_equal);
+            hints.insert("urgency", new Variant.byte(2));
+            mgr.notify(_("Screen Recording"), 0, "dialog-error-symbolic",
+                _("Screen Recording Failed"), message, {}, hints, -1);
+            warning("[ScreenshotTool] recording failed: %s", message);
+
+            var app = application as Gtk.Application;
+            if (app == null || !mgr.do_not_disturb_active) return;
+            var retry = _last_recording;
+            new PowerConfirmDialog(
+                app,
+                _("Screen Recording Failed"),
+                "camera-video-symbolic",
+                message,
+                _("Try Again"),
+                () => {
+                    if (retry != null) ScreenRecorder.get_default().start(retry);
+                }
+            ).open_dialog();
         }
 
         private void _notify_screenshot(string msg, string? file_path) {
             var mgr = SystemMonitor.get_default().notifications;
-            string icon = file_path ?? "accessories-screenshot-symbolic";
+            string icon = file_path ?? "accessories-screenshot";
             string[] actions = {};
             string? saved_path = null;
             if (file_path != null) {
@@ -365,10 +527,16 @@ namespace Singularity {
             }
             string open_path = saved_path ?? file_path;
             if (open_path != null) {
+                actions += "default";
+                actions += _("Markup");
+                actions += "markup";
+                actions += _("Markup");
                 actions += "open";
                 actions += "Open";
                 actions += "show";
                 actions += "Show in Files";
+                actions += "share";
+                actions += _("Share");
                 icon = open_path;
             }
             uint nid = mgr.notify("Screenshot", 0, icon,
@@ -380,9 +548,11 @@ namespace Singularity {
         private void _handle_notification_action(uint id, string action) {
             string? path = _screenshot_notification_actions.get(id);
             if (path == null) return;
-            if (action == "open") {
+            if (action == "markup" || action == "default") {
+                open_markup(path);
+            } else if (action == "open") {
                 try {
-                    AppInfo.launch_default_for_uri("file://" + path, null);
+                    AppInfo.launch_default_for_uri(File.new_for_path(path).get_uri(), null);
                 } catch (Error e) {
                     warning("[ScreenshotTool] Failed to open: %s", e.message);
                 }
@@ -397,8 +567,20 @@ namespace Singularity {
                 } catch (Error e) {
                     warning("[ScreenshotTool] Failed to show in files: %s", e.message);
                 }
+            } else if (action == "share") {
+                Singularity.ShareTargets.activate_app_action.begin("dev.sinty.files", "share-files",
+                    new Variant.strv({ File.new_for_path(path).get_uri() }));
             }
             _screenshot_notification_actions.remove(id);
+        }
+
+        public static void open_markup(string path) {
+            string helper = AppSystem.resolve_companion_bin("singularity-markup");
+            try {
+                new GLib.Subprocess.newv({ helper, "--in-place", path }, GLib.SubprocessFlags.NONE);
+            } catch (Error e) {
+                warning("[ScreenshotTool] could not open Markup: %s", e.message);
+            }
         }
 
         private bool _show_item_in_files(File file) {

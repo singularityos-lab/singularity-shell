@@ -5,136 +5,226 @@ namespace Singularity {
 
     public class NotificationCenter : Box {
         private Box list_box;
-        private Label empty_label;
+        private Singularity.Widgets.StatusPage empty_label;
+        private Singularity.Animation.ListAnimator animator;
+        private Gee.HashMap<string, Widget> _rows = new Gee.HashMap<string, Widget>();
+        private Gee.HashMap<string, string> _signatures = new Gee.HashMap<string, string>();
+        private Gee.HashSet<string> _expanded = new Gee.HashSet<string>();
+        private FocusBanner focus_banner;
 
         public NotificationCenter() {
             Object(orientation: Orientation.VERTICAL, spacing: 0);
             add_css_class("notification-center");
 
-            // Notification List
+            focus_banner = new FocusBanner();
+            focus_banner.margin_start = 16;
+            focus_banner.margin_end = 16;
+            focus_banner.margin_top = 10;
+            append(focus_banner);
+
             list_box = new Box(Orientation.VERTICAL, 10);
             list_box.margin_start = 16;
             list_box.margin_end = 16;
             list_box.margin_bottom = 20;
             list_box.margin_top = 10;
             append(list_box);
+            animator = new Singularity.Animation.ListAnimator(list_box);
 
-            // Empty State
-            empty_label = new Label(_("No new notifications"));
-            empty_label.add_css_class("dim-label");
+            empty_label = new Singularity.Widgets.StatusPage();
+            empty_label.compact = true;
+            empty_label.icon_name = "preferences-system-notifications-symbolic";
+            empty_label.title = _("No New Notifications");
+            empty_label.description = _("Messages from your apps will appear here.");
             empty_label.vexpand = true;
-            empty_label.valign = Align.CENTER;
-            empty_label.halign = Align.CENTER;
             empty_label.margin_bottom = 30;
             append(empty_label);
 
             var manager = SystemMonitor.get_default().notifications;
-            manager.history_changed.connect(update_list);
+            ulong h = manager.history_changed.connect(update_list);
+            destroy.connect(() => manager.disconnect(h));
             update_list();
         }
 
+        private static string signature(Gee.List<unowned Notification> items, bool expanded) {
+            var sb = new StringBuilder(expanded ? "e" : "c");
+            foreach (var n in items) sb.append_printf(":%u", n.id);
+            return sb.str;
+        }
+
         private void update_list() {
-            var child = list_box.get_first_child();
-            while (child != null) {
-                var next = child.get_next_sibling();
-                list_box.remove(child);
-                child = next;
-            }
-
             unowned var history = SystemMonitor.get_default().notifications.get_history();
-
-            if (history.length() == 0) {
-                list_box.visible = false;
-                empty_label.visible = true;
-                return;
+            var order = new Gee.ArrayList<string>();
+            var groups = new Gee.HashMap<string, Gee.ArrayList<unowned Notification>>();
+            foreach (unowned Notification notif in history) {
+                string key = notif.group_key;
+                if (!groups.has_key(key)) {
+                    groups[key] = new Gee.ArrayList<unowned Notification>();
+                    order.add(key);
+                }
+                groups[key].add(notif);
             }
 
+            empty_label.visible = order.size == 0;
             list_box.visible = true;
-            empty_label.visible = false;
 
-            // Group notifications by app_name, preserving insertion order
-            var seen_apps = new GLib.List<string>();
-            foreach (var notif in history) {
-                bool found = false;
-                foreach (var name in seen_apps) {
-                    if (name == notif.app_name) { found = true; break; }
-                }
-                if (!found) seen_apps.append(notif.app_name);
+            var gone = new Gee.ArrayList<string>();
+            foreach (string key in _rows.keys) {
+                if (!groups.has_key(key)) gone.add(key);
+            }
+            foreach (string key in gone) {
+                var row = _rows[key];
+                _rows.unset(key);
+                _signatures.unset(key);
+                _expanded.remove(key);
+                animator.remove(row, () => {
+                    if (row.get_parent() == list_box) list_box.remove(row);
+                });
             }
 
-            foreach (var app_name in seen_apps) {
-                var group = new GLib.List<unowned Notification>();
-                foreach (var notif in history) {
-                    if (notif.app_name == app_name) group.append(notif);
+            Widget? previous = null;
+            foreach (string key in order) {
+                var items = groups[key];
+                string sig = signature(items, _expanded.contains(key));
+                if (_rows.has_key(key)) {
+                    var row = _rows[key];
+                    if (_signatures[key] != sig) {
+                        var bin = row as Singularity.Animation.MotionBin;
+                        if (bin != null) bin.child = build_group(key, items);
+                        _signatures[key] = sig;
+                    }
+                    if (row.get_prev_sibling() != previous) {
+                        Widget? after = previous;
+                        animator.move(() => list_box.reorder_child_after(row, after));
+                    }
+                    previous = row;
+                    continue;
                 }
-                if (group.length() == 1) {
-                    list_box.append(new NotificationItem(group.data));
-                } else {
-                    list_box.append(new NotificationGroup(app_name, group));
-                }
+                var row = Singularity.Animation.ListAnimator.wrap(build_group(key, items));
+                var swipe = new SwipeDismiss(row);
+                string group_key = key;
+                swipe.dismissed.connect(() => dismiss_group(group_key));
+                row.set_data<SwipeDismiss>("swipe-dismiss", swipe);
+                _rows[key] = row;
+                _signatures[key] = sig;
+                Widget? after = previous;
+                animator.insert(row, () => list_box.insert_child_after(row, after));
+                previous = row;
             }
+        }
+
+        private void dismiss_group(string key) {
+            unowned var manager = SystemMonitor.get_default().notifications;
+            uint[] ids = {};
+            foreach (unowned Notification notif in manager.get_history()) {
+                if (notif.group_key == key) ids += notif.id;
+            }
+            foreach (var id in ids) manager.remove_from_history(id);
+        }
+
+        private Widget build_group(string key, Gee.List<unowned Notification> items) {
+            if (items.size == 1) return new NotificationItem(items[0]);
+            var group = new NotificationStack(items, _expanded.contains(key));
+            group.toggled.connect((expanded) => {
+                if (expanded) _expanded.add(key);
+                else _expanded.remove(key);
+                _signatures[key] = signature(items, expanded);
+            });
+            return group;
         }
     }
 
-    public class NotificationGroup : Box {
-        private bool expanded = false;
+    public class FocusBanner : Box {
+        private Image icon;
+        private Label title;
+        private Label subtitle;
+
+        public FocusBanner() {
+            Object(orientation: Orientation.HORIZONTAL, spacing: 10);
+            add_css_class("focus-banner");
+            icon = new Image();
+            icon.pixel_size = 20;
+            icon.valign = Align.CENTER;
+            append(icon);
+            var labels = new Box(Orientation.VERTICAL, 2);
+            labels.hexpand = true;
+            labels.valign = Align.CENTER;
+            title = new Label("");
+            title.add_css_class("focus-banner-title");
+            title.halign = Align.START;
+            title.ellipsize = Pango.EllipsizeMode.END;
+            labels.append(title);
+            subtitle = new Label("");
+            subtitle.add_css_class("dim-label");
+            subtitle.add_css_class("caption");
+            subtitle.halign = Align.START;
+            subtitle.wrap = true;
+            subtitle.xalign = 0;
+            labels.append(subtitle);
+            append(labels);
+            var off = new Button.with_label(_("Turn Off"));
+            off.valign = Align.CENTER;
+            off.clicked.connect(() => FocusManager.get_default().deactivate());
+            append(off);
+            var focus = FocusManager.get_default();
+            ulong h = focus.changed.connect(sync);
+            destroy.connect(() => focus.disconnect(h));
+            sync();
+        }
+
+        private void sync() {
+            var state = FocusManager.get_default().state;
+            visible = state.active;
+            if (!state.active) return;
+            icon.icon_name = state.mode.icon_name;
+            title.label = _("%s Is On").printf(FocusManager.display_name(state.mode));
+            string why = state.reason == FocusReason.MANUAL ? "" : FocusManager.reason_label(state.reason) + ". ";
+            subtitle.label = why + _("Notifications arrive quietly and wait here.");
+        }
+    }
+
+    public class NotificationStack : Box {
+        public signal void toggled(bool expanded);
+        private bool expanded;
         private Revealer revealer;
         private Image expand_icon;
+        private Gtk.Widget[] fan_items = {};
 
-        public NotificationGroup(string app_name, GLib.List<unowned Notification> notifications) {
+        public NotificationStack(Gee.List<unowned Notification> notifications, bool expanded) {
             Object(orientation: Orientation.VERTICAL, spacing: 0);
+            this.expanded = expanded;
             add_css_class("notification-group");
+            add_css_class("notification-stack");
 
-            // Header row (always visible): icon + [name+preview] + count badge + clear + expand toggle
+            unowned Notification newest = notifications[0];
             var header = new Box(Orientation.HORIZONTAL, 8);
             header.add_css_class("notification-group-header");
             header.margin_top = 10;
-            header.margin_bottom = 10;
+            header.margin_bottom = 4;
             header.margin_start = 12;
             header.margin_end = 10;
 
             var icon_img = new Image();
             icon_img.pixel_size = 16;
-            load_notification_icon(icon_img, notifications.data.icon, app_name);
+            load_notification_icon(icon_img, newest.icon, newest.app_name);
             header.append(icon_img);
 
-            // Name + last notification preview in a VBox
-            var name_box = new Box(Orientation.VERTICAL, 1);
-            name_box.hexpand = true;
-            name_box.halign = Align.FILL;
-            name_box.valign = Align.CENTER;
-
-            var app_label = new Label(app_name);
+            var app_label = new Label(newest.app_name);
             app_label.add_css_class("notification-group-appname");
             app_label.halign = Align.START;
+            app_label.hexpand = true;
             app_label.ellipsize = Pango.EllipsizeMode.END;
-            name_box.append(app_label);
+            header.append(app_label);
 
-            unowned var last_notif = notifications.last().data;
-            string preview_text = last_notif.summary != "" ? last_notif.summary : last_notif.body;
-            if (preview_text != "") {
-                var preview_label = new Label(preview_text);
-                preview_label.add_css_class("notification-group-preview");
-                preview_label.halign = Align.START;
-                preview_label.ellipsize = Pango.EllipsizeMode.END;
-                preview_label.max_width_chars = 28;
-                name_box.append(preview_label);
-            }
-
-            header.append(name_box);
-
-            var count_label = new Label("%u".printf(notifications.length()));
+            var count_label = new Label("%d".printf(notifications.size));
             count_label.add_css_class("notification-group-badge");
             count_label.set_size_request(20, 20);
-            count_label.halign = Align.CENTER;
             count_label.valign = Align.CENTER;
             header.append(count_label);
 
             var clear_btn = new Button.from_icon_name("edit-clear-all-symbolic");
             clear_btn.add_css_class("flat");
             clear_btn.add_css_class("circular");
-            clear_btn.tooltip_text = _("Clear all");
-            // Collect IDs as owned primitives - never capture unowned list in closures
+            clear_btn.tooltip_text = _("Clear Stack");
             uint[] ids = {};
             foreach (var n in notifications) ids += n.id;
             clear_btn.clicked.connect(() => {
@@ -143,57 +233,103 @@ namespace Singularity {
             });
             header.append(clear_btn);
 
-            expand_icon = new Image.from_icon_name("pan-down-symbolic");
+            expand_icon = new Image.from_icon_name(expanded ? "pan-up-symbolic" : "pan-down-symbolic");
             expand_icon.pixel_size = 12;
             var expand_btn = new Button();
             expand_btn.add_css_class("flat");
             expand_btn.add_css_class("circular");
+            expand_btn.tooltip_text = expanded ? _("Show Less") : _("Show All");
             expand_btn.set_child(expand_icon);
+            expand_btn.clicked.connect(toggle_expand);
             header.append(expand_btn);
             append(header);
 
+            var summary = new Label(stack_summary(notifications));
+            summary.add_css_class("notification-stack-summary");
+            summary.add_css_class("caption");
+            summary.halign = Align.START;
+            summary.xalign = 0;
+            summary.wrap = true;
+            summary.margin_start = 36;
+            summary.margin_end = 12;
+            summary.margin_bottom = 6;
+            append(summary);
+
+            var top = new NotificationItem(newest, false);
+            top.add_css_class("notification-stack-top");
+            append(top);
+
             revealer = new Revealer();
             revealer.transition_type = RevealerTransitionType.SLIDE_DOWN;
-            revealer.reveal_child = false;
-
+            revealer.transition_duration = Singularity.Motion.Duration.MEDIUM.ms();
+            revealer.reveal_child = expanded;
             var items_box = new Box(Orientation.VERTICAL, 0);
-            var sep = new Separator(Orientation.HORIZONTAL);
-            sep.add_css_class("notification-group-sep");
-            items_box.append(sep);
-            foreach (var notif in notifications) {
-                var item = new NotificationItem(notif);
+            for (int i = 1; i < notifications.size; i++) {
+                var item = new NotificationItem(notifications[i], false);
                 item.add_css_class("notification-group-item");
-                items_box.append(item);
+                items_box.append(new Singularity.Animation.MotionBin(item));
+                fan_items += item;
             }
             revealer.set_child(items_box);
             append(revealer);
 
-            expand_btn.clicked.connect(toggle_expand);
+            if (!expanded) {
+                var edge = new Box(Orientation.VERTICAL, 0);
+                edge.add_css_class("notification-stack-edge");
+                append(edge);
+            }
 
             var click = new GestureClick();
             click.button = 1;
             click.released.connect((n, x, y) => {
                 var widget = header.pick(x, y, PickFlags.DEFAULT);
-                if (widget is Button) return;
+                if (widget is Button || (widget != null && widget.get_ancestor(typeof(Button)) != null)) return;
                 toggle_expand();
             });
             header.add_controller(click);
         }
 
+        public static string stack_summary(Gee.List<unowned Notification> notifications) {
+            var names = new Gee.ArrayList<string>();
+            int quiet = 0;
+            foreach (var n in notifications) {
+                if (n.silenced) quiet++;
+                string s = n.summary.strip();
+                if (s != "" && !names.contains(s)) names.add(s);
+            }
+            string text;
+            if (names.size == 0) {
+                text = ngettext("%d notification", "%d notifications", notifications.size).printf(notifications.size);
+            } else if (names.size <= 2) {
+                text = string.joinv(", ", names.to_array());
+            } else {
+                text = _("%s, %s and %d more").printf(names[0], names[1], names.size - 2);
+            }
+            if (quiet > 0) text += ", " + ngettext("%d delivered quietly", "%d delivered quietly", quiet).printf(quiet);
+            return text;
+        }
+
         private void toggle_expand() {
             expanded = !expanded;
             revealer.reveal_child = expanded;
+            if (expanded && fan_items.length > 0) {
+                Singularity.Motion.cascade(fan_items, Singularity.Motion.Preset.FADE_SLIDE);
+            }
             expand_icon.icon_name = expanded ? "pan-up-symbolic" : "pan-down-symbolic";
+            toggled(expanded);
         }
     }
 
     public class NotificationItem : Box {
+        private Revealer reply_revealer;
+        private Entry reply_entry;
 
-        public NotificationItem(Notification notif) {
+        public NotificationItem(Notification notif, bool card = true) {
             Object(orientation: Orientation.VERTICAL, spacing: 0);
-            add_css_class("notification-item-card");
+            if (card) add_css_class("notification-item-card");
+            else add_css_class("notification-item-plain");
+            if (notif.silenced) add_css_class("notification-quiet");
 
-            // Header: Icon + App Name + Time
             var header = new Box(Orientation.HORIZONTAL, 8);
             header.margin_top = 10;
             header.margin_start = 12;
@@ -209,6 +345,7 @@ namespace Singularity {
             app_label.add_css_class("dim-label");
             app_label.hexpand = true;
             app_label.halign = Align.START;
+            app_label.ellipsize = Pango.EllipsizeMode.END;
             header.append(app_label);
 
             var time_label = new Label(format_time(notif.timestamp));
@@ -219,13 +356,16 @@ namespace Singularity {
             var close_btn = new Button.from_icon_name("window-close-symbolic");
             close_btn.add_css_class("flat");
             close_btn.add_css_class("circular");
+            close_btn.tooltip_text = _("Dismiss");
+            uint nid = notif.id;
             close_btn.clicked.connect(() => {
-                SystemMonitor.get_default().notifications.remove_from_history(notif.id);
+                var mgr = SystemMonitor.get_default().notifications;
+                mgr.remove_from_history(nid);
+                if (!notif.restored) mgr.report_closed(nid, 2);
             });
             header.append(close_btn);
             append(header);
 
-            // Content
             var content_box = new Box(Orientation.VERTICAL, 2);
             content_box.margin_start = 12;
             content_box.margin_end = 12;
@@ -237,6 +377,7 @@ namespace Singularity {
                 summary.add_css_class("bold");
                 summary.halign = Align.START;
                 summary.wrap = true;
+                summary.wrap_mode = Pango.WrapMode.WORD_CHAR;
                 summary.xalign = 0;
                 content_box.append(summary);
             }
@@ -246,58 +387,130 @@ namespace Singularity {
                 body.add_css_class("caption");
                 body.halign = Align.START;
                 body.wrap = true;
+                body.wrap_mode = Pango.WrapMode.WORD_CHAR;
                 body.xalign = 0;
+                body.lines = 6;
+                body.ellipsize = Pango.EllipsizeMode.END;
                 content_box.append(body);
+            }
+
+            if (notif.silenced || notif.time_sensitive) {
+                var tag = new Label(notif.silenced ? _("Delivered quietly") : _("Time-sensitive"));
+                tag.add_css_class("caption");
+                tag.add_css_class(notif.silenced ? "notification-quiet-tag" : "notification-urgent-tag");
+                tag.halign = Align.START;
+                tag.margin_top = 4;
+                content_box.append(tag);
             }
             append(content_box);
 
-            // Actions
-            if (notif.actions.length > 0) {
+            var open = new GestureClick();
+            open.released.connect(() => open_notification(notif));
+            content_box.add_controller(open);
+
+            if (!notif.restored && notif.actions.length > 0) {
                 var actions_box = new Box(Orientation.HORIZONTAL, 4);
                 actions_box.homogeneous = true;
                 actions_box.margin_bottom = 8;
                 actions_box.margin_start = 8;
                 actions_box.margin_end = 8;
 
-                for (int i = 0; i < notif.actions.length; i += 2) {
-                    if (i + 1 < notif.actions.length) {
-                        string key = notif.actions[i];
-                        string label = notif.actions[i+1];
-                        if (key == "default") continue;
-
-                        var btn = new Button.with_label(label);
-                        btn.add_css_class("flat");
+                for (int i = 0; i + 1 < notif.actions.length; i += 2) {
+                    string key = notif.actions[i];
+                    string label = notif.actions[i + 1];
+                    if (key == "default") continue;
+                    var btn = new Button.with_label(label != "" ? label : _("Reply"));
+                    btn.add_css_class("flat");
+                    if (key == "inline-reply") {
+                        btn.clicked.connect(() => toggle_reply());
+                    } else {
                         btn.clicked.connect(() => {
-                            SystemMonitor.get_default().notifications.invoke_action(notif.id, key);
+                            SystemMonitor.get_default().notifications.invoke_action(nid, key);
                         });
-                        actions_box.append(btn);
                     }
+                    actions_box.append(btn);
                 }
                 if (actions_box.get_first_child() != null) {
                     append(actions_box);
                 }
             }
+
+            if (notif.has_inline_reply) {
+                reply_revealer = new Revealer();
+                reply_revealer.transition_type = RevealerTransitionType.SLIDE_DOWN;
+                reply_revealer.transition_duration = Singularity.Motion.Duration.SMALL.ms();
+                var reply_box = new Box(Orientation.HORIZONTAL, 6);
+                reply_box.add_css_class("notification-reply");
+                reply_box.margin_start = 10;
+                reply_box.margin_end = 10;
+                reply_box.margin_bottom = 10;
+                reply_entry = new Entry();
+                reply_entry.hexpand = true;
+                reply_entry.placeholder_text = notif.reply_placeholder != "" ? notif.reply_placeholder : _("Reply");
+                var send = new Button.from_icon_name("mail-send-symbolic");
+                send.add_css_class("suggested-action");
+                send.add_css_class("circular");
+                send.tooltip_text = notif.reply_submit != "" ? notif.reply_submit : _("Send");
+                send.sensitive = false;
+                reply_entry.changed.connect(() => send.sensitive = reply_entry.text.strip() != "");
+                reply_entry.activate.connect(() => send_reply(nid));
+                send.clicked.connect(() => send_reply(nid));
+                reply_box.append(reply_entry);
+                reply_box.append(send);
+                reply_revealer.set_child(reply_box);
+                append(reply_revealer);
+            }
         }
 
-        private string format_time(int64 timestamp) {
+        private void toggle_reply() {
+            if (reply_revealer == null) return;
+            reply_revealer.reveal_child = !reply_revealer.reveal_child;
+            if (reply_revealer.reveal_child) reply_entry.grab_focus();
+        }
+
+        private void send_reply(uint id) {
+            string text = reply_entry.text.strip();
+            if (text == "") return;
+            SystemMonitor.get_default().notifications.reply(id, text);
+        }
+
+        public static void open_notification(Notification notif) {
+            var mgr = SystemMonitor.get_default().notifications;
+            if (!notif.restored) {
+                for (int i = 0; i + 1 < notif.actions.length; i += 2) {
+                    if (notif.actions[i] == "default") {
+                        mgr.invoke_action(notif.id, "default");
+                        return;
+                    }
+                }
+            }
+            DesktopAppInfo? info = null;
+            if (notif.desktop_entry != "") {
+                string id = notif.desktop_entry.has_suffix(".desktop") ? notif.desktop_entry : notif.desktop_entry + ".desktop";
+                info = new DesktopAppInfo(id);
+            }
+            if (info == null) info = AppNotificationSettings.app_info(notif.app_key);
+            if (info == null) return;
+            try {
+                info.launch(null, Gdk.Display.get_default().get_app_launch_context());
+            } catch (Error e) {
+                warning("notification: could not open %s: %s", info.get_id(), e.message);
+            }
+        }
+
+        public static string format_time(int64 timestamp) {
             var now = GLib.get_real_time();
             var diff = (now - timestamp) / 1000000;
 
-            if (diff < 60) return "Just now";
-            if (diff < 3600) return "%dm ago".printf((int)(diff / 60));
-            if (diff < 86400) return "%dh ago".printf((int)(diff / 3600));
-            return "Old";
+            if (diff < 60) return _("Just now");
+            if (diff < 3600) return _("%dm ago").printf((int) (diff / 60));
+            if (diff < 86400) return _("%dh ago").printf((int) (diff / 3600));
+            var dt = new DateTime.from_unix_local(timestamp / 1000000);
+            return dt.format("%x");
         }
     }
 
-    // Resolve notification icon with fallback chain:
-    // 1. Absolute path, load from file
-    // 2. Themed icon name that exists in current theme, use it
-    // 3. Try GIO app lookup by app_name, use app's gicon
-    // 4. dialog-information-symbolic
-
     public static void load_notification_icon(Image img, string icon_str, string app_name) {
-        // 1. Absolute path
         if (icon_str.has_prefix("/")) {
             try {
                 var pixbuf = new Gdk.Pixbuf.from_file_at_scale(icon_str, 48, 48, true);
@@ -313,7 +526,6 @@ namespace Singularity {
             } catch {}
         }
 
-        // 2. Themed icon present in theme
         if (icon_str != "") {
             var theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default());
             if (theme.has_icon(icon_str)) {
@@ -322,8 +534,6 @@ namespace Singularity {
             }
         }
 
-        // 3. GIO app lookup by display name or desktop id. Match loosely so
-        //    apps that pass "TelegramDesktop" still resolve to Telegram.
         if (app_name != "") {
             string needle = app_name.down();
             string needle_compact = needle.replace(" ", "").replace("-", "").replace("_", "");
@@ -349,7 +559,6 @@ namespace Singularity {
             }
         }
 
-        // 4. Generic fallback - last resort only.
         img.icon_name = "dialog-information-symbolic";
     }
 }

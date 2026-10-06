@@ -5,10 +5,10 @@ namespace Singularity {
 
         public PowerManager power { get { if (_power == null) _power = new PowerManager(); return _power; } }
         public NetworkManagerWrapper network { get { if (_network == null) _network = new NetworkManagerWrapper(); return _network; } }
-        public AudioManager audio { get { if (_audio == null) _audio = new AudioManager(); return _audio; } }
+        public AudioManager audio { get { if (_audio == null) _audio = AudioManager.get_default(); return _audio; } }
         public BrightnessManager brightness { get { if (_brightness == null) _brightness = BrightnessManager.get_default(); return _brightness; } }
         public KbdBrightnessManager kbd_brightness { get { if (_kbd_brightness == null) _kbd_brightness = new KbdBrightnessManager(); return _kbd_brightness; } }
-        public NightLightManager night_light { get { if (_night_light == null) { _night_light = new NightLightManager(); _night_light.backend = new WaylandGammaBackend(); } return _night_light; } }
+        public NightLightManager night_light { get { if (_night_light == null) create_night_light(); return _night_light; } }
         public ShortcutManager shortcuts { get { if (_shortcuts == null) _shortcuts = new ShortcutManager(); return _shortcuts; } }
         public NotificationManager notifications { get { if (_notifications == null) _notifications = new NotificationManager(); return _notifications; } }
         public DateTimeManager datetime { get { if (_datetime == null) _datetime = new DateTimeManager(); return _datetime; } }
@@ -32,6 +32,19 @@ namespace Singularity {
         private PowerProfilesManager? _power_profiles;
         private ResourceMonitor? _resources;
         private CallMonitor? _call_monitor;
+
+        private void create_night_light() {
+            _night_light = new NightLightManager();
+            _night_light.set_ease((t) => Singularity.Motion.Curve.STANDARD.ease(t));
+            update_night_light_motion();
+            Singularity.Motion.get_default().changed.connect(update_night_light_motion);
+            _night_light.backend = new WaylandGammaBackend();
+        }
+
+        private void update_night_light_motion() {
+            var motion = Singularity.Motion.get_default();
+            _night_light.transition_ms = motion.is_reduced() ? 0 : motion.scale(Singularity.Motion.Duration.SCENE.ms());
+        }
 
         public static SystemMonitor get_default() {
             if (_instance == null) {

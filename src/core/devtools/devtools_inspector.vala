@@ -198,7 +198,7 @@ namespace Singularity {
             return entry;
         }
 
-        private static Widget enum_control (GLib.Settings settings, string key, string[] choices) {
+        private static Widget enum_control (GLib.Settings settings, string key, owned string[] choices) {
             var model = new StringList (choices);
             var dd = new DropDown (model, null);
             string cur = settings.get_string (key);

@@ -36,6 +36,7 @@ namespace Singularity {
         public signal void toggle_settings();
         public signal void hide_sidebar();
         public signal void open_settings_page(string page_name);
+        public signal void open_detail_page(string title, Widget page);
         private bool _bri_updating = false;
         private bool _kbd_updating = false;
         private ExtremeModeManager _extreme_mgr;
@@ -52,13 +53,14 @@ namespace Singularity {
         public SystemView() {
             Object(orientation: Orientation.VERTICAL, spacing: 0);
             _extreme_mgr = ExtremeModeManager.get_default();
-            var header = new Box(Orientation.HORIZONTAL, 12);
+            var header = new Box(Orientation.HORIZONTAL, 6);
             header.add_css_class("page-header");
             var batt_box = new Box(Orientation.HORIZONTAL, 8);
             var batt_icon = new Image.from_icon_name("battery-full-symbolic");
             var batt_label = new Label("100%");
             var batt_status_label = new Label("");
             batt_status_label.add_css_class("dim-label");
+            batt_status_label.ellipsize = Pango.EllipsizeMode.END;
             batt_box.append(batt_icon);
             batt_box.append(batt_label);
             batt_box.append(batt_status_label);
@@ -133,6 +135,9 @@ namespace Singularity {
 
                         // Listen for plugins (e.g. Status Monitor)
                         var plugin_ctx = PluginManager.get_default().get_context();
+                        foreach (var existing in plugin_ctx.get_sidebar_widgets()) {
+                            if (existing.get_parent() == null) content.prepend(existing);
+                        }
                         plugin_ctx.sidebar_widget_added.connect((w) => {
                             content.prepend(w);
                             if (_editing_tiles) {
@@ -319,18 +324,22 @@ namespace Singularity {
                         });
 
                         // Audio mute toggle tile (placed in grid, left of power profile)
-                        var audio_tile = new QuickSettingTile("Audio", audio.default_sink_icon, !audio.is_muted);
-                        audio_tile.subtitle = audio.default_sink_friendly;
+                        var audio_tile = new QuickSettingTile("Audio", SystemView.output_icon(audio), !audio.is_muted);
+                        audio_tile.subtitle = SystemView.output_name(audio);
                         audio_tile.auto_toggle = false;
                         audio_tile.clicked.connect(() => { audio.toggle_mute(); });
                         audio.state_changed.connect(() => {
                             audio_tile.active = !audio.is_muted;
-                            audio_tile.icon_name = audio.default_sink_icon;
-                            audio_tile.subtitle = audio.default_sink_friendly;
+                            audio_tile.icon_name = SystemView.output_icon(audio);
+                            audio_tile.subtitle = SystemView.output_name(audio);
                         });
                         audio.devices_changed.connect(() => {
-                            audio_tile.icon_name = audio.default_sink_icon;
-                            audio_tile.subtitle = audio.default_sink_friendly;
+                            audio_tile.icon_name = SystemView.output_icon(audio);
+                            audio_tile.subtitle = SystemView.output_name(audio);
+                        });
+                        EqualizerManager.get_default().changed.connect(() => {
+                            audio_tile.icon_name = SystemView.output_icon(audio);
+                            audio_tile.subtitle = SystemView.output_name(audio);
                         });
                         var audio_mute_wrapper = make_tile_with_nav(audio_tile, "sound");
 
@@ -345,21 +354,12 @@ namespace Singularity {
                             vpn_tile.subtitle = network.vpn_active ? network.vpn_name : (network.vpn_name != "" ? _("Connecting…") : _("Off"));
                         });
 
-                        // Do Not Disturb tile
-                        bool dnd_on = settings.get_boolean("do-not-disturb");
-                        var dnd_tile = new QuickSettingTile("Do Not Disturb",
-                            dnd_on ? "notifications-disabled-symbolic" : "preferences-system-notifications-symbolic", dnd_on);
-                        dnd_tile.subtitle = dnd_on ? _("On") : _("Off");
+                        var dnd_tile = new QuickSettingTile(_("Focus"), "notifications-disabled-symbolic", false);
                         dnd_tile.auto_toggle = false;
-                        dnd_tile.clicked.connect(() => {
-                            bool new_val = !settings.get_boolean("do-not-disturb");
-                            settings.set_boolean("do-not-disturb", new_val);
-                        });
-                        settings.changed["do-not-disturb"].connect(() => {
-                            dnd_tile.active = settings.get_boolean("do-not-disturb");
-                            dnd_tile.icon_name = dnd_tile.active ? "notifications-disabled-symbolic" : "preferences-system-notifications-symbolic";
-                            dnd_tile.subtitle = dnd_tile.active ? _("On") : _("Off");
-                        });
+                        FocusQuickTile.sync(dnd_tile);
+                        dnd_tile.clicked.connect(() => FocusManager.get_default().toggle());
+                        FocusManager.get_default().changed.connect(() => FocusQuickTile.sync(dnd_tile));
+                        FocusManager.get_default().modes_changed.connect(() => FocusQuickTile.sync(dnd_tile));
 
                         var hotspot_tile = new QuickSettingTile("Hotspot", "network-wireless-hotspot-symbolic", network.wifi_hotspot_active);
                         hotspot_tile.auto_toggle = false;
@@ -423,11 +423,22 @@ namespace Singularity {
                         add_quick_tile("keyboard-light", kbd_nav, kbd_tile, () => kbd_mgr.available);
                         add_quick_tile("audio", audio_mute_wrapper, audio_tile);
                         add_quick_tile("power-profile", ppm_wrapper, ppm_tile, () => ppm.available);
-                        add_quick_tile("do-not-disturb", make_tile_with_nav(dnd_tile, "notifications"), dnd_tile);
+                        add_quick_tile("do-not-disturb", FocusQuickTile.wrap(dnd_tile,
+                            () => open_detail_page(_("Focus"), FocusQuickTile.detail(() => open_settings_page("notifications")))), dnd_tile);
                         add_quick_tile("vpn", make_tile_with_nav(vpn_tile, "network"), vpn_tile);
                         add_quick_tile("tiling", tiling_wrapper, tile_tile,
                             () => settings.get_boolean("preview-features-enabled"));
                         add_quick_tile("hotspot", hotspot_nav, hotspot_tile, () => network.has_wifi);
+                        var stage_mgr = StageManager.get_default();
+                        var stage_tile = new QuickSettingTile(_("Window Groups"), "view-stage-symbolic", stage_mgr.enabled);
+                        stage_tile.subtitle = stage_mgr.enabled ? _("On") : _("Off");
+                        stage_tile.auto_toggle = false;
+                        stage_tile.clicked.connect(() => stage_mgr.request_enabled(!stage_mgr.enabled));
+                        stage_mgr.notify["enabled"].connect(() => {
+                            stage_tile.active = stage_mgr.enabled;
+                            stage_tile.subtitle = stage_mgr.enabled ? _("On") : _("Off");
+                        });
+                        add_quick_tile("stage-manager", make_tile_with_nav(stage_tile, "desktop"), stage_tile);
                         if (gm_nav != null)
                             add_quick_tile("game-mode", gm_nav, (QuickSettingTile) gm_nav.get_first_child(),
                                 () => gm2.available);
@@ -454,6 +465,10 @@ namespace Singularity {
 
                         configure_tile_drop_target(grid, true);
                         configure_tile_drop_target(_inactive_tile_grid, false);
+                        foreach (var plugin_tile in plugin_ctx.get_quick_tiles())
+                            add_plugin_tile(plugin_tile);
+                        plugin_ctx.quick_tile_added.connect(add_plugin_tile);
+                        plugin_ctx.quick_tile_removed.connect(remove_plugin_tile);
                         rebuild_quick_tiles();
 
                         content.append(grid);
@@ -470,8 +485,14 @@ namespace Singularity {
             vol_box.margin_start = 12;
             vol_box.margin_end = 12;
             var vol_icon = new Image.from_icon_name(audio.icon_name);
-            var vol_scale = new Scale.with_range(Orientation.HORIZONTAL, 0, 100, 1);
+            var vol_scale = new Scale.with_range(Orientation.HORIZONTAL, 0, audio.max_volume, 1);
             vol_scale.draw_value = false;
+            if (audio.max_volume > 100) vol_scale.add_mark(100, PositionType.BOTTOM, null);
+            audio.notify["max-volume"].connect(() => {
+                vol_scale.set_range(0, audio.max_volume);
+                vol_scale.clear_marks();
+                if (audio.max_volume > 100) vol_scale.add_mark(100, PositionType.BOTTOM, null);
+            });
             vol_scale.hexpand = true;
             vol_scale.valign = Align.CENTER;
             vol_scale.set_value(audio.volume);
@@ -490,20 +511,25 @@ namespace Singularity {
             // Device picker: ExpanderRow (like timezone selector) that slides open below
             var dev_row = new ExpanderRow(
                 "Output Device",
-                audio.default_sink_friendly,
-                audio.default_sink_icon ?? "audio-card-symbolic"
+                SystemView.output_subtitle(audio),
+                SystemView.output_icon(audio)
             );
             dev_row.add_css_class("audio-device-expander");
             SystemView.rebuild_audio_device_expander(dev_row, audio);
             audio.devices_changed.connect(() => {
-                dev_row.subtitle = audio.default_sink_friendly;
-                dev_row.icon_name = audio.default_sink_icon ?? "audio-card-symbolic";
+                dev_row.subtitle = SystemView.output_subtitle(audio);
+                dev_row.icon_name = SystemView.output_icon(audio);
                 SystemView.rebuild_audio_device_expander(dev_row, audio);
             });
             // state_changed fires on every volume change - only update subtitle/icon, no rebuild
             audio.state_changed.connect(() => {
-                dev_row.subtitle = audio.default_sink_friendly;
-                dev_row.icon_name = audio.default_sink_icon ?? "audio-card-symbolic";
+                dev_row.subtitle = SystemView.output_subtitle(audio);
+                dev_row.icon_name = SystemView.output_icon(audio);
+            });
+            EqualizerManager.get_default().changed.connect(() => {
+                dev_row.subtitle = SystemView.output_subtitle(audio);
+                dev_row.icon_name = SystemView.output_icon(audio);
+                SystemView.rebuild_audio_device_expander(dev_row, audio);
             });
             sliders_group.add_row(dev_row);
             var bri_row = new PreferencesRow();
@@ -581,6 +607,7 @@ namespace Singularity {
                 sliders_group.add_row(kbd_row);
             }
             content.append(sliders_group);
+            content.append(new BackgroundAppsGroup());
             var media_player = new MediaPlayerCard();
             media_player.margin_bottom = 10;
             content.append(media_player);
@@ -666,6 +693,89 @@ namespace Singularity {
             });
             item.editor.add_controller(drop);
             _quick_tiles.add(item);
+        }
+
+        private void add_plugin_tile(QuickTile quick_tile) {
+            if (find_quick_tile(quick_tile.id) != null) return;
+            var tile = new QuickSettingTile(quick_tile.title, quick_tile.icon_name, quick_tile.active);
+            tile.auto_toggle = false;
+            tile.subtitle = quick_tile.subtitle;
+            quick_tile.bind_property("title", tile, "title");
+            quick_tile.bind_property("icon-name", tile, "icon-name");
+            quick_tile.bind_property("subtitle", tile, "subtitle");
+            quick_tile.bind_property("active", tile, "active");
+            tile.clicked.connect(() => quick_tile.click());
+            ulong detail_handler = quick_tile.detail_page_requested.connect(() => show_tile_detail(quick_tile));
+            quick_tile.set_data<ulong>("shell-detail-handler", detail_handler);
+
+            Widget wrapper;
+            if (quick_tile.has_detail_page) {
+                wrapper = make_tile_with_detail(tile, quick_tile);
+            } else {
+                var group = new Box(Orientation.HORIZONTAL, 0);
+                group.add_css_class("quick-setting-group");
+                tile.hexpand = true;
+                group.append(tile);
+                wrapper = group;
+            }
+
+            string[] order = _settings.get_strv("quick-settings-tile-order");
+            if (!(quick_tile.id in order)) {
+                order += quick_tile.id;
+                _settings.set_strv("quick-settings-tile-order", order);
+                string[] active = _settings.get_strv("quick-settings-active-tiles");
+                if (!(quick_tile.id in active)) {
+                    active += quick_tile.id;
+                    _settings.set_strv("quick-settings-active-tiles", active);
+                }
+            }
+            add_quick_tile(quick_tile.id, wrapper, tile);
+            if (_inactive_tile_grid != null) rebuild_quick_tiles();
+        }
+
+        private void remove_plugin_tile(QuickTile quick_tile) {
+            ulong detail_handler = quick_tile.get_data<ulong>("shell-detail-handler");
+            if (detail_handler != 0) {
+                quick_tile.disconnect(detail_handler);
+                quick_tile.set_data<ulong>("shell-detail-handler", 0);
+            }
+            var item = find_quick_tile(quick_tile.id);
+            if (item == null) return;
+            detach_editor(item);
+            _quick_tiles.remove(item);
+            rebuild_quick_tiles();
+        }
+
+        private Widget make_tile_with_detail(QuickSettingTile tile, QuickTile quick_tile) {
+            var wrapper = new Box(Orientation.HORIZONTAL, 0);
+            wrapper.add_css_class("quick-setting-group");
+            tile.hexpand = true;
+            wrapper.append(tile);
+            var nav_btn = new Button();
+            nav_btn.has_frame = false;
+            nav_btn.add_css_class("quick-setting-nav-btn");
+            var chevron = new Image.from_icon_name("go-next-symbolic");
+            chevron.pixel_size = 12;
+            nav_btn.set_child(chevron);
+            nav_btn.valign = Align.FILL;
+            nav_btn.tooltip_text = _("Show details");
+            nav_btn.clicked.connect(() => show_tile_detail(quick_tile));
+            wrapper.append(nav_btn);
+            var long_press = new GestureLongPress();
+            long_press.propagation_phase = PropagationPhase.NONE;
+            long_press.pressed.connect((x, y) => {
+                if (_editing_tiles) return;
+                long_press.set_state(EventSequenceState.CLAIMED);
+                show_tile_detail(quick_tile);
+            });
+            tile.add_controller(long_press);
+            tile.set_data<GestureLongPress>("quick-setting-long-press", long_press);
+            return wrapper;
+        }
+
+        private void show_tile_detail(QuickTile quick_tile) {
+            var page = quick_tile.create_detail_page();
+            if (page != null) open_detail_page(quick_tile.detail_title ?? quick_tile.title, page);
         }
 
         private QuickTileItem? find_quick_tile(string id) {
@@ -984,12 +1094,42 @@ namespace Singularity {
                 l = l.next;
             }
             if (connected_dev != null) {
-                tile.subtitle = connected_dev.name;
+                tile.subtitle = connected_dev.battery >= 0
+                    ? _("%s · %d%%").printf(connected_dev.name, connected_dev.battery)
+                    : connected_dev.name;
                 tile.icon_name = BluetoothManager.bt_icon_for(connected_dev.icon);
             } else {
                 tile.subtitle = bluetooth.is_powered ? _("On") : _("Off");
                 tile.icon_name = "bluetooth-active-symbolic";
             }
+        }
+
+        private static AudioManager.AudioDevice? routed_sink(AudioManager audio) {
+            string routed = EqualizerManager.get_default().routed_default();
+            foreach (var s in audio.sinks) {
+                if (s != null && s.name == routed) return s;
+            }
+            return null;
+        }
+
+        private static string output_name(AudioManager audio) {
+            var sink = routed_sink(audio);
+            if (sink == null) return audio.default_sink_friendly;
+            return sink.friendly_name ?? sink.description ?? "";
+        }
+
+        private static string output_subtitle(AudioManager audio) {
+            var sink = routed_sink(audio);
+            if (sink == null) return audio.default_sink_friendly;
+            string name = output_name(audio);
+            if (EqualizerManager.get_default().is_equalizing(sink.name)) return _("%s · Equalizer on").printf(name);
+            return name;
+        }
+
+        private static string output_icon(AudioManager audio) {
+            var sink = routed_sink(audio);
+            if (sink == null) return audio.default_sink_icon ?? "audio-card-symbolic";
+            return sink.icon_name ?? "audio-card-symbolic";
         }
 
         private static void rebuild_audio_device_expander(ExpanderRow dev_row, AudioManager audio) {
@@ -1001,9 +1141,11 @@ namespace Singularity {
             // Since ExpanderRow.add_row just appends to content_box, we
             // clear it first via a helper that walks the box siblings.
             dev_row.clear_rows();
+            var equalizer = EqualizerManager.get_default();
+            string routed = equalizer.routed_default();
             unowned List<AudioManager.AudioDevice?> l = audio.sinks;
             while (l != null) {
-                if (l.data == null) { l = l.next; continue; }
+                if (l.data == null || equalizer.is_virtual(l.data.name)) { l = l.next; continue; }
                 var sink = l.data;
                 var row_btn = new Button();
                 row_btn.add_css_class("flat");
@@ -1017,19 +1159,30 @@ namespace Singularity {
                 row_icon.pixel_size = 16;
                 var row_label = new Label(sink.friendly_name ?? sink.description);
                 row_label.xalign = 0;
-                row_label.hexpand = true;
                 row_label.ellipsize = Pango.EllipsizeMode.END;
+                var row_labels = new Box(Orientation.VERTICAL, 0);
+                row_labels.hexpand = true;
+                row_labels.valign = Align.CENTER;
+                row_labels.append(row_label);
+                if (equalizer.is_equalizing(sink.name)) {
+                    var eq_label = new Label(_("Equalizer on"));
+                    eq_label.xalign = 0;
+                    eq_label.add_css_class("caption");
+                    eq_label.add_css_class("dim-label");
+                    row_labels.append(eq_label);
+                }
                 row_box.append(row_icon);
-                row_box.append(row_label);
-                if (sink.index == audio.default_sink_index) {
+                row_box.append(row_labels);
+                if (sink.index == audio.default_sink_index || (routed != "" && sink.name == routed)) {
                     var check = new Image.from_icon_name("object-select-symbolic");
                     check.pixel_size = 16;
                     row_box.append(check);
                 }
                 row_btn.set_child(row_box);
                 string sink_name = sink.name;
+                bool is_routed = routed != "" && sink.name == routed;
                 row_btn.clicked.connect(() => {
-                    audio.set_default_sink(sink_name);
+                    if (!is_routed) audio.set_default_sink(sink_name);
                     dev_row.expanded = false;
                 });
                 dev_row.add_row(row_btn);

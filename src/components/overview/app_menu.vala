@@ -130,7 +130,7 @@ namespace Singularity {
                 var res_row = row as SearchResultRow;
                 if (res_row != null) {
                     res_row.result.activate();
-                    toggle();
+                    if (!res_row.result.keeps_open) toggle();
                 }
             });
 
@@ -150,7 +150,7 @@ namespace Singularity {
                     var res_row = row as SearchResultRow;
                     if (res_row != null) {
                         res_row.result.activate();
-                        toggle();
+                        if (!res_row.result.keeps_open) toggle();
                     }
                     return true;
                 }
@@ -250,7 +250,9 @@ namespace Singularity {
                 child = search_results_list.get_first_child();
             }
             foreach (var res in results) {
-                search_results_list.append(new SearchResultRow(res));
+                var row = new SearchResultRow(res);
+                row.request_close.connect(() => toggle());
+                search_results_list.append(row);
             }
             var first = search_results_list.get_row_at_index(0);
             if (first != null) search_results_list.select_row(first);

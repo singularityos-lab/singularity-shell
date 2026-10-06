@@ -4,6 +4,20 @@ using Singularity.Widgets;
 
 namespace Singularity {
 
+    public delegate void SettingsSearchCallback();
+
+    public class SettingsSearchAction : Object {
+        public string title;
+        public string subtitle;
+        public SettingsSearchCallback callback;
+
+        public SettingsSearchAction(string title, string subtitle, owned SettingsSearchCallback callback) {
+            this.title = title;
+            this.subtitle = subtitle;
+            this.callback = (owned) callback;
+        }
+    }
+
     public class SettingsPage : Box {
         public Box content_box;
         public ScrolledWindow scroller;
@@ -40,6 +54,8 @@ namespace Singularity {
             title_lbl.add_css_class("page-title");
             title_lbl.halign = Align.START;
             title_lbl.hexpand = true;
+            title_lbl.ellipsize = Pango.EllipsizeMode.END;
+            title_lbl.xalign = 0;
             header.append(title_lbl);
 
             // Header is outside the scroller so it's always visible
@@ -75,12 +91,22 @@ namespace Singularity {
 
         public void add_group(Widget group) {
             _groups.add(group);
-            group.margin_top = 12; // Add spacing manually to groups
+            group.margin_top = 0;
             content_box.append(group);
         }
 
         public Gee.List<Widget> get_groups() {
             return _groups.read_only_view;
+        }
+
+        private ArrayList<SettingsSearchAction> _search_actions = new ArrayList<SettingsSearchAction>();
+
+        public void add_search_action(string title, string subtitle, owned SettingsSearchCallback callback) {
+            _search_actions.add(new SettingsSearchAction(title, subtitle, (owned) callback));
+        }
+
+        public Gee.List<SettingsSearchAction> get_search_actions() {
+            return _search_actions.read_only_view;
         }
 
         public void add_widget(Widget widget) {

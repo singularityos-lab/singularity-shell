@@ -77,11 +77,7 @@ namespace Singularity {
                         res.mime_type = info.get_content_type();
 
                         res.activated.connect(() => {
-                            try {
-                                AppInfo.launch_default_for_uri(uri, null);
-                            } catch (Error e) {
-                                warning("Failed to open file: %s", e.message);
-                            }
+                            Singularity.Widgets.FileOpener.open(File.new_for_uri(uri), null);
                         });
 
                         results.append(res);

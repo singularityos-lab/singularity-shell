@@ -341,6 +341,10 @@ namespace Singularity {
         }
 
         private void launch_uri(string uri) {
+            if (uri.has_prefix("file://")) {
+                Singularity.Widgets.FileOpener.open(File.new_for_uri(uri), null);
+                return;
+            }
             try { GLib.AppInfo.launch_default_for_uri(uri, null); }
             catch (Error e) { warning("dock resource: launch %s: %s", uri, e.message); }
         }

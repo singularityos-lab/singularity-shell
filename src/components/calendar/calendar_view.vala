@@ -132,6 +132,8 @@ namespace Singularity.Shell {
                      row++;
                  }
              }
+             if (selected_date == null && is_current_month) selected_date = Singularity.Widgets.CalendarLayout.day_start(today);
+             update_events_display();
         }
 
         private int get_days_in_month(int year, int month) {
@@ -163,11 +165,26 @@ namespace Singularity.Shell {
             }
             if (day_events.size == 0) {
                 var no_events_row = new Singularity.Widgets.PreferencesRow();
-                var label = new Label(_("No events"));
-                label.add_css_class("dim-label");
-                label.margin_top = 12;
-                label.margin_bottom = 12;
-                no_events_row.set_child(label);
+                no_events_row.activatable = false;
+                var empty = new Singularity.Widgets.StatusPage();
+                empty.compact = true;
+                empty.icon_name = "x-office-calendar-symbolic";
+                empty.title = _("No Events");
+                empty.description = _("Nothing is planned for this day.");
+                var calendar_app = new GLib.DesktopAppInfo("dev.sinty.calendar.desktop");
+                if (calendar_app != null) {
+                    var open = new Button.with_label(_("Open Calendar"));
+                    open.add_css_class("pill");
+                    open.clicked.connect(() => {
+                        try {
+                            calendar_app.launch(null, Gdk.Display.get_default().get_app_launch_context());
+                        } catch (Error e) {
+                            warning("calendar: %s", e.message);
+                        }
+                    });
+                    empty.child = open;
+                }
+                no_events_row.set_child(empty);
                 events_group.add_row(no_events_row);
             } else {
                 foreach (var evt in day_events) {
@@ -206,16 +223,18 @@ namespace Singularity.Shell {
                     edit_btn.add_css_class("flat");
                     edit_btn.tooltip_text = _("Edit event");
                     var captured_evt = evt;
-                    edit_btn.clicked.connect(() => show_event_dialog(captured_evt));
+                    edit_btn.clicked.connect(() => {
+                        if (needs_calendar_app(captured_evt)) open_calendar_app();
+                        else show_event_dialog(captured_evt);
+                    });
+                    edit_btn.sensitive = writable_for(captured_evt) != null;
                     hbox.append(edit_btn);
 
                     var del_btn = new Button.from_icon_name("user-trash-symbolic");
                     del_btn.add_css_class("flat");
                     del_btn.tooltip_text = _("Delete event");
-                    string evt_id = evt.id;
-                    del_btn.clicked.connect(() => {
-                        manager.delete_local_event(evt_id);
-                    });
+                    del_btn.clicked.connect(() => delete_event(captured_evt));
+                    del_btn.sensitive = writable_for(captured_evt) != null;
                     hbox.append(del_btn);
 
                     row.set_child(hbox);
@@ -234,6 +253,48 @@ namespace Singularity.Shell {
             add_btn.clicked.connect(() => show_event_dialog(null));
             add_row.set_child(add_btn);
             events_group.add_row(add_row);
+        }
+
+        private WritableCalendarProvider? writable_for(CalendarEvent evt) {
+            string id = evt.calendar_id != null && evt.calendar_id != "" ? evt.calendar_id : "local-provider";
+            return manager.get_provider(id) as WritableCalendarProvider;
+        }
+
+        private bool needs_calendar_app(CalendarEvent evt) {
+            return evt.is_recurring() || (evt.attendees != null && evt.attendees.size > 0);
+        }
+
+        private void open_calendar_app() {
+            var info = new GLib.DesktopAppInfo("dev.sinty.calendar.desktop");
+            if (info == null) return;
+            try {
+                info.launch(null, null);
+            } catch (Error e) {
+                warning("Failed to open Calendar: %s", e.message);
+            }
+        }
+
+        private void delete_event(CalendarEvent evt) {
+            var provider = writable_for(evt);
+            if (provider == null) return;
+            var master = provider.find_event(evt.id);
+            if (master == null) return;
+            if (master.is_recurring() && evt.occurrence_start != null) {
+                CalendarEvent updated = master;
+                updated.exdates = Ics.with_string(master.exdates, evt.occurrence_start.format_iso8601());
+                provider.update_event(updated);
+            } else {
+                provider.delete_event(evt.id);
+            }
+        }
+
+        private string default_calendar_id() {
+            var source = SettingsSchemaSource.get_default();
+            if (source != null && source.lookup("dev.sinty.calendar", true) != null) {
+                string id = new GLib.Settings("dev.sinty.calendar").get_string("default-calendar");
+                if (manager.get_provider(id) is WritableCalendarProvider) return id;
+            }
+            return "local-provider";
         }
 
         private void show_event_dialog(CalendarEvent? existing) {
@@ -292,21 +353,34 @@ namespace Singularity.Shell {
             save_btn.add_css_class("suggested-action");
             save_btn.clicked.connect(() => {
                 if (title_entry.text.strip().length == 0) return;
-                CalendarEvent evt = CalendarEvent();
-                evt.id = existing != null ? existing.id : GLib.Uuid.string_random();
+                CalendarEvent evt;
+                if (existing != null) {
+                    var provider = writable_for(existing);
+                    var stored = provider != null ? provider.find_event(existing.id) : null;
+                    evt = stored ?? existing;
+                } else {
+                    evt = CalendarEvent();
+                    evt.id = GLib.Uuid.string_random();
+                    evt.color = "";
+                    evt.location = "";
+                    evt.recurrence = "";
+                    evt.organizer = "";
+                    evt.organizer_name = "";
+                    evt.exdates = {};
+                    evt.alarms = {};
+                    evt.attendees = new Gee.ArrayList<CalendarAttendee>();
+                    evt.calendar_id = default_calendar_id();
+                }
                 evt.title = title_entry.text.strip();
                 evt.description = desc_entry.text.strip();
                 evt.all_day = all_day_sw.active;
-                evt.color = manager.get_provider("local-provider") != null
-                    ? manager.get_provider("local-provider").color
-                    : "#3584e4";
 
                 int start_h = (int) start_spin.get_value();
-                int start_m = 0;
+                int start_m = existing != null ? existing.start_time.get_minute() : 0;
                 int end_h = (int) end_spin.get_value();
-                int end_m = 0;
+                int end_m = existing != null ? existing.end_time.get_minute() : 0;
 
-                DateTime base_date = selected_date ?? new DateTime.now_local();
+                DateTime base_date = existing != null ? existing.start_time : (selected_date ?? new DateTime.now_local());
                 if (evt.all_day) {
                     evt.start_time = new DateTime.local(base_date.get_year(), base_date.get_month(), base_date.get_day_of_month(), 0, 0, 0);
                     evt.end_time = evt.start_time.add_hours(24);
@@ -317,10 +391,11 @@ namespace Singularity.Shell {
                         evt.end_time = evt.start_time.add_hours(1);
                 }
 
-                if (existing != null)
-                    manager.update_local_event(evt);
-                else
-                    manager.add_local_event(evt);
+                var target = writable_for(evt);
+                if (target != null) {
+                    if (existing != null) target.update_event(evt);
+                    else target.add_event(evt);
+                }
                 dialog.close_dialog();
             });
             btn_box.append(cancel_btn);

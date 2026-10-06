@@ -10,9 +10,11 @@ namespace Singularity.SidebarPages {
         private Label language_label;
         private Label formats_label;
         private List<string> all_locales;
+        private SettingsView view;
 
         public RegionPage(SettingsView view) {
             base(_("Region & Language"));
+            this.view = view;
             back_clicked.connect(() => {
                 view.go_home();
             });
@@ -64,6 +66,19 @@ namespace Singularity.SidebarPages {
             lbl.xalign = 0;
             note_box.append(lbl);
             add_widget(note_box);
+            var recognition_group = new PreferencesGroup(_("Text in Images"));
+            var recognition_row = new ActionRow(_("Text Recognition"), _("Languages used to read text in images"), "singularity-live-text-symbolic");
+            recognition_row.activatable = true;
+            var chevron = new Image.from_icon_name("go-next-symbolic");
+            chevron.pixel_size = 12;
+            chevron.add_css_class("dim-label");
+            chevron.valign = Align.CENTER;
+            recognition_row.add_suffix(chevron);
+            recognition_row.activated.connect(() => {
+                view.open_subpage(new TextRecognitionPage(view), "text-recognition");
+            });
+            recognition_group.add_row(recognition_row);
+            add_group(recognition_group);
         }
 
         private void setup_expander(SearchableExpanderRow row, bool is_language) {

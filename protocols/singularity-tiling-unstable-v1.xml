@@ -4,7 +4,7 @@
     Copyright © 2024 Singularity Desktop
   </copyright>
 
-  <interface name="zsingularity_tiling_manager_v1" version="10">
+  <interface name="zsingularity_tiling_manager_v1" version="11">
     <description summary="tiling window management">
       This interface allows a client to manage window geometry for tiling purposes.
     </description>
@@ -229,5 +229,19 @@
       <arg name="x" type="int"/>
       <arg name="y" type="int"/>
     </event>
+
+    <request name="set_geometry_animated" since="11">
+      <description summary="set a toplevel geometry and slide it there">
+        Like set_geometry, but the compositor slides the window from its
+        current position to the new one on the output frame clock. The client
+        only receives the final size, once. Compositors without animations,
+        or with reduced motion, apply the geometry directly.
+      </description>
+      <arg name="toplevel" type="object" interface="zwlr_foreign_toplevel_handle_v1"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
   </interface>
 </protocol>

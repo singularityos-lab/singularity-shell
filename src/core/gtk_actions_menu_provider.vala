@@ -116,6 +116,14 @@ namespace Singularity {
             };
         }
 
+        public static string? known_label (string action_name) {
+            ensure_map ();
+            foreach (unowned ActionDef def in KNOWN) {
+                if (def.name == action_name) return def.label;
+            }
+            return null;
+        }
+
         // Public entry point
 
         /**
@@ -154,7 +162,7 @@ namespace Singularity {
         private static GLib.Menu? build_sync (string bus_name) throws GLib.Error {
             var conn = GLib.Bus.get_sync (GLib.BusType.SESSION);
             string base_path = "/" + bus_name.replace (".", "/");
-            string win_path  = base_path + "/window/1";
+            string win_path  = Singularity.AppSystem.resolve_window_path (conn, bus_name, base_path);
 
             // Collect enabled actions from both app and window level
             var app_actions = collect_actions (conn, bus_name, base_path);

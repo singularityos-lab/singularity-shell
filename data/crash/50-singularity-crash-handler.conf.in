@@ -1,0 +1,2 @@
+kernel.core_pattern=|@LIBEXECDIR@/singularity-crash-handler %P %u %g %s %t %d %e
+kernel.core_pipe_limit=4

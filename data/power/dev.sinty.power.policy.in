@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Singularity</vendor>
+  <action id="dev.sinty.power.charge-limit">
+    <description>Change the battery charge limit</description>
+    <message>Authentication is required to change the battery charge limit</message>
+    <icon_name>battery-full-charged-symbolic</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">@LIBEXECDIR@/singularity-power-helper</annotate>
+  </action>
+</policyconfig>

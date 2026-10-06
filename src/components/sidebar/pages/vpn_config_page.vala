@@ -5,8 +5,8 @@ namespace Singularity {
 
     /**
      * Native "Add VPN" page - a multi-level settings page (with a back arrow,
-     * like the Applications page), not a popup dialog and definitely not
-     * GNOME's control-center. Lets the user enter a WireGuard or OpenVPN
+     * like the Applications page), not a popup dialog or an external settings
+     * app. Lets the user enter a WireGuard or OpenVPN
      * connection by hand. The work is done by NetworkManagerWrapper, which
      * reports success/failure via vpn_action_result (shown on the Network page).
      */

@@ -61,8 +61,10 @@ namespace Singularity {
             setup_settings_search();
 
             nav_box.append(create_settings_row(_("Network"), "network-wireless-symbolic", "network"));
+            nav_box.append(create_settings_row(_("Sharing"), "folder-remote-symbolic", "sharing"));
             nav_box.append(create_settings_row(_("Apps"), "view-app-grid-symbolic", "apps"));
             nav_box.append(create_settings_row(_("Autostart"), "system-run-symbolic", "autostart"));
+            nav_box.append(create_settings_row(_("Privacy"), "preferences-system-privacy-symbolic", "privacy"));
             nav_box.append(create_settings_row(_("Users"), "system-users-symbolic", "users"));
             nav_box.append(create_settings_row(_("Online Accounts"), "avatar-default-symbolic", "accounts"));
             nav_box.append(create_settings_row(_("Displays"), "video-display-symbolic", "displays"));
@@ -70,15 +72,22 @@ namespace Singularity {
             nav_box.append(create_settings_row(_("Date & Time"), "preferences-system-time-symbolic", "datetime"));
             nav_box.append(create_settings_row(_("Desktop"), "preferences-desktop-wallpaper-symbolic", "desktop"));
             nav_box.append(create_settings_row(_("Sound"), "audio-volume-high-symbolic", "sound"));
+            nav_box.append(create_settings_row(_("Notifications"), "preferences-system-notifications-symbolic", "notifications"));
+            nav_box.append(create_settings_row(_("Wellbeing"), "preferences-system-time-symbolic", "wellbeing"));
             nav_box.append(create_settings_row(_("Bluetooth"), "bluetooth-active-symbolic", "bluetooth"));
+            nav_box.append(create_settings_row(_("Connected Devices"), "phone-symbolic", "connected-devices"));
+            nav_box.append(create_settings_row(_("Printers"), "printer-symbolic", "printers"));
             _keyboard_nav_row = create_settings_row(_("Keyboard"), "input-keyboard-symbolic", "keyboard");
             nav_box.append(_keyboard_nav_row);
+            nav_box.append(create_settings_row(_("Graphics Tablet"), "input-tablet-symbolic", "tablet"));
             // Developer page is hidden until enabled from System (Android-style).
             update_developer_nav_row();
             _desktop_settings.changed["developer-mode"].connect(update_developer_nav_row);
             nav_box.append(create_settings_row(_("Accessibility"), "preferences-desktop-accessibility-symbolic", "accessibility"));
             nav_box.append(create_settings_row(_("Plugins"), "emblem-system-symbolic", "plugins"));
+            nav_box.append(create_settings_row(_("Power"), "battery-full-charged-symbolic", "power"));
             nav_box.append(create_settings_row(_("Performance"), "power-profile-performance-symbolic", "performance"));
+            nav_box.append(create_settings_row(_("Updates"), "software-update-available-symbolic", "updates"));
             nav_box.append(create_settings_row(_("System"), "computer-symbolic", "system"));
 
             if (split_mode) {
@@ -105,6 +114,7 @@ namespace Singularity {
 
                 navigate_to("desktop");
             } else {
+                settings_stack.hhomogeneous = false;
                 append(settings_stack);
                 var home_page = new SettingsPage(_("Settings"));
                 home_page.back_btn.visible = true;
@@ -169,11 +179,11 @@ namespace Singularity {
             }
         }
 
-        public void open_app_details(AppInfo info) {
+        public void open_app_details(AppInfo info, string back_page = "apps") {
             if (app_details_page != null) {
                 settings_stack.remove(app_details_page);
             }
-            app_details_page = new Singularity.SidebarPages.AppDetailsPage(app, info);
+            app_details_page = new Singularity.SidebarPages.AppDetailsPage(app, info, this, back_page);
             app_details_page.back_btn.visible = true;
             app_details_page.adaptive_back_btn.visible = folded;
             app_details_page.adaptive_back_btn.clicked.connect(() => {
@@ -205,9 +215,10 @@ namespace Singularity {
             switch (page_name) {
                 case "network": case "apps": case "users": case "accounts":
                 case "displays": case "region": case "datetime": case "desktop":
-                case "sound": case "bluetooth": case "keyboard": case "developer":
-                case "accessibility": case "plugins": case "performance": case "system":
-                case "autostart":
+                case "sound": case "bluetooth": case "printers": case "keyboard": case "tablet": case "developer": case "connected-devices":
+                case "accessibility": case "plugins": case "performance": case "system": case "power":
+                case "autostart": case "notifications": case "updates": case "privacy": case "sharing":
+                case "wellbeing":
                     return true;
             }
             return false;
@@ -216,6 +227,7 @@ namespace Singularity {
         private string get_page_icon(string page_name) {
             switch (page_name) {
                 case "network": return "network-wireless-symbolic";
+                case "sharing": return "folder-remote-symbolic";
                 case "apps": return "view-app-grid-symbolic";
                 case "users": return "system-users-symbolic";
                 case "accounts": return "avatar-default-symbolic";
@@ -224,22 +236,30 @@ namespace Singularity {
                 case "datetime": return "preferences-system-time-symbolic";
                 case "desktop": return "preferences-desktop-wallpaper-symbolic";
                 case "sound": return "audio-volume-high-symbolic";
+                case "notifications": return "preferences-system-notifications-symbolic";
+                case "wellbeing": return "preferences-system-time-symbolic";
                 case "bluetooth": return "bluetooth-active-symbolic";
+                case "connected-devices": return "phone-symbolic";
+                case "printers": return "printer-symbolic";
                 case "keyboard": return "input-keyboard-symbolic";
+                case "tablet": return "input-tablet-symbolic";
                 case "developer": return "applications-engineering-symbolic";
                 case "autostart": return "system-run-symbolic";
+                case "privacy": return "preferences-system-privacy-symbolic";
                 case "accessibility": return "preferences-desktop-accessibility-symbolic";
                 case "plugins": return "emblem-system-symbolic";
+                case "power": return "battery-full-charged-symbolic";
                 case "performance": return "power-profile-performance-symbolic";
+                case "updates": return "software-update-available-symbolic";
                 case "system": return "computer-symbolic";
             }
             return "preferences-system-symbolic";
         }
 
         private string[] get_searchable_pages() {
-            return { "network", "apps", "autostart", "users", "accounts", "displays", "region", "datetime",
-                     "desktop", "sound", "bluetooth", "keyboard", "developer", "accessibility",
-                     "plugins", "performance", "system" };
+            return { "network", "sharing", "apps", "autostart", "privacy", "users", "accounts", "displays", "region", "datetime",
+                     "desktop", "sound", "notifications", "wellbeing", "bluetooth", "connected-devices", "printers", "keyboard", "tablet", "developer", "accessibility",
+                     "plugins", "power", "performance", "updates", "system" };
         }
 
         private void setup_settings_search() {
@@ -261,6 +281,15 @@ namespace Singularity {
             });
         }
 
+        public async void warm_search_index() {
+            foreach (string page_name in get_searchable_pages()) {
+                if (_page_cache.has_key(page_name)) continue;
+                build_page(page_name, false);
+                GLib.Idle.add(warm_search_index.callback, GLib.Priority.LOW);
+                yield;
+            }
+        }
+
         public Gee.List<SettingsEntry> settings_entries() {
             ensure_search_index();
             return _search_items.read_only_view;
@@ -268,6 +297,10 @@ namespace Singularity {
 
         public void reveal(SettingsEntry entry, bool activate) {
             navigate_to(entry.page_name);
+            if (entry.action != null) {
+                entry.action.callback();
+                return;
+            }
             int attempts = 0;
             Timeout.add(100, () => {
                 var page = _page_cache[entry.page_name] as SettingsPage;
@@ -326,7 +359,16 @@ namespace Singularity {
                 }
                 foreach (Widget row_widget in group.get_rows()) {
                     var row = row_widget as Singularity.Widgets.ActionRow;
-                    if (row == null) continue;
+                    if (row == null) {
+                        string? custom_title = row_widget.get_data<string>("settings-title");
+                        if (custom_title != null) {
+                            _search_items.add(new SettingsEntry(page_name, page.page_title, icon_name,
+                                custom_title, row_widget.get_data<string>("settings-subtitle") ?? "",
+                                group_title, row_widget));
+                        }
+                        continue;
+                    }
+                    if (row.get_data<bool>("settings-search-skip")) continue;
                     string row_title = row.title;
                     if (row_title == "") continue;
                     if (row_title.down() == page.page_title.down()) has_same_title_child = true;
@@ -335,10 +377,34 @@ namespace Singularity {
                 }
             }
 
+            for (Widget? child = page.content_box.get_first_child(); child != null; child = child.get_next_sibling()) {
+                var welcome = child as Singularity.Widgets.WelcomePage;
+                if (welcome == null) continue;
+                for (int i = 0; i < welcome.action_count; i++) {
+                    _search_items.add(welcome_action_entry(page_name, page, icon_name, welcome, i));
+                }
+            }
+            foreach (var action in page.get_search_actions()) {
+                var entry = new SettingsEntry(page_name, page.page_title, icon_name,
+                    action.title, action.subtitle, "");
+                entry.set_action(action);
+                _search_items.add(entry);
+            }
+
             if (!has_same_title_child) {
                 _search_items.add(new SettingsEntry(page_name, page.page_title, icon_name,
                     page.page_title, "", ""));
             }
+        }
+
+        private SettingsEntry welcome_action_entry(string page_name, SettingsPage page, string icon_name,
+                                                   Singularity.Widgets.WelcomePage welcome, int index) {
+            var action = new SettingsSearchAction(welcome.get_action_label(index),
+                welcome.get_action_description(index), () => welcome.trigger_action(index));
+            var entry = new SettingsEntry(page_name, page.page_title, icon_name,
+                action.title, action.subtitle, welcome.title, welcome);
+            entry.set_action(action);
+            return entry;
         }
 
         private bool search_matches(SettingsEntry item, string query) {
@@ -375,10 +441,18 @@ namespace Singularity {
             }
 
             if (count == 0) {
-                var empty = new Label(_("No Results"));
-                empty.add_css_class("dim-label");
-                empty.margin_top = 6;
-                empty.margin_bottom = 6;
+                var empty = new Singularity.Widgets.StatusPage();
+                empty.compact = true;
+                empty.icon_name = "edit-find-symbolic";
+                empty.title = _("No Results");
+                empty.description = _("Try other words, or look through the list of settings.");
+                var clear = new Button.with_label(_("Clear Search"));
+                clear.add_css_class("pill");
+                clear.clicked.connect(() => {
+                    search_entry.text = "";
+                    search_entry.grab_focus();
+                });
+                empty.child = clear;
                 search_results_box.append(empty);
             }
         }
@@ -411,6 +485,7 @@ namespace Singularity {
             gesture.released.connect(() => {
                 navigate_to(item.page_name);
                 search_entry.text = "";
+                if (item.action != null) item.action.callback();
             });
             row.add_controller(gesture);
             return row;
@@ -427,6 +502,11 @@ namespace Singularity {
             Widget? page = null;
             switch (page_name) {
                 case "network": page = new NetworkPage(this); break;
+                case "sharing": page = new Singularity.SidebarPages.SharingPage(this); break;
+                case "sharing-files": page = new Singularity.SidebarPages.FileSharingPage(this); break;
+                case "sharing-media": page = new Singularity.SidebarPages.MediaSharingPage(this); break;
+                case "sharing-remote": page = new Singularity.SidebarPages.RemoteDesktopPage(this); break;
+                case "firewall": page = new Singularity.SidebarPages.FirewallPage(this); break;
                 case "apps": page = new Singularity.SidebarPages.AppsPage(app, this); break;
                 case "users": page = new Singularity.SidebarPages.UsersPage(this); break;
                 case "accounts": page = new Singularity.SidebarPages.AccountsPage(this); break;
@@ -435,14 +515,28 @@ namespace Singularity {
                 case "datetime": page = new Singularity.SidebarPages.DateTimePage(this); break;
                 case "desktop": page = new DesktopPage(this); break;
                 case "sound": page = new SoundPage(this); break;
+                case "notifications": page = new Singularity.SidebarPages.NotificationSettingsPage(this); break;
+                case "wellbeing": page = new Singularity.SidebarPages.WellbeingPage(this); break;
                 case "bluetooth": page = new Singularity.SidebarPages.BluetoothPage(this); break;
+                case "connected-devices": page = new Singularity.SidebarPages.ConnectedDevicesPage(this); break;
+                case "printers": page = new Singularity.SidebarPages.PrintersPage(this); break;
                 case "keyboard": page = new KeyboardPage(this); break;
+                case "tablet": page = new Singularity.SidebarPages.TabletPage(this); break;
                 case "developer": page = new DeveloperPage(this); break;
                 case "autostart": page = new Singularity.SidebarPages.AutostartPage(this); break;
+                case "privacy": page = new Singularity.SidebarPages.PrivacyPage(this); break;
                 case "accessibility": page = new Singularity.SidebarPages.AccessibilityPage(this); break;
                 case "plugins": page = new Singularity.PluginsPage(this); break;
+                case "power": page = new Singularity.SidebarPages.PowerPage(this); break;
                 case "performance": page = new Singularity.SidebarPages.PerformancePage(this); break;
+                case "updates": page = new Singularity.SidebarPages.UpdatesPage(this); break;
                 case "system": page = new Singularity.SidebarPages.SystemPage(this); break;
+                default:
+                    if (page_name.has_prefix("privacy-")) {
+                        var category = Singularity.SidebarPages.PrivacyCategory.find(page_name.substring(8));
+                        if (category != null) page = new Singularity.SidebarPages.PrivacyCategoryPage(this, category);
+                    }
+                    break;
                 case "wallpaper-browser":
                     page = new Singularity.Shell.WallpaperProviderBrowserPage(this);
                     var browser = page as Singularity.Shell.WallpaperProviderBrowserPage;
@@ -461,7 +555,8 @@ namespace Singularity {
                 } else {
                     sp.back_btn.visible = true;
                     // This drill-down page returns to Desktop, not Settings home.
-                    if (page_name != "wallpaper-browser") {
+                    if (page_name != "wallpaper-browser" && !page_name.has_prefix("privacy-")
+                            && !page_name.has_prefix("sharing-") && page_name != "firewall") {
                         sp.back_clicked.connect(() => { go_home(); });
                     }
                 }
@@ -511,6 +606,16 @@ namespace Singularity {
                 });
             }
             settings_stack.add_named(page, name);
+            settings_stack.visible_child_name = name;
+            if (folded) main_stack.visible_child_name = "content";
+        }
+
+        public string current_page_name {
+            owned get { return settings_stack.visible_child_name ?? ""; }
+        }
+
+        public void show_page_name(string name) {
+            if (name == "" || settings_stack.get_child_by_name(name) == null) return;
             settings_stack.visible_child_name = name;
             if (folded) main_stack.visible_child_name = "content";
         }
@@ -577,6 +682,7 @@ namespace Singularity {
         public string group;
         public weak Widget? widget;
         public SettingsEntryKind kind;
+        public SettingsSearchAction? action;
 
         public SettingsEntry(string page_name, string page_title, string icon_name,
                              string title, string subtitle, string group, Widget? widget = null) {
@@ -599,6 +705,11 @@ namespace Singularity {
             uint signal_id = Signal.lookup("activated", typeof(Singularity.Widgets.ActionRow));
             ulong handler = SignalHandler.find(widget, SignalMatchType.ID, signal_id, 0, null, null, null);
             return handler != 0 ? SettingsEntryKind.LAUNCH : SettingsEntryKind.REVEAL;
+        }
+
+        public void set_action(SettingsSearchAction action) {
+            this.action = action;
+            kind = SettingsEntryKind.LAUNCH;
         }
 
         public Switch? toggle() {

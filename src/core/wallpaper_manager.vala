@@ -93,6 +93,7 @@ namespace Singularity {
                 if (schema.has_key("background-attribution-author"))
                     settings.changed["background-attribution-author"].connect(() => schedule_reload());
             }
+            DynamicWallpaperController.get_default();
             reload();
         }
 
@@ -145,6 +146,7 @@ namespace Singularity {
 
             string custom_uri = settings.get_string("background-picture-uri");
             string? path = resolve_path(custom_uri);
+            if (path != null && DynamicWallpaper.is_dynamic_path(path)) return;
             if (path == null) {
                 string[] fallbacks = {};
                 foreach (unowned string d in GLib.Environment.get_system_data_dirs()) {

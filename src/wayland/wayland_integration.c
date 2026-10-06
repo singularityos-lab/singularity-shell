@@ -78,6 +78,7 @@ struct SingularityWaylandContext {
 static struct SingularityWaylandContext ctx;
 static GHashTable *toplevel_output_map = NULL;
 static GHashTable *geometry_map = NULL;
+static GHashTable *toplevel_title_map = NULL;
 static struct {
     int x, y, w, h;
     int got;
@@ -716,6 +717,9 @@ void singularity_wayland_cancel_capture(void *token) {
     free(req);
 }
 static void toplevel_handle_title(void *data, struct zwlr_foreign_toplevel_handle_v1 *handle, const char *title) {
+    if (!toplevel_title_map)
+        toplevel_title_map = g_hash_table_new_full(NULL, NULL, NULL, g_free);
+    g_hash_table_insert(toplevel_title_map, handle, g_strdup(title ? title : ""));
     if (ctx.title_cb) {
         ctx.title_cb(handle, title, ctx.user_data);
     }
@@ -724,6 +728,10 @@ static void toplevel_handle_app_id(void *data, struct zwlr_foreign_toplevel_hand
     if (wl_debug()) g_message("[Wayland] Toplevel App ID: %s (handle: %p)", app_id, handle);
     if (ctx.opened_cb) {
         ctx.opened_cb(handle, app_id, ctx.user_data);
+    }
+    const char *title = toplevel_title_map ? g_hash_table_lookup(toplevel_title_map, handle) : NULL;
+    if (title && ctx.title_cb) {
+        ctx.title_cb(handle, title, ctx.user_data);
     }
 }
 static void toplevel_handle_output_enter(void *data, struct zwlr_foreign_toplevel_handle_v1 *handle, struct wl_output *output) {
@@ -770,6 +778,8 @@ static void toplevel_handle_closed(void *data, struct zwlr_foreign_toplevel_hand
         g_hash_table_remove(toplevel_output_map, handle);
     if (geometry_map)
         g_hash_table_remove(geometry_map, handle);
+    if (toplevel_title_map)
+        g_hash_table_remove(toplevel_title_map, handle);
     /* Mark handle invalid BEFORE notifying Vala so apply_layout can never
      * race and send snap_view for a handle that labwc already destroyed. */
     if (ctx.valid_handles)
@@ -1268,7 +1278,7 @@ static void registry_handle_global(void *data, struct wl_registry *registry, uin
         ctx.output_manager = wl_registry_bind(registry, name, &zwlr_output_manager_v1_interface, 4);
         zwlr_output_manager_v1_add_listener(ctx.output_manager, &output_manager_listener, NULL);
     } else if (strcmp(interface, zsingularity_tiling_manager_v1_interface.name) == 0) {
-        uint32_t v = version < 10 ? version : 10;
+        uint32_t v = version < 11 ? version : 11;
         ctx.tiling_manager = wl_registry_bind(registry, name, &zsingularity_tiling_manager_v1_interface, v);
         if (v >= 2)
             zsingularity_tiling_manager_v1_add_listener(ctx.tiling_manager, &tiling_listener, NULL);
@@ -1775,6 +1785,20 @@ void singularity_wayland_set_geometry(void* toplevel_handle, int x, int y, int w
     zsingularity_tiling_manager_v1_set_geometry(ctx.tiling_manager, toplevel, x, y, width, height);
     wl_display_flush(ctx.display);
 }
+int singularity_wayland_can_animate_geometry(void) {
+    return ctx.tiling_manager
+        && wl_proxy_get_version((struct wl_proxy *)ctx.tiling_manager) >= 11;
+}
+void singularity_wayland_set_geometry_animated(void* toplevel_handle, int x, int y, int width, int height) {
+    if (!singularity_wayland_can_animate_geometry()) {
+        singularity_wayland_set_geometry(toplevel_handle, x, y, width, height);
+        return;
+    }
+    if (!ctx.valid_handles || !g_hash_table_contains(ctx.valid_handles, toplevel_handle)) return;
+    struct zwlr_foreign_toplevel_handle_v1 *toplevel = (struct zwlr_foreign_toplevel_handle_v1 *)toplevel_handle;
+    zsingularity_tiling_manager_v1_set_geometry_animated(ctx.tiling_manager, toplevel, x, y, width, height);
+    wl_display_flush(ctx.display);
+}
 void singularity_wayland_set_close_gesture_progress(void* toplevel_handle,
         double progress) {
     if (!ctx.tiling_manager) return;
@@ -1919,4 +1943,13 @@ char* singularity_wayland_list_globals(void) {
     wl_registry_destroy(registry);
     wl_display_disconnect(display);
     return g_string_free(s, FALSE);
+}
+
+struct wl_display *singularity_wayland_display(void) {
+    return ctx.display;
+}
+
+int singularity_wayland_handle_is_valid(void *handle) {
+    return handle && ctx.valid_handles
+        && g_hash_table_contains(ctx.valid_handles, handle);
 }

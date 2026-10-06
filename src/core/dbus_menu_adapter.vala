@@ -89,6 +89,26 @@ namespace Singularity {
             items_changed(0, get_n_items(), get_n_items());
         }
 
+        public static string? shortcut_to_accel(Variant? shortcut) {
+            if (shortcut == null || !shortcut.is_of_type(new VariantType("aas")) || shortcut.n_children() == 0) return null;
+            var first = shortcut.get_child_value(0);
+            var accel = new StringBuilder();
+            string key = "";
+            for (size_t i = 0; i < first.n_children(); i++) {
+                string part = first.get_child_value(i).get_string();
+                switch (part) {
+                    case "Control": accel.append("<Control>"); break;
+                    case "Alt": accel.append("<Alt>"); break;
+                    case "Shift": accel.append("<Shift>"); break;
+                    case "Super": accel.append("<Super>"); break;
+                    default: key = part; break;
+                }
+            }
+            if (key == "") return null;
+            accel.append(key);
+            return accel.str;
+        }
+
         public override int get_n_items() {
             return (int) (children != null ? children.length() : 0);
         }
@@ -115,6 +135,11 @@ namespace Singularity {
              if (attribute == "enabled") {
                  bool enabled = child.property_get_bool(Dbusmenu.MENUITEM_PROP_ENABLED);
                  return new Variant.boolean(enabled);
+             }
+             if (attribute == "accel") {
+                 if (is_root || is_submenu(child)) return null;
+                 string? accel = shortcut_to_accel(child.property_get_variant("shortcut"));
+                 return accel != null ? new Variant.string(accel) : null;
              }
              if (attribute == "visible") {
                  bool visible = child.property_get_bool(Dbusmenu.MENUITEM_PROP_VISIBLE);

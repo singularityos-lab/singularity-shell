@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="singularity_motion_unstable_v1">
+  <copyright>
+    Copyright © 2026 Singularity Desktop
+  </copyright>
+
+  <interface name="zsingularity_motion_manager_v1" version="1">
+    <description summary="motion hints for window animations">
+      Lets a shell tell the compositor where the launcher icon of each
+      application is, so windows can open from it, close into it and
+      minimize into it. Rectangles are in the surface-local coordinates of
+      the surface that shows the icon, usually a dock. The compositor
+      ignores rectangles of surfaces that are not mapped or not visible.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager">
+        Destroys the manager. Rectangles set through it are removed.
+      </description>
+    </request>
+
+    <request name="set_icon_rect">
+      <description summary="set the icon rectangle of an application">
+        Sets the rectangle of the icon that represents app_id on the given
+        surface. A width or height of zero removes it. app_id is the
+        desktop file id or the window app_id; the compositor matches it
+        against window app_ids ignoring case and a .desktop suffix.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+      <arg name="app_id" type="string"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
+
+    <request name="clear_icon_rects">
+      <description summary="remove every icon rectangle of a surface">
+        Removes all rectangles set for the surface, for example when the
+        dock hides.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+
+    <request name="launch">
+      <description summary="announce an application launch">
+        Announces that the user launched app_id from its icon. The next
+        window of that application opens from the icon rectangle. The
+        announcement expires after a few seconds.
+      </description>
+      <arg name="app_id" type="string"/>
+    </request>
+  </interface>
+</protocol>

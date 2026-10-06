@@ -57,10 +57,6 @@ namespace Singularity {
         public ScrollingColumn? drag_column;
         public StackTarget? stack_target;
         public double offset = 0;
-        public uint offset_animation_id = 0;
-        public double offset_animation_start = 0;
-        public double offset_animation_target = 0;
-        public int64 offset_animation_started = 0;
         public bool initialized = false;
         public bool focus_reveal_pending = false;
 
@@ -95,7 +91,6 @@ namespace Singularity {
         private const double CLOSE_GESTURE_THRESHOLD = 72;
         private const double CLOSE_GESTURE_ARM_DISTANCE = 40;
         private const double CLOSE_GESTURE_RESISTANCE = 0.28;
-        private const uint OFFSET_SETTLE_DURATION = 180;
         private static TilingManager? instance;
         private AppSystem app_system;
         private GLib.Settings settings;
@@ -343,6 +338,7 @@ namespace Singularity {
 
         private static void on_cursor_position(int cursor_x, int cursor_y,
                 void* data) {
+            if (CursorPositionRequest.get_default().deliver(cursor_x, cursor_y)) return;
             var self = (TilingManager)data;
             self.pointer_focus_request_pending = false;
             self.update_pointer_focus(cursor_x, cursor_y);
@@ -407,45 +403,22 @@ namespace Singularity {
             Singularity.wayland_set_tiling_drop_preview(0, 0, 0, 0, 0);
         }
 
-        private void cancel_offset_animation(ScrollingGroup group) {
-            if (group.offset_animation_id == 0) return;
-            GLib.Source.remove(group.offset_animation_id);
-            group.offset_animation_id = 0;
-        }
-
         private bool animate_offset(ScrollingGroup group, double target) {
             target = clamp_offset(group, target);
             if (Math.fabs(target - group.offset) < 0.5) {
                 group.offset = target;
                 return false;
             }
-            cancel_offset_animation(group);
-            group.offset_animation_start = group.offset;
-            group.offset_animation_target = target;
-            group.offset_animation_started = GLib.get_monotonic_time();
-            group.offset_animation_id = GLib.Timeout.add(16, () => {
-                double elapsed = (GLib.get_monotonic_time()
-                    - group.offset_animation_started) / 1000.0;
-                double progress = double.min(1,
-                    elapsed / OFFSET_SETTLE_DURATION);
-                double eased = 1 - Math.pow(1 - progress, 3);
-                group.offset = group.offset_animation_start
-                    + (group.offset_animation_target
-                        - group.offset_animation_start) * eased;
-                layout_group(group);
-                if (progress >= 1) {
-                    group.offset_animation_id = 0;
-                    return GLib.Source.REMOVE;
-                }
-                return GLib.Source.CONTINUE;
-            });
+            if (Singularity.Motion.reduced()
+                    || !Singularity.wayland_can_animate_geometry())
+                return false;
+            group.offset = target;
+            layout_group(group, null, true);
             return true;
         }
 
         private void release_scrolling_windows() {
             hide_drop_preview();
-            foreach (var group in scrolling_groups.values)
-                cancel_offset_animation(group);
             foreach (var win in app_system.get_windows()) {
                 if (win.scrolling_tiled) {
                     Singularity.wayland_set_tiled(win.handle, 0);
@@ -915,7 +888,8 @@ namespace Singularity {
         }
 
         private void layout_group(ScrollingGroup group,
-                                  AppSystem.Window? skip = null) {
+                                  AppSystem.Window? skip = null,
+                                  bool animated = false) {
             foreach (var column in group.columns) {
                 for (int row = 0; row < column.windows.size; row++) {
                     var win = column.windows[row];
@@ -925,8 +899,12 @@ namespace Singularity {
                         Singularity.wayland_set_tiled(win.handle, 1);
                         win.scrolling_tiled = true;
                     }
-                    Singularity.wayland_set_geometry(win.handle,
-                        rect.x, rect.y, rect.width, rect.height);
+                    if (animated)
+                        Singularity.wayland_set_geometry_animated(win.handle,
+                            rect.x, rect.y, rect.width, rect.height);
+                    else
+                        Singularity.wayland_set_geometry(win.handle,
+                            rect.x, rect.y, rect.width, rect.height);
                     win.snap_type = TilingLayout.SNAP_NONE;
                 }
             }
@@ -1057,7 +1035,6 @@ namespace Singularity {
             var stale_keys = new ArrayList<string>();
             foreach (var entry in scrolling_groups.entries) {
                 if (entry.key != key) {
-                    cancel_offset_animation(entry.value);
                     scrolling_position_changed(entry.value.monitor, 0, 1, false);
                     stale_keys.add(entry.key);
                 }
@@ -1071,7 +1048,6 @@ namespace Singularity {
                 return;
             }
             if (group == gesture_group) {
-                cancel_offset_animation(group);
                 group.offset = clamp_offset(group, group.offset);
                 layout_group(group);
                 return;
@@ -1079,7 +1055,6 @@ namespace Singularity {
             if (group.interaction_window != null
                     && column_for_window(group,
                         group.interaction_window) != null) {
-                cancel_offset_animation(group);
                 group.offset = clamp_offset(group, group.offset);
                 layout_group(group, group.interaction_window);
                 return;
@@ -1287,7 +1262,6 @@ namespace Singularity {
                 apply_layout();
                 gesture_group = focused_group();
                 if (gesture_group == null) return false;
-                cancel_offset_animation(gesture_group);
                 gesture_start_offset = gesture_group.offset;
                 gesture_start_window = focused_in_group(gesture_group);
                 gesture_last_dx = 0;
@@ -1655,7 +1629,6 @@ namespace Singularity {
                 if (group == null) return;
             }
             if (phase == 0) {
-                cancel_offset_animation(group);
                 group.interaction_window = win;
                 group.focused = win;
                 if (kind == 0) {

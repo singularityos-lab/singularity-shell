@@ -8,15 +8,23 @@ namespace Singularity {
         private const uint KEY_KP_ENTER = 0xff8d;
         private const uint KEY_LEFT = 0xff51;
         private const uint KEY_RIGHT = 0xff53;
+        private const uint KEY_TAB = 0xff09;
+        private const uint KEYCODE_BACKSPACE = 14;
         private const uint MOD_BLOCKING = 0x2 | 0x4 | 0x8;
         private const uint HINT_PRIVATE = 0x40 | 0x80;
-        private const int ACCENTS_PER_ROW = 10;
 
         private static InputMethodService? instance = null;
 
         public signal void suggestions_changed(string word, string[] suggestions);
+        public signal void escape_pressed();
+        public signal void dictation_clicked();
 
         public bool active { get; private set; default = false; }
+        public bool capture_escape { get; set; default = false; }
+        public bool dictating { get; set; default = false; }
+        public bool has_surrounding { get; private set; default = false; }
+        private string typed_word = "";
+        public Singularity.InputMethods.ImePopup popup { get; private set; }
 
         private GLib.Settings settings;
         private Singularity.Text.SpellChecker checker;
@@ -35,10 +43,18 @@ namespace Singularity {
         private string[] popup_items = {};
         private bool popup_accents = false;
         private int popup_selected = -1;
-        private double[] chip_x = {};
-        private double[] chip_y = {};
-        private double[] chip_w = {};
-        private double[] chip_h = {};
+        private Singularity.InputMethods.Candidates? engine_candidates = null;
+        private string engine_preedit = "";
+        private Queue<PendingKey?> key_queue = new Queue<PendingKey?>();
+        private bool draining = false;
+        private Singularity.InputMethods.InputEngine? bound_engine = null;
+
+        private struct PendingKey {
+            public uint key;
+            public uint keysym;
+            public bool pressed;
+            public uint state;
+        }
 
         public static InputMethodService get_default() {
             if (instance == null) instance = new InputMethodService();
@@ -48,6 +64,30 @@ namespace Singularity {
         private InputMethodService() {
             settings = new GLib.Settings("dev.sinty.desktop");
             checker = Singularity.Text.SpellChecker.get_default();
+            popup = new Singularity.InputMethods.ImePopup();
+            notify["capture-escape"].connect(update_grab);
+            notify["dictating"].connect(() => {
+                if (dictating) {
+                    popup_items = {};
+                    popup_accents = false;
+                } else {
+                    popup.hide();
+                    schedule_suggestions();
+                }
+            });
+            settings.changed["spell-check-all-apps"].connect(() => {
+                update_grab();
+                schedule_suggestions();
+            });
+            foreach (string key in new string[] { "spell-check-all-apps", "input-method-engines", "dictation-enabled" }) {
+                settings.changed[key].connect(sync_environment);
+            }
+            var sources = Singularity.InputMethods.InputSources.get_default();
+            sources.engine_ready.connect(bind_engine);
+            sources.changed.connect(() => {
+                if (sources.current == "") clear_engine_ui();
+                update_grab();
+            });
             foreach (string key in new string[] { "spell-autocorrect", "press-hold-accents" }) {
                 settings.changed[key].connect(update_grab);
             }
@@ -76,7 +116,8 @@ namespace Singularity {
 
         private void sync_environment() {
             bool wanted = settings.get_boolean("spell-autocorrect") || settings.get_boolean("spell-suggestions")
-                || settings.get_boolean("press-hold-accents");
+                || settings.get_boolean("press-hold-accents") || settings.get_boolean("spell-check-all-apps")
+                || settings.get_strv("input-method-engines").length > 0 || settings.get_boolean("dictation-enabled");
             sync_gtk_module(wanted);
             sync_qt_module(wanted);
         }
@@ -131,12 +172,43 @@ namespace Singularity {
 
         public void start() {
             sync_environment();
+            sync_typing_layout();
+            settings.changed["xkb-layout"].connect(sync_typing_layout);
+            settings.changed["xkb-variant"].connect(sync_typing_layout);
             Singularity.ime_start(on_key, on_state, on_pointer);
+        }
+
+        private void sync_typing_layout() {
+            Singularity.type_text_set_layout(settings.get_string("xkb-layout"), settings.get_string("xkb-variant"));
         }
 
         private bool spell_context() {
             return active && (purpose == 0 || purpose == 1) && (hint & HINT_PRIVATE) == 0
+                && settings.get_boolean("spell-check-all-apps") && !engine_context() && !own_client()
                 && checker.enabled && checker.available;
+        }
+
+        public bool own_client() {
+            string? app = AppSystem.get_default().get_focused_app_id();
+            if (app == null || app == "") return false;
+            if (app.has_prefix("dev.sinty.")) return true;
+            return app in settings.get_strv("spell-skip-apps");
+        }
+
+        public bool engine_context() {
+            var sources = Singularity.InputMethods.InputSources.get_default();
+            if (!active || sources.current == "" || sources.engine == null) return false;
+            if ((hint & HINT_PRIVATE) != 0) return false;
+            return purpose <= 1 || purpose == 5 || purpose == 6 || purpose == 7 || purpose == 13;
+        }
+
+        public string text_before_cursor() {
+            return active ? before_cursor() : "";
+        }
+
+        public void set_preedit(string text) {
+            if (!active) return;
+            Singularity.ime_preedit(text, text.length, text.length);
         }
 
         public bool accent_context() {
@@ -146,17 +218,144 @@ namespace Singularity {
 
         private void update_grab() {
             bool grab = (settings.get_boolean("spell-autocorrect") && spell_context())
-                || (settings.get_boolean("press-hold-accents") && accent_context());
+                || (!has_surrounding && spell_context())
+                || (settings.get_boolean("press-hold-accents") && accent_context() && !engine_context())
+                || engine_context() || (capture_escape && active)
+                || (popup_items.length > 0 && !popup_accents);
             Singularity.ime_set_grab(grab);
         }
 
+        private void bind_engine(Singularity.InputMethods.InputEngine? engine) {
+            if (engine == bound_engine) {
+                update_grab();
+                return;
+            }
+            if (bound_engine != null) SignalHandler.disconnect_matched(bound_engine, SignalMatchType.DATA, 0, 0, null, null, this);
+            bound_engine = engine;
+            clear_engine_ui();
+            if (engine != null) {
+                engine.commit.connect(on_engine_commit);
+                engine.preedit.connect(on_engine_preedit);
+                engine.candidates.connect(on_engine_candidates);
+                engine.forward_key.connect(on_engine_forward);
+                engine.delete_surrounding.connect(on_engine_delete);
+                if (active) {
+                    engine.focus_in();
+                    engine.set_surrounding(surrounding, surrounding.substring(0, cursor).char_count());
+                }
+            }
+            update_grab();
+        }
+
+        private void on_engine_commit(string text) {
+            engine_preedit = "";
+            if (active && text != "") Singularity.ime_replace(0, 0, text);
+        }
+
+        private void on_engine_preedit(string text, int char_cursor) {
+            engine_preedit = text;
+            if (!active) return;
+            int clamped = int.max(0, int.min(char_cursor, text.char_count()));
+            int byte_cursor = text.index_of_nth_char(clamped);
+            Singularity.ime_preedit(text, byte_cursor, byte_cursor);
+            if (engine_candidates != null) popup.show_candidates(engine_candidates, engine_preedit);
+        }
+
+        private void on_engine_candidates(Singularity.InputMethods.Candidates? list) {
+            engine_candidates = list;
+            if (dictating) return;
+            if (list == null || !active) {
+                popup.hide();
+                return;
+            }
+            popup_items = {};
+            popup_accents = false;
+            popup.show_candidates(list, engine_preedit);
+        }
+
+        private void on_engine_forward(uint keysym, uint keycode, uint state) {
+            if (keycode != 0) {
+                Singularity.ime_forward_key(keycode, true);
+                Singularity.ime_forward_key(keycode, false);
+                return;
+            }
+            unichar c = Singularity.keysym_to_unicode(keysym);
+            if (c != 0) Singularity.type_text(c.to_string());
+        }
+
+        private void on_engine_delete(int offset, uint count) {
+            if (!active) return;
+            string before = before_cursor();
+            string after = surrounding.substring(cursor);
+            int before_chars = before.char_count();
+            int start = int.max(0, before_chars + offset);
+            int end_chars = before_chars + offset + (int) count;
+            uint delete_before = (uint) (before.length - before.index_of_nth_char(int.min(start, before_chars)));
+            uint delete_after = 0;
+            if (end_chars > before_chars) {
+                int extra = int.min(end_chars - before_chars, after.char_count());
+                delete_after = (uint) after.index_of_nth_char(extra);
+            }
+            Singularity.ime_replace(delete_before, delete_after, null);
+        }
+
+        private void clear_engine_ui() {
+            bool had = engine_candidates != null;
+            engine_candidates = null;
+            engine_preedit = "";
+            if (had && !dictating) popup.hide();
+        }
+
+        private uint engine_state(uint modifiers) {
+            uint state = 0;
+            if ((modifiers & 0x1) != 0) state |= Singularity.InputMethods.STATE_SHIFT;
+            if ((modifiers & 0x2) != 0) state |= Singularity.InputMethods.STATE_CONTROL;
+            if ((modifiers & 0x4) != 0) state |= Singularity.InputMethods.STATE_ALT;
+            if ((modifiers & 0x8) != 0) state |= Singularity.InputMethods.STATE_SUPER;
+            return state;
+        }
+
+        private async void drain_keys() {
+            draining = true;
+            while (!key_queue.is_empty()) {
+                var item = key_queue.pop_head();
+                var engine = Singularity.InputMethods.InputSources.get_default().engine;
+                bool handled = false;
+                if (engine != null && engine_context()) {
+                    uint code = engine.framework == "fcitx5" ? item.key + 8 : item.key;
+                    handled = yield engine.process_key(item.keysym, code, item.state, !item.pressed);
+                }
+                if (item.pressed) {
+                    if (!handled) Singularity.ime_forward_key(item.key, true);
+                } else if (Singularity.ime_key_forwarded(item.key)) {
+                    Singularity.ime_forward_key(item.key, false);
+                }
+            }
+            draining = false;
+        }
+
         private void on_state(bool is_active, string text, uint text_cursor, uint text_purpose, uint text_hint) {
+            bool was_active = active;
+            if (is_active && !was_active) {
+                has_surrounding = false;
+                typed_word = "";
+            }
+            if (is_active && text != "" && !has_surrounding) has_surrounding = true;
             active = is_active;
             surrounding = text;
             cursor = uint.min(text_cursor, (uint) text.length);
             purpose = text_purpose;
             hint = text_hint;
             update_grab();
+            if (bound_engine != null) {
+                if (active && !was_active) bound_engine.focus_in();
+                if (active) bound_engine.set_surrounding(surrounding, surrounding.substring(0, cursor).char_count());
+                if (!active && was_active) {
+                    bound_engine.reset();
+                    bound_engine.focus_out();
+                    clear_engine_ui();
+                }
+            }
             if (!active) {
                 cancel_hold();
                 close_popup();
@@ -173,7 +372,30 @@ namespace Singularity {
             return surrounding.substring(0, cursor);
         }
 
+        private void track_typed(uint keysym, string text) {
+            if (has_surrounding) {
+                typed_word = "";
+                return;
+            }
+            unichar c = text.char_count() == 1 ? text.get_char(0) : 0;
+            if (keysym == KEY_BACKSPACE) {
+                if (typed_word != "") {
+                    typed_word = typed_word.substring(0, typed_word.index_of_nth_char(typed_word.char_count() - 1));
+                }
+            } else if (c != 0 && (c.isalpha() || c == '\'')) {
+                typed_word += text;
+            } else if (keysym != 0xffe1 && keysym != 0xffe2 && keysym != 0xfe03) {
+                typed_word = "";
+            }
+            schedule_suggestions();
+        }
+
         private string word_before_cursor() {
+            if (!has_surrounding) {
+                string word = typed_word;
+                while (word.has_prefix("'")) word = word.substring(1);
+                return word;
+            }
             string before = before_cursor();
             int index = before.length;
             int start = index;
@@ -219,7 +441,7 @@ namespace Singularity {
         }
 
         private void refresh_suggestions() {
-            if (popup_accents) return;
+            if (popup_accents || dictating || engine_candidates != null) return;
             current_word = active ? word_before_cursor() : "";
             string[] items = corrections(current_word);
             suggestions_changed(items.length > 0 ? current_word : "", items);
@@ -230,12 +452,22 @@ namespace Singularity {
             } else {
                 close_popup();
             }
+            update_grab();
         }
 
         public void apply_suggestion(string suggestion) {
             string word = word_before_cursor();
             if (!active || word == "") return;
-            Singularity.ime_replace(word.length, 0, suggestion);
+            if (has_surrounding) {
+                Singularity.ime_replace(word.length, 0, suggestion);
+            } else {
+                for (int i = 0; i < word.char_count(); i++) {
+                    Singularity.ime_forward_key(KEYCODE_BACKSPACE, true);
+                    Singularity.ime_forward_key(KEYCODE_BACKSPACE, false);
+                }
+                Singularity.ime_replace(0, 0, suggestion);
+            }
+            typed_word = "";
             close_popup();
             suggestions_changed("", {});
         }
@@ -299,6 +531,15 @@ namespace Singularity {
         }
 
         private bool on_key(uint key, uint keysym, string text, bool pressed, uint modifiers) {
+            if (capture_escape && keysym == KEY_ESCAPE) {
+                if (pressed) escape_pressed();
+                return true;
+            }
+            if (engine_context() || draining) {
+                key_queue.push_tail(PendingKey() { key = key, keysym = keysym, pressed = pressed, state = engine_state(modifiers) });
+                if (!draining) drain_keys.begin();
+                return true;
+            }
             if (!pressed) {
                 if (key == hold_key) cancel_hold();
                 return false;
@@ -306,6 +547,12 @@ namespace Singularity {
             if (hold_key != 0 && key != hold_key) cancel_hold();
 
             bool plain = (modifiers & MOD_BLOCKING) == 0;
+            if (plain && keysym == KEY_TAB && !popup_accents && popup_items.length > 0) {
+                apply_suggestion(popup_items[popup_selected >= 0 ? popup_selected : 0]);
+                return true;
+            }
+            if (plain) track_typed(keysym, text);
+            else typed_word = "";
             if (popup_accents) {
                 if (keysym == KEY_ESCAPE) {
                     close_popup();
@@ -372,16 +619,25 @@ namespace Singularity {
         }
 
         private void on_pointer(double x, double y) {
-            for (int i = 0; i < chip_x.length; i++) {
-                if (x >= chip_x[i] && x < chip_x[i] + chip_w[i] && y >= chip_y[i] && y < chip_y[i] + chip_h[i]) {
-                    if (popup_accents) choose_accent(i);
-                    else apply_suggestion(popup_items[i]);
-                    return;
-                }
+            int action = popup.hit(x, y);
+            if (action == Singularity.InputMethods.ImePopup.HIT_NONE) return;
+            if (action == Singularity.InputMethods.ImePopup.HIT_DICTATION) {
+                dictation_clicked();
+                return;
             }
+            if (engine_candidates != null && bound_engine != null) {
+                if (action == Singularity.InputMethods.ImePopup.HIT_PREVIOUS) bound_engine.change_page(false);
+                else if (action == Singularity.InputMethods.ImePopup.HIT_NEXT) bound_engine.change_page(true);
+                else if (action >= 0) bound_engine.select_candidate(action);
+                return;
+            }
+            if (action < 0 || action >= popup_items.length) return;
+            if (popup_accents) choose_accent(action);
+            else apply_suggestion(popup_items[action]);
         }
 
         private void show_popup(string[] items, bool accents, int selected) {
+            if (dictating) return;
             popup_items = items;
             popup_accents = accents;
             popup_selected = selected;
@@ -393,116 +649,12 @@ namespace Singularity {
             popup_items = {};
             popup_accents = false;
             popup_selected = -1;
-            chip_x = {};
-            chip_y = {};
-            chip_w = {};
-            chip_h = {};
-            if (shown) Singularity.ime_popup_hide();
-        }
-
-        private int output_scale() {
-            int scale = 1;
-            var monitors = Gdk.Display.get_default().get_monitors();
-            for (uint i = 0; i < monitors.get_n_items(); i++) {
-                var monitor = (Gdk.Monitor) monitors.get_item(i);
-                scale = int.max(scale, (int) Math.ceil(monitor.scale));
-            }
-            return scale;
+            if (shown && !dictating && engine_candidates == null) popup.hide();
         }
 
         private void render_popup() {
             if (popup_items.length == 0) return;
-            const double PAD = 6;
-            const double GAP = 4;
-            double chip_pad_x = popup_accents ? 8 : 12;
-            double chip_height = popup_accents ? 40 : 30;
-
-            var measure = new Cairo.ImageSurface(Cairo.Format.ARGB32, 1, 1);
-            var measure_cr = new Cairo.Context(measure);
-            var layout = Pango.cairo_create_layout(measure_cr);
-            var font = Pango.FontDescription.from_string(popup_accents ? "Sans 15" : "Sans 11");
-            layout.set_font_description(font);
-
-            chip_x = {};
-            chip_y = {};
-            chip_w = {};
-            chip_h = {};
-            double x = PAD;
-            double y = PAD;
-            double width = 0;
-            for (int i = 0; i < popup_items.length; i++) {
-                if (popup_accents && i > 0 && i % ACCENTS_PER_ROW == 0) {
-                    x = PAD;
-                    y += chip_height + GAP;
-                }
-                layout.set_text(popup_items[i], -1);
-                int text_w, text_h;
-                layout.get_pixel_size(out text_w, out text_h);
-                double w = double.max(text_w + chip_pad_x * 2, popup_accents ? 34 : 0);
-                chip_x += x;
-                chip_y += y;
-                chip_w += w;
-                chip_h += chip_height;
-                x += w + GAP;
-                width = double.max(width, x - GAP + PAD);
-            }
-            double height = y + chip_height + PAD;
-
-            int scale = output_scale();
-            int pixel_w = (int) Math.ceil(width) * scale;
-            int pixel_h = (int) Math.ceil(height) * scale;
-            var surface = new Cairo.ImageSurface(Cairo.Format.ARGB32, pixel_w, pixel_h);
-            var cr = new Cairo.Context(surface);
-            cr.scale(scale, scale);
-
-            rounded(cr, 0.5, 0.5, Math.ceil(width) - 1, Math.ceil(height) - 1, 12);
-            cr.set_source_rgba(0.13, 0.13, 0.14, 0.97);
-            cr.fill_preserve();
-            cr.set_source_rgba(1, 1, 1, 0.12);
-            cr.set_line_width(1);
-            cr.stroke();
-
-            var accent = Gdk.RGBA();
-            accent.parse(Singularity.Style.StyleManager.get_default().accent_hex);
-            var draw_layout = Pango.cairo_create_layout(cr);
-            draw_layout.set_font_description(font);
-            var number_layout = Pango.cairo_create_layout(cr);
-            number_layout.set_font_description(Pango.FontDescription.from_string("Sans 7"));
-
-            for (int i = 0; i < popup_items.length; i++) {
-                if (i == popup_selected) {
-                    rounded(cr, chip_x[i], chip_y[i], chip_w[i], chip_h[i], 8);
-                    cr.set_source_rgba(accent.red, accent.green, accent.blue, 0.9);
-                    cr.fill();
-                }
-                draw_layout.set_text(popup_items[i], -1);
-                int text_w, text_h;
-                draw_layout.get_pixel_size(out text_w, out text_h);
-                double text_y = chip_y[i] + (chip_h[i] - text_h) / 2 - (popup_accents ? 4 : 0);
-                cr.move_to(chip_x[i] + (chip_w[i] - text_w) / 2, text_y);
-                cr.set_source_rgba(1, 1, 1, 0.95);
-                Pango.cairo_show_layout(cr, draw_layout);
-                if (popup_accents && i < 9) {
-                    number_layout.set_text((i + 1).to_string(), -1);
-                    int num_w, num_h;
-                    number_layout.get_pixel_size(out num_w, out num_h);
-                    cr.move_to(chip_x[i] + (chip_w[i] - num_w) / 2, chip_y[i] + chip_h[i] - num_h - 2);
-                    cr.set_source_rgba(1, 1, 1, 0.55);
-                    Pango.cairo_show_layout(cr, number_layout);
-                }
-            }
-            surface.flush();
-            unowned uchar[] data = surface.get_data();
-            Singularity.ime_popup_show((uint8[]) data, pixel_w, pixel_h, surface.get_stride(), scale);
-        }
-
-        private static void rounded(Cairo.Context cr, double x, double y, double w, double h, double r) {
-            cr.new_sub_path();
-            cr.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
-            cr.arc(x + w - r, y + h - r, r, 0, Math.PI / 2);
-            cr.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI);
-            cr.arc(x + r, y + r, r, Math.PI, 3 * Math.PI / 2);
-            cr.close_path();
+            popup.show_chips(popup_items, popup_accents, popup_selected);
         }
     }
 }

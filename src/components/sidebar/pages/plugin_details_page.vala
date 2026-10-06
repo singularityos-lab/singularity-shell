@@ -32,7 +32,7 @@ namespace Singularity.SidebarPages {
 
             // Use generic plugin icon as plugins might not have icons
             // Or use "extension-symbolic" or similar
-            var icon_name = "application-x-addon-symbolic";
+            var icon_name = "application-x-addon";
             var icon = new Image.from_icon_name(icon_name);
             icon.pixel_size = 64;
             box.append(icon);
@@ -62,8 +62,7 @@ namespace Singularity.SidebarPages {
             if (desc_text != null) {
                 var desc = new Label(desc_text);
                 desc.wrap = true;
-                desc.max_width_chars = 40;
-                desc.halign = Align.START;
+                desc.xalign = 0f;
                 desc.margin_top = 8;
                 vbox.append(desc);
             }

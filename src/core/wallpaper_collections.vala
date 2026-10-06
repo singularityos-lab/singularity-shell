@@ -238,6 +238,117 @@ namespace Singularity {
             return active_uri != "" && collection.contains_uri(active_uri);
         }
 
+        public static bool is_dynamic_entry(string uri) {
+            string? path = File.new_for_uri(uri).get_path();
+            return path != null && DynamicWallpaper.is_dynamic_path(path);
+        }
+
+        private static string? real_location(string path) {
+            string? parent = Posix.realpath(Path.get_dirname(path), null);
+            if (parent == null) return null;
+            return Path.build_filename(parent, Path.get_basename(path));
+        }
+
+        private static bool is_removable(string path) {
+            var type = File.new_for_path(path).query_file_type(FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
+            return type == FileType.REGULAR || type == FileType.SYMBOLIC_LINK;
+        }
+
+        private static void find_dynamic_manifests(string dir, int depth, GenericArray<string> found) {
+            try {
+                var en = File.new_for_path(dir).enumerate_children("standard::name,standard::type",
+                    FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
+                FileInfo info;
+                while ((info = en.next_file(null)) != null) {
+                    string child = Path.build_filename(dir, info.get_name());
+                    if (info.get_file_type() == FileType.DIRECTORY) {
+                        if (depth < 2) find_dynamic_manifests(child, depth + 1, found);
+                    } else if (info.get_file_type() == FileType.REGULAR && DynamicWallpaper.is_dynamic_path(child)) {
+                        found.add(child);
+                    }
+                }
+            } catch (Error e) {
+            }
+        }
+
+        private static bool tree_has_files(File dir) {
+            try {
+                var en = dir.enumerate_children("standard::name,standard::type",
+                    FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
+                FileInfo info;
+                while ((info = en.next_file(null)) != null) {
+                    if (info.get_file_type() != FileType.DIRECTORY) return true;
+                    if (tree_has_files(dir.get_child(info.get_name()))) return true;
+                }
+            } catch (Error e) {
+                return true;
+            }
+            return false;
+        }
+
+        private static string[] dynamic_images(DynamicWallpaper wp) {
+            string[] list = wp.images();
+            if (wp.preview != "") list += wp.preview;
+            return list;
+        }
+
+        public static string[] dynamic_files_to_delete(WallpaperCollectionInfo collection, string manifest) {
+            string? real_manifest = real_location(manifest);
+            string? real_root = Posix.realpath(collection.dir, null);
+            string? real_owner = Posix.realpath(Path.get_dirname(manifest), null);
+            if (real_manifest == null || real_root == null || real_owner == null) return {};
+            if (real_owner != real_root && !real_owner.has_prefix(real_root + Path.DIR_SEPARATOR_S)) return {};
+            DynamicWallpaper wp;
+            try {
+                wp = DynamicWallpaper.load(manifest);
+            } catch (Error e) {
+                return {};
+            }
+            var shared = new Gee.HashSet<string>();
+            var others = new GenericArray<string>();
+            find_dynamic_manifests(collection.dir, 0, others);
+            foreach (string other in others.data) {
+                string? real_other = real_location(other);
+                if (real_other == null || real_other == real_manifest) continue;
+                try {
+                    foreach (string img in dynamic_images(DynamicWallpaper.load(other))) {
+                        string? r = real_location(img);
+                        if (r != null) shared.add(r);
+                    }
+                } catch (Error e) {
+                }
+            }
+            var result = new Gee.ArrayList<string>();
+            foreach (string img in dynamic_images(wp)) {
+                if (img == "" || !Path.is_absolute(img)) continue;
+                string? real_img = real_location(img);
+                if (real_img == null || real_img == real_manifest) continue;
+                if (!real_img.has_prefix(real_owner + Path.DIR_SEPARATOR_S)) continue;
+                if (shared.contains(real_img) || result.contains(real_img)) continue;
+                if (!is_removable(real_img)) continue;
+                result.add(real_img);
+            }
+            return result.to_array();
+        }
+
+        private static bool delete_dynamic(WallpaperCollectionInfo collection, string manifest) throws Error {
+            string[] frames = dynamic_files_to_delete(collection, manifest);
+            foreach (string frame in frames) File.new_for_path(frame).delete(null);
+            File.new_for_path(manifest).delete(null);
+            string? real_root = Posix.realpath(collection.dir, null);
+            string? real_owner = Posix.realpath(Path.get_dirname(manifest), null);
+            if (real_root != null && real_owner != null && real_owner != real_root
+                    && real_owner.has_prefix(real_root + Path.DIR_SEPARATOR_S)
+                    && !tree_has_files(File.new_for_path(real_owner))) {
+                remove_tree(File.new_for_path(real_owner));
+            }
+            if (!tree_has_files(File.new_for_path(collection.dir))) {
+                delete_pack(collection);
+                return true;
+            }
+            return false;
+        }
+
         // Returns true when deleting the final image also removed the empty pack.
         public static bool delete_image(WallpaperCollectionInfo collection, string uri) throws Error {
             if (!collection.can_delete_now() || !collection.contains_uri(uri))
@@ -247,6 +358,7 @@ namespace Singularity {
             string? basename = image.get_basename();
             if (path == null || basename == null || image.query_file_type(FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null) != FileType.REGULAR)
                 throw new IOError.INVALID_ARGUMENT("Wallpaper image is not a regular file");
+            if (DynamicWallpaper.is_dynamic_path(path)) return delete_dynamic(collection, path);
             image.delete(null);
             int dot = basename.last_index_of(".");
             if (dot > 0) {
