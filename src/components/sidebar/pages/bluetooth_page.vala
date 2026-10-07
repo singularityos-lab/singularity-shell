@@ -9,6 +9,8 @@ namespace Singularity.SidebarPages {
         private PreferencesGroup devices_group;
         private bool _syncing = false;
         private uint _refresh_id = 0;
+        private uint _devices_id = 0;
+        private bool _devices_dirty = true;
 
         public BluetoothPage(SettingsView view) {
             base(_("Bluetooth"));
@@ -18,11 +20,28 @@ namespace Singularity.SidebarPages {
             manager = SystemMonitor.get_default().bluetooth;
             build_ui();
             manager.state_changed.connect(update_state);
-            manager.device_added.connect((d) => update_devices());
-            manager.device_removed.connect((p) => update_devices());
-            manager.device_changed.connect((p) => update_devices());
+            manager.device_added.connect((d) => queue_devices());
+            manager.device_removed.connect((p) => queue_devices());
+            manager.device_changed.connect((p) => queue_devices());
+            map.connect(() => {
+                update_state();
+                queue_devices();
+            });
+            unmap.connect(() => {
+                stop_refresh();
+                if (manager.is_discovering) manager.stop_discovery.begin();
+            });
             update_state();
-            update_devices();
+        }
+
+        private void queue_devices() {
+            _devices_dirty = true;
+            if (!get_mapped() || _devices_id != 0) return;
+            _devices_id = Idle.add(() => {
+                _devices_id = 0;
+                if (get_mapped() && _devices_dirty) update_devices();
+                return Source.REMOVE;
+            });
         }
 
         private void build_ui() {
@@ -46,6 +65,7 @@ namespace Singularity.SidebarPages {
                 _syncing = false;
             }
             devices_group.visible = manager.is_powered;
+            if (!get_mapped()) return;
             if (manager.is_powered && !manager.is_discovering) {
                 manager.start_discovery.begin();
             } else if (!manager.is_powered && manager.is_discovering) {
@@ -71,6 +91,7 @@ namespace Singularity.SidebarPages {
         }
 
         private void update_devices() {
+            _devices_dirty = false;
             devices_group.clear();
             if (manager.devices.length() == 0) {
                 var empty = new ActionRow(_("No devices found"));
@@ -87,6 +108,7 @@ namespace Singularity.SidebarPages {
                 }
                 var row = new ActionRow(device.name, status,
                     BluetoothManager.bt_icon_for(device.icon));
+                unowned ActionRow row_ref = row;
                 row.activatable = false;
                 if (manager.connecting_path == dev_path) {
                     var spinner = new Spinner();
@@ -116,7 +138,7 @@ namespace Singularity.SidebarPages {
                     forget_btn.add_css_class("flat");
                     forget_btn.tooltip_text = _("Forget Device");
                     forget_btn.clicked.connect(() => {
-                        row.confirmation_requested(_("Forget"), _("Cancel"),
+                        row_ref.confirmation_requested(_("Forget"), _("Cancel"),
                             ConfirmationSuggestedAction.CANCEL);
                     });
                     row.confirmed.connect(() => {
@@ -130,6 +152,10 @@ namespace Singularity.SidebarPages {
 
         public override void dispose() {
             stop_refresh();
+            if (_devices_id != 0) {
+                Source.remove(_devices_id);
+                _devices_id = 0;
+            }
             if (manager.is_discovering) {
                 manager.stop_discovery.begin();
             }
