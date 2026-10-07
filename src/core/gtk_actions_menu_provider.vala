@@ -161,7 +161,9 @@ namespace Singularity {
 
         private static GLib.Menu? build_sync (string bus_name) throws GLib.Error {
             var conn = GLib.Bus.get_sync (GLib.BusType.SESSION);
-            string base_path = "/" + bus_name.replace (".", "/");
+            if (!GLib.DBus.is_name (bus_name)) return null;
+            string base_path = "/" + bus_name.replace (".", "/").replace ("-", "_");
+            if (!GLib.Variant.is_object_path (base_path)) return null;
             string win_path  = Singularity.AppSystem.resolve_window_path (conn, bus_name, base_path);
 
             // Collect enabled actions from both app and window level
@@ -212,12 +214,14 @@ namespace Singularity {
         private static GLib.HashTable<string, bool> collect_actions (
                 GLib.DBusConnection conn, string bus_name, string obj_path) {
             var result = new GLib.HashTable<string, bool> (GLib.str_hash, GLib.str_equal);
+            if (!GLib.Variant.is_object_path (obj_path)) return result;
             try {
                 var resp = conn.call_sync (
                     bus_name, obj_path,
                     "org.gtk.Actions", "DescribeAll",
                     null, null,
                     GLib.DBusCallFlags.NONE, 2000);
+                if (resp == null) return result;
                 var dict = resp.get_child_value (0);
                 for (size_t i = 0; i < dict.n_children (); i++) {
                     var entry = dict.get_child_value (i);

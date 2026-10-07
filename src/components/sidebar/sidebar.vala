@@ -509,6 +509,12 @@ namespace Singularity {
             animated_open("settings");
         }
 
+        public void reveal_setting_title(string page_name, string title) {
+            ensure_settings_view();
+            settings_view.reveal_title(page_name, title);
+            animated_open("settings");
+        }
+
         public void open_app_details(AppInfo info) {
             ensure_settings_view();
             settings_view.open_app_details(info);

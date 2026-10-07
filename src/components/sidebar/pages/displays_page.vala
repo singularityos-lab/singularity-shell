@@ -229,9 +229,14 @@ namespace Singularity.SidebarPages {
                 row.margin_top = 12; row.margin_bottom = 12; row.margin_start = 12; row.margin_end = 12;
                 var icon = new Image.from_icon_name("video-display-symbolic");
                 row.append(icon);
-                var label = new Label(m.description ?? m.name ?? _("Unknown Display"));
+                string title = m.description ?? m.name ?? _("Unknown Display");
+                var label = new Label(title);
                 label.hexpand = true;
-                label.halign = Align.START;
+                label.halign = Align.FILL;
+                label.xalign = 0;
+                label.ellipsize = Pango.EllipsizeMode.END;
+                label.width_chars = 1;
+                label.tooltip_text = title;
                 row.append(label);
                 monitor_list.append(row);
                 if (prev_name != null && m.name == prev_name) restore_idx = i;

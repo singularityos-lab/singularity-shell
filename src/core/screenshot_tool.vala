@@ -25,6 +25,7 @@ namespace Singularity {
         private Gdk.Monitor? _target_monitor = null;
         private string? _target_connector = null;
         private Gee.HashMap<uint, string> _screenshot_notification_actions = new Gee.HashMap<uint, string>();
+        private bool _thumbnail_connected = false;
 
         public static ScreenshotTool get_default(Gtk.Application? app = null) {
             if (_instance == null) {
@@ -526,6 +527,16 @@ namespace Singularity {
                 saved_path = ScreenshotPortal.get_default().save_to_pictures("file://" + file_path);
             }
             string open_path = saved_path ?? file_path;
+            var app = application as Gtk.Application;
+            if (open_path != null && app != null) {
+                var thumb = ScreenshotThumbnail.get_default(app);
+                if (!_thumbnail_connected) {
+                    _thumbnail_connected = true;
+                    thumb.action_requested.connect((p, a) => _run_screenshot_action(p, a));
+                }
+                thumb.show_for(open_path, msg, _target_monitor);
+                return;
+            }
             if (open_path != null) {
                 actions += "default";
                 actions += _("Markup");
@@ -548,7 +559,20 @@ namespace Singularity {
         private void _handle_notification_action(uint id, string action) {
             string? path = _screenshot_notification_actions.get(id);
             if (path == null) return;
-            if (action == "markup" || action == "default") {
+            _run_screenshot_action(path, action);
+            _screenshot_notification_actions.remove(id);
+        }
+
+        private void _run_screenshot_action(string path, string action) {
+            if (action == "copy") {
+                ScreenshotPortal.get_default().copy_to_clipboard(path);
+            } else if (action == "trash") {
+                try {
+                    File.new_for_path(path).trash();
+                } catch (Error e) {
+                    warning("[ScreenshotTool] Failed to trash: %s", e.message);
+                }
+            } else if (action == "markup" || action == "default") {
                 open_markup(path);
             } else if (action == "open") {
                 try {
@@ -571,7 +595,6 @@ namespace Singularity {
                 Singularity.ShareTargets.activate_app_action.begin("dev.sinty.files", "share-files",
                     new Variant.strv({ File.new_for_path(path).get_uri() }));
             }
-            _screenshot_notification_actions.remove(id);
         }
 
         public static void open_markup(string path) {

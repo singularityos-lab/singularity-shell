@@ -423,6 +423,7 @@ singularity_core_sources = files(
     'src/core/ush_portal.vala',
     'src/core/screenshot_portal.vala',
     'src/core/screenshot_tool.vala',
+    'src/core/screenshot_thumbnail.vala',
     'src/core/screen_recorder.vala',
     'src/components/panel/recording_indicator.vala',
     'src/components/panel/screen_sharing_indicator.vala',

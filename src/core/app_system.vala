@@ -801,13 +801,14 @@ namespace Singularity {
                         _session_bus = Bus.get_sync(BusType.SESSION);
                     var connection = _session_bus;
                     string app_path = app_object_path(bus_name);
+                    if (!Variant.is_object_path(app_path)) throw new IOError.INVALID_ARGUMENT("invalid object path %s", app_path);
                     string menu_path = app_path + "/menus/menubar";
                     string owner = bus_name;
                     try {
                         var reply = connection.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus",
                             "org.freedesktop.DBus", "GetNameOwner", new Variant("(s)", bus_name),
                             new VariantType("(s)"), DBusCallFlags.NONE, 250, null);
-                        owner = reply.get_child_value(0).get_string();
+                        if (reply != null) owner = reply.get_child_value(0).get_string();
                     } catch (Error e) {
                     }
                     var gtk4_model = GLib.DBusMenuModel.get(connection, owner, menu_path);
@@ -903,10 +904,14 @@ namespace Singularity {
         }
 
         internal static string resolve_window_path(DBusConnection conn, string owner, string app_path) {
+            if (!Variant.is_object_path(app_path) || !Variant.is_object_path(app_path + "/window")
+                    || !(GLib.DBus.is_name(owner) || GLib.DBus.is_unique_name(owner)))
+                return app_path;
             try {
                 var reply = conn.call_sync(owner, app_path, "org.gtk.Actions", "Describe",
                     new Variant("(s)", WINDOW_PATH_ACTION), new VariantType("((bgav))"),
                     DBusCallFlags.NONE, 250, null);
+                if (reply == null) throw new IOError.FAILED("no reply");
                 var states = reply.get_child_value(0).get_child_value(2);
                 if (states.n_children() > 0) {
                     var state = states.get_child_value(0).get_variant();
@@ -920,6 +925,7 @@ namespace Singularity {
             try {
                 var reply = conn.call_sync(owner, app_path + "/window", "org.freedesktop.DBus.Introspectable",
                     "Introspect", null, new VariantType("(s)"), DBusCallFlags.NONE, 250, null);
+                if (reply == null) throw new IOError.FAILED("no reply");
                 var info = new DBusNodeInfo.for_xml(reply.get_child_value(0).get_string());
                 uint64 best = 0;
                 foreach (var node in info.nodes) {

@@ -295,6 +295,17 @@ namespace Singularity {
             return _search_items.read_only_view;
         }
 
+        public void reveal_title(string page_name, string title) {
+            string wanted = title.strip().down();
+            foreach (var entry in settings_entries()) {
+                if (entry.page_name == page_name && entry.action == null && entry.title.down() == wanted) {
+                    reveal(entry, false);
+                    return;
+                }
+            }
+            navigate_to(page_name);
+        }
+
         public void reveal(SettingsEntry entry, bool activate) {
             navigate_to(entry.page_name);
             if (entry.action != null) {

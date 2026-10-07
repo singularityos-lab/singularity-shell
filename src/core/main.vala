@@ -209,6 +209,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         }
         var cal_manager = Singularity.Calendar.CalendarManager.get_default();
         Singularity.Calendar.LocalProvider.register_all(cal_manager);
+        Singularity.Calendar.TasksProvider.register(cal_manager);
         Singularity.Calendar.WebCalendarProvider.register_all(cal_manager);
         Singularity.LidManager.get_default();
         Singularity.IdleInhibitors.get_default().start();
@@ -1496,15 +1497,24 @@ window.inactive.shadow.color: %s
     }
 
     public void open_settings_page(string page) {
+        string target = page;
+        string? row = null;
+        int hash = page.index_of_char('#');
+        if (hash > 0) {
+            target = page.substring(0, hash);
+            row = page.substring(hash + 1);
+        }
         if (settings != null && settings.get_boolean("settings-in-window")) {
             // Ensure sidebar exists for file picker helpers used by some settings pages
             ensure_sidebar();
             ensure_settings_window();
-            settings_window.open_page(page);
+            settings_window.open_page(target);
+            if (row != null) settings_window.get_settings_view().reveal_title(target, row);
             return;
         }
         ensure_sidebar();
-        sidebar.open_page(page);
+        if (row != null) sidebar.reveal_setting_title(target, row);
+        else sidebar.open_page(target);
     }
 
     public async void warm_settings_index() {
