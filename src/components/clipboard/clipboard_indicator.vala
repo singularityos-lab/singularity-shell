@@ -32,6 +32,7 @@ namespace Singularity {
 
         private void sync(ClipboardHistory history) {
             visible = history.settings != null
+                && history.settings.settings_schema.has_key("show-in-panel")
                 && history.settings.get_boolean("show-in-panel")
                 && history.settings.get_boolean("history-enabled");
         }
