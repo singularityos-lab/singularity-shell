@@ -1088,8 +1088,8 @@ namespace Singularity {
                 img.paintable = cached;
                 return;
             }
-            if (icon is FileIcon) img.set_data<GLib.Icon>("icon-fallback", icon);
-            else img.set_data<string>("icon-fallback", fallback);
+            if (icon is FileIcon) img.set_data<GLib.Icon>("icon-fallback-gicon", icon);
+            else img.set_data<string>("icon-fallback-name", fallback);
             var waiting = _icon_waiters.lookup(key);
             if (waiting != null) {
                 waiting.add(img);
@@ -1143,7 +1143,7 @@ namespace Singularity {
         }
 
         private static void deliver_icon(string key, Gdk.Texture? texture) {
-            var waiting = _icon_waiters.lookup(key);
+            GLib.GenericArray<Gtk.Image>? waiting = _icon_waiters.lookup(key);
             _icon_waiters.remove(key);
             if (texture != null) _icon_textures.insert(key, texture);
             if (waiting == null) return;
@@ -1154,12 +1154,12 @@ namespace Singularity {
         }
 
         private static void apply_icon_fallback(Gtk.Image img) {
-            var gicon = img.get_data<GLib.Icon>("icon-fallback");
+            var gicon = img.get_data<GLib.Icon>("icon-fallback-gicon");
             if (gicon != null) {
                 img.set_from_gicon(gicon);
                 return;
             }
-            img.icon_name = img.get_data<string>("icon-fallback") ?? "application-x-executable";
+            img.icon_name = img.get_data<string>("icon-fallback-name") ?? "application-x-executable";
         }
 
         // Drop reorder
