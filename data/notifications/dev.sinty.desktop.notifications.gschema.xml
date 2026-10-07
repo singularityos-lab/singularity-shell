@@ -118,5 +118,10 @@
       <summary>Paste on select</summary>
       <description>Paste the chosen item into the focused app instead of only copying it.</description>
     </key>
+    <key name="show-in-panel" type="b">
+      <default>false</default>
+      <summary>Show in the panel</summary>
+      <description>Show a button in the panel that opens the clipboard history.</description>
+    </key>
   </schema>
 </schemalist>

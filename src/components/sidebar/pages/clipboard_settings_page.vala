@@ -44,6 +44,9 @@ namespace Singularity.SidebarPages {
             var paste = new SwitchRow(_("Paste When Chosen"), _("Choosing an item also pastes it into the app you were using"));
             history.settings.bind("paste-on-select", paste.switch_btn, "active", SettingsBindFlags.DEFAULT);
             general.add_row(paste);
+            var panel = new SwitchRow(_("Show in Panel"), _("Open the history from a button in the panel"));
+            history.settings.bind("show-in-panel", panel.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            general.add_row(panel);
 
             int[] sizes = { 25, 50, 100 };
             var options = new Gee.ArrayList<Singularity.Core.AppSettingOption>();

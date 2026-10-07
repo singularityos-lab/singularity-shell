@@ -625,6 +625,7 @@ singularity_core_sources = files(
     'src/core/dictation/dictation_service.vala',
     'src/core/dictation/dictation_bus.vala',
     'src/components/panel/input_indicator.vala',
+    'src/components/clipboard/clipboard_indicator.vala',
     'src/components/sidebar/pages/input_methods_page.vala',
     'src/components/sidebar/pages/dictation_page.vala',
     'src/core/accent_table.vala',

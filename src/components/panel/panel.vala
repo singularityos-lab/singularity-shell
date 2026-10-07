@@ -690,6 +690,7 @@ namespace Singularity {
             system_area.append(new RecordingIndicator());
             system_area.append(new ScreenSharingIndicator());
             system_area.append(new NearbyIndicator());
+            system_area.append(new ClipboardIndicator());
             system_area.append(build_accessibility_button());
             system_area.append(sys_btn);
             layout_items["system"] = system_area;
