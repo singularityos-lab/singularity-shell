@@ -39,6 +39,26 @@ namespace Singularity.SidebarPages {
             limits_group.add_row(apps_row);
             add_group(limits_group);
 
+            if (settings.settings_schema.has_key("break-reminder-enabled")) {
+                var breaks = new PreferencesGroup(_("Breaks"));
+                var remind = new SwitchRow(_("Remind Me to Take Breaks"),
+                    _("A five-minute pause starts a new period of use"),
+                    settings.get_boolean("break-reminder-enabled"));
+                settings.bind("break-reminder-enabled", remind.switch_btn, "active", SettingsBindFlags.DEFAULT);
+                breaks.add_row(remind);
+                var minutes = new SpinRow(_("Remind After"), _("Minutes of continuous use"), 15, 180, 5,
+                    settings.get_int("break-reminder-minutes"));
+                settings.bind("break-reminder-enabled", minutes, "sensitive", SettingsBindFlags.GET);
+                minutes.spin_btn.value_changed.connect(() => {
+                    settings.set_int("break-reminder-minutes", (int) minutes.value);
+                });
+                settings.changed["break-reminder-minutes"].connect(() => {
+                    minutes.value = settings.get_int("break-reminder-minutes");
+                });
+                breaks.add_row(minutes);
+                add_group(breaks);
+            }
+
             var record_group = new PreferencesGroup(_("Recording"));
             var record_row = new SwitchRow(_("Record Screen Time"), _("Only on this computer, never sent anywhere"),
                 settings.get_boolean("screen-time-enabled"));

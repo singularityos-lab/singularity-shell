@@ -52,6 +52,7 @@ static struct ime_state pending = { 0 };
 static struct ime_state current = { 0 };
 static uint32_t serial = 0;
 static gboolean want_grab = FALSE;
+static guint key_depth = 0;
 
 static gboolean pointer_inside = FALSE;
 static double pointer_x = 0;
@@ -113,7 +114,12 @@ static void release_forwarded_keys(void) {
             forwarded[key] = FALSE;
         }
     }
+    if (forward_keyboard != NULL && forward_keymap_set) {
+        zwp_virtual_keyboard_v1_modifiers(forward_keyboard, 0, 0, 0, 0);
+    }
 }
+
+static void update_grab(void);
 
 static void grab_keymap(void *data, struct zwp_input_method_keyboard_grab_v2 *grab,
                         uint32_t format, int32_t fd, uint32_t size) {
@@ -146,7 +152,9 @@ static void grab_keymap(void *data, struct zwp_input_method_keyboard_grab_v2 *gr
 
 static void grab_key(void *data, struct zwp_input_method_keyboard_grab_v2 *grab,
                      uint32_t key_serial, uint32_t time, uint32_t key, uint32_t state) {
-    (void) data; (void) grab; (void) key_serial; (void) time;
+    (void) data; (void) key_serial; (void) time;
+    if (grab != keyboard_grab) return;
+    key_depth++;
     gboolean pressed = state == WL_KEYBOARD_KEY_STATE_PRESSED;
     guint sym = 0;
     char text[16] = { 0 };
@@ -169,13 +177,15 @@ static void grab_key(void *data, struct zwp_input_method_keyboard_grab_v2 *grab,
         send_forward(key, FALSE);
         forwarded[key] = FALSE;
     }
-    wl_display_flush(display);
+    key_depth--;
+    update_grab();
 }
 
 static void grab_modifiers(void *data, struct zwp_input_method_keyboard_grab_v2 *grab,
                            uint32_t mod_serial, uint32_t depressed, uint32_t latched,
                            uint32_t locked, uint32_t group) {
-    (void) data; (void) grab; (void) mod_serial;
+    (void) data; (void) mod_serial;
+    if (grab != keyboard_grab) return;
     if (xkb_state != NULL) xkb_state_update_mask(xkb_state, depressed, latched, locked, 0, 0, group);
     if (forward_keyboard != NULL && forward_keymap_set) {
         zwp_virtual_keyboard_v1_modifiers(forward_keyboard, depressed, latched, locked, group);
@@ -193,6 +203,7 @@ static const struct zwp_input_method_keyboard_grab_v2_listener grab_listener = {
 };
 
 static void update_grab(void) {
+    if (key_depth != 0) return;
     gboolean grab = want_grab && current.active && input_method != NULL;
     if (grab && keyboard_grab == NULL) {
         keyboard_grab = zwp_input_method_v2_grab_keyboard(input_method);

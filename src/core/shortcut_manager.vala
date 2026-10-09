@@ -630,6 +630,10 @@ namespace Singularity {
                 if (key == "") continue;
                 if (s.action_name == "switch_input_method" && settings.get_strv("input-method-engines").length == 0) continue;
                 if (s.action_name == "toggle_dictation" && !settings.get_boolean("dictation-enabled")) continue;
+                if (s.action_name == "toggle_desktop_reveal") {
+                    xml.append_printf("    <keybind key=\"%s\"><action name=\"ToggleShowDesktop\" /></keybind>\n", key);
+                    continue;
+                }
                 xml.append_printf("    <keybind key=\"%s\"><action name=\"Execute\"><command>%s %s</command></action></keybind>\n",
                     key, dbus_shorts, s.action_name);
             }

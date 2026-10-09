@@ -530,6 +530,7 @@ singularity_core_sources = files(
     'src/core/idle_inhibitors.vala',
     'src/core/idle_manager.vala',
     'src/core/parental/screen_time_tracker.vala',
+    'src/core/parental/break_reminder.vala',
     'src/core/parental/parental_enforcer.vala',
     'src/core/power_key_manager.vala',
     'src/components/sidebar/pages/power_page.vala',
@@ -712,6 +713,12 @@ input_engine_test = executable('input-engine-test',
   dependencies: [dependency('gobject-2.0'), dependency('gio-2.0')],
 )
 test('input-engine', input_engine_test)
+
+ime_grab_test = executable('ime-grab-test',
+  sources: ['tests/ime_grab_test.c', im_proto_c, im_proto_h, vk_proto_c, vk_proto_h],
+  dependencies: [dependency('gtk4'), dependency('wayland-client'), cc.find_library('xkbcommon')],
+  install: false)
+test('ime-grab', ime_grab_test)
 
 install_data('data/markup/dev.sinty.markup.desktop',
   install_dir: get_option('datadir') / 'applications')
@@ -950,6 +957,12 @@ settings_safety_test = executable('settings-safety-test',
   dependencies: [dependency('gobject-2.0'), dependency('gio-2.0')],
 )
 test('settings-safety', settings_safety_test)
+
+break_reminder_test = executable('break-reminder-test',
+  sources: ['src/core/parental/break_reminder.vala', 'tests/break_reminder_test.vala'],
+  dependencies: [dependency('glib-2.0'), dependency('gobject-2.0')],
+  install: false)
+test('break-reminder', break_reminder_test)
 
 notification_focus_test = executable('notification-focus-test',
   sources: ['src/core/focus/focus_model.vala', 'src/core/notifications/notification_rules.vala',

@@ -1747,16 +1747,17 @@ namespace Singularity {
             }
         }
 
-        private void arm_preview_show(Gtk.Widget anchor, string app_id) {
+        private void arm_preview_show(Gtk.Widget anchor, string app_id, void* handle = null) {
             if (!_settings.get_boolean("dock-window-previews")) return;
-            if (_preview_open && _preview_app_id != app_id) {
+            string key = "%s:%lu".printf(app_id, (ulong) handle);
+            if (_preview_open && _preview_app_id != key) {
                 dismiss_window_previews();
             } else if (_preview_open || _preview_show_id != 0) {
                 return;
             }
             _preview_show_id = GLib.Timeout.add(350, () => {
                 _preview_show_id = 0;
-                show_window_previews(anchor, app_id);
+                show_window_previews(anchor, app_id, handle);
                 return GLib.Source.REMOVE;
             });
         }
@@ -1791,18 +1792,19 @@ namespace Singularity {
             void* h = win.handle;
             var overlay = new Gtk.Overlay();
             overlay.add_css_class("dock-window-preview");
-            overlay.set_size_request(160, 100);
+            overlay.set_size_request(240, 150);
 
             var pic = new Gtk.Picture();
             pic.content_fit = Gtk.ContentFit.CONTAIN;
             overlay.set_child(pic);
 
             if (h != null) {
-                PreviewCache.get_default().request(h, 160, 100, (tex) => {
+                int scale = get_scale_factor();
+                PreviewCache.get_default().request(h, 240 * scale, 150 * scale, (tex) => {
                     if (tex == null) return;
                     var pb = Gdk.pixbuf_get_from_texture(tex);
                     if (pb == null) { pic.paintable = tex; return; }
-                    double sc = double.min(160.0 / pb.width, 100.0 / pb.height);
+                    double sc = double.min(240.0 * scale / pb.width, 150.0 * scale / pb.height);
                     if (sc > 1.0) sc = 1.0;
                     int nw = int.max(1, (int)(pb.width * sc));
                     int nh = int.max(1, (int)(pb.height * sc));
@@ -1843,11 +1845,12 @@ namespace Singularity {
             return overlay;
         }
 
-        private void show_window_previews(Gtk.Widget anchor, string app_id) {
+        private void show_window_previews(Gtk.Widget anchor, string app_id, void* handle = null) {
             if (_menu_open) return;
             var wins = new Gee.ArrayList<AppSystem.Window>();
             foreach (var win in app_system.get_windows()) {
-                if (win.app_id != null && dock_matches(app_id, win.app_id)) wins.add(win);
+                if (win.app_id != null && dock_matches(app_id, win.app_id)
+                        && (handle == null || win.handle == handle)) wins.add(win);
             }
             if (wins.size == 0) return;
 
@@ -1894,7 +1897,7 @@ namespace Singularity {
             pop.set_pointing_to(pointing_to);
             _preview_popover = pop;
             _preview_open = true;
-            _preview_app_id = app_id;
+            _preview_app_id = "%s:%lu".printf(app_id, (ulong) handle);
             update_autohide_state();
             revealer.reveal_child = true;
             pop.popup();
@@ -2186,7 +2189,8 @@ namespace Singularity {
         }
 
         private void show_app_context_menu(Widget parent, string app_id, GLib.AppInfo? app_info,
-                                            int win_count, bool is_pinned_app, bool shift_held = false) {
+                                            int win_count, bool is_pinned_app, bool shift_held = false,
+                                            AppSystem.Window? window = null) {
             bool is_running = win_count > 0;
             string display_name = app_info != null ? app_info.get_display_name() : app_id;
             var menu = new Singularity.Widgets.ContextMenu(parent);
@@ -2282,6 +2286,11 @@ namespace Singularity {
 
             if (is_running) {
                 menu.add_separator();
+                if (window != null) {
+                    menu.add_item(_("Close Window"), "window-close-symbolic", () => {
+                        if (window.handle != null) Singularity.close_window(window.handle);
+                    });
+                }
                 menu.add_item("Quit", "application-exit-symbolic", () => {
                     // Close this app's own windows, not whatever is focused.
                     foreach (var win in app_system.get_windows()) {
@@ -2678,6 +2687,31 @@ namespace Singularity {
             btn.clicked.connect(() => {
                 Singularity.wayland_activate_window(win.handle);
             });
+            var motion = new EventControllerMotion();
+            motion.enter.connect(() => {
+                cancel_preview_dismiss();
+                arm_preview_show(btn, win.app_id, win.handle);
+            });
+            motion.leave.connect(() => {
+                cancel_preview_show();
+                schedule_preview_dismiss();
+            });
+            btn.add_controller(motion);
+            var context = new GestureClick();
+            context.button = Gdk.BUTTON_SECONDARY;
+            context.pressed.connect(() => {
+                dismiss_window_previews();
+                bool shift = (context.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK) != 0;
+                show_app_context_menu(btn, win.app_id, app_info, count_app_windows(win.app_id),
+                    app_system.is_pinned(win.app_id), shift, win);
+            });
+            btn.add_controller(context);
+            var close = new GestureClick();
+            close.button = Gdk.BUTTON_MIDDLE;
+            close.pressed.connect(() => {
+                if (win.handle != null) Singularity.close_window(win.handle);
+            });
+            btn.add_controller(close);
             return btn;
         }
 
@@ -2740,6 +2774,15 @@ namespace Singularity {
                 announce_launch(app_info);
                 AppSystem.launch_app(app_info);
             });
+            var context = new GestureClick();
+            context.button = Gdk.BUTTON_SECONDARY;
+            context.pressed.connect(() => {
+                dismiss_window_previews();
+                bool shift = (context.get_current_event_state() & Gdk.ModifierType.SHIFT_MASK) != 0;
+                show_app_context_menu(btn, app_info.get_id(), app_info,
+                    count_app_windows(app_info.get_id()), app_system.is_pinned(app_info.get_id()), shift);
+            });
+            btn.add_controller(context);
             return btn;
         }
 

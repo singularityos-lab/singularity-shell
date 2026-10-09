@@ -11,6 +11,10 @@ namespace Singularity {
         private int64 last_tick = 0;
         private uint tick_id = 0;
         private uint ticks = 0;
+        private const int BREAK_IDLE = 6;
+        private BreakReminder breaks = new BreakReminder();
+        private bool break_idle = false;
+        private uint32 reminder_id = 0;
 
         public signal void changed();
 
@@ -41,6 +45,10 @@ namespace Singularity {
             var apps = AppSystem.get_default();
             current_app = resolve(apps.get_focused_app_id());
             last_tick = get_monotonic_time();
+            settings.changed.connect((key) => {
+                if (key.has_prefix("break-reminder-")) configure_breaks();
+            });
+            configure_breaks();
             apps.app_focused.connect((app_id) => {
                 account();
                 current_app = resolve(app_id);
@@ -100,10 +108,40 @@ namespace Singularity {
             int64 elapsed = (now - last_tick) / 1000000;
             if (elapsed <= 0) return;
             last_tick = now;
+            bool remind = settings.settings_schema.has_key("break-reminder-enabled")
+                && settings.get_boolean("break-reminder-enabled");
+            if (!remind && (!recording || current_app == null)) return;
+            bool locked = session_locked();
+            if (remind) {
+                int interval = settings.get_int("break-reminder-minutes") * 60;
+                if (breaks.advance(now, !break_idle && !locked, interval)) {
+                    var hints = new HashTable<string, Variant>(str_hash, str_equal);
+                    reminder_id = SystemMonitor.get_default().notifications.notify(_("Wellbeing"), reminder_id,
+                        "singularity-screen-time", _("Time for a Break"),
+                        _("You have been using the computer for %d minutes. Step away for a few minutes.").printf(interval / 60),
+                        {}, hints, -1);
+                }
+            }
             if (!recording || current_app == null) return;
-            if (IdleManager.get_default().idle_seconds() > 0 || session_locked()) return;
+            if (IdleManager.get_default().idle_seconds() > 0 || locked) return;
             store.add(Parental.UsageReport.day_key(new DateTime.now_local()), current_app,
                 int64.min(elapsed, MAX_STEP_SECONDS));
+        }
+
+        private void configure_breaks() {
+            breaks.reset();
+            break_idle = false;
+            IdleNotify.unwatch(BREAK_IDLE);
+            if (settings.settings_schema.has_key("break-reminder-enabled")
+                    && settings.get_boolean("break-reminder-enabled")) {
+                IdleNotify.watch(BREAK_IDLE, 300000, true, on_break_idle, this);
+            }
+        }
+
+        private static void on_break_idle(int id, bool idle, void* data) {
+            var self = (ScreenTimeTracker) data;
+            self.break_idle = idle;
+            self.breaks.reset();
         }
 
         public void save() {

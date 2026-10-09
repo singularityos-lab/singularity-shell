@@ -100,7 +100,6 @@ namespace Singularity {
                 if (snap_x != placeholder_x || snap_y != placeholder_y) {
                     placeholder_x = snap_x;
                     placeholder_y = snap_y;
-                    shift_icon_at_position(snap_x, snap_y);
                     if (placeholder.parent == null) {
                         icon_container.put(placeholder, snap_x, snap_y);
                     } else {
@@ -171,39 +170,6 @@ namespace Singularity {
         private void find_free_cell(ref int sx, ref int sy, string? exclude) {
             GridLayout.find_free_cell(ref sx, ref sy, ORIGIN_Y, GRID_SIZE, bottom_limit(),
                 (x, y) => cell_taken(x, y, exclude));
-        }
-
-        private void shift_icon_at_position(int x, int y) {
-            Widget? child = icon_container.get_first_child();
-            while (child != null) {
-                if (child == placeholder) {
-                    child = child.get_next_sibling();
-                    continue;
-                }
-                Graphene.Point pos;
-                if (child.compute_point(icon_container, Graphene.Point.zero(), out pos)) {
-                    int cx = (int)pos.x;
-                    int cy = (int)pos.y;
-                    if (cx / GRID_SIZE == x / GRID_SIZE && cy / GRID_SIZE == y / GRID_SIZE) {
-                        int new_x = x;
-                        int new_y = y + GRID_SIZE;
-                        if (new_y > 800) {
-                            new_y = 24;
-                            new_x = x + GRID_SIZE;
-                        }
-                        icon_container.move(child, new_x, new_y);
-                        var box = child as Box;
-                        if (box != null) {
-                            string? fn = box.get_data<string>("filename");
-                            if (fn != null) {
-                                icon_positions.insert(fn, new IconPosition(new_x, new_y));
-                            }
-                        }
-                        return;
-                    }
-                }
-                child = child.get_next_sibling();
-            }
         }
 
         private void load_positions() {
@@ -435,11 +401,9 @@ namespace Singularity {
                 return new Gdk.ContentProvider.for_value(filename);
             });
             drag_source.drag_begin.connect((drag) => {
-                var snapshot = new Gtk.Snapshot();
-                item.snapshot(snapshot);
-                var paintable = snapshot.to_paintable(null);
+                var paintable = new Gtk.WidgetPaintable(item).get_current_image();
                 drag_source.set_icon(paintable, ICON_WIDTH / 2, ICON_HEIGHT / 2);
-                item.opacity = 0.3;
+                item.opacity = 0.0;
             });
             drag_source.drag_end.connect((drag, delete_data) => {
                 item.opacity = 1.0;

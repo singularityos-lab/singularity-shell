@@ -21,6 +21,9 @@ namespace Singularity {
         private Widget? _developer_nav_row = null;
         private Widget _keyboard_nav_row;
         public signal void back_to_system();
+        private Gee.ArrayList<string> history = new Gee.ArrayList<string>();
+        private int history_index = -1;
+        private bool restoring_history = false;
 
 
         public SettingsView(SingularityApp app, bool split_mode = false) {
@@ -40,6 +43,30 @@ namespace Singularity {
             settings_stack.hexpand = true;
             settings_stack.vhomogeneous = false; // Each page takes its own natural height
             settings_stack.hhomogeneous = true; // All pages share one fixed width
+            settings_stack.notify["visible-child-name"].connect(() => {
+                string? name = settings_stack.visible_child_name;
+                if (restoring_history || name == null || name == ""
+                        || (history_index >= 0 && history[history_index] == name)) return;
+                while (history.size > history_index + 1) history.remove_at(history.size - 1);
+                history.add(name);
+                history_index = history.size - 1;
+            });
+            var navigation = new GestureClick();
+            navigation.button = 0;
+            navigation.propagation_phase = PropagationPhase.CAPTURE;
+            navigation.pressed.connect(() => {
+                uint button = navigation.get_current_button();
+                if (button != 8 && button != 9) return;
+                navigation.set_state(EventSequenceState.CLAIMED);
+                int next = history_index + (button == 8 ? -1 : 1);
+                if (next < 0 || next >= history.size) return;
+                if (settings_stack.get_child_by_name(history[next]) == null) return;
+                history_index = next;
+                restoring_history = true;
+                show_page_name(history[next]);
+                restoring_history = false;
+            });
+            add_controller(navigation);
 
             nav_box = new Box(Orientation.VERTICAL, 8);
             nav_box.add_css_class("navigation-sidebar");

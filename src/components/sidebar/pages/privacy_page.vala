@@ -88,6 +88,8 @@ namespace Singularity.SidebarPages {
         private Gee.HashMap<string, ActionRow> rows = new Gee.HashMap<string, ActionRow>();
         private uint poll_id = 0;
         private bool refreshing = false;
+        private bool refreshing_in_use = false;
+        private Gee.HashMap<string, ActionRow> in_use_rows = new Gee.HashMap<string, ActionRow>();
 
         public const int RECENT_LIMIT = 3;
 
@@ -195,26 +197,51 @@ namespace Singularity.SidebarPages {
         }
 
         private async void refresh_in_use() {
-            in_use_group.clear();
-            int count = 0;
+            if (refreshing_in_use) return;
+            refreshing_in_use = true;
+            var pending = new Gee.HashMap<string, ActionRow>();
             foreach (var client in yield PrivacyInUse.camera()) {
-                in_use_group.add_row(app_row(client.app_id, client.name, _("Using the camera"), "camera-web-symbolic"));
-                count++;
+                collect_in_use(pending, client.app_id, client.name, _("Using the camera"), "camera-web-symbolic");
             }
             foreach (var client in yield PrivacyInUse.microphone()) {
-                in_use_group.add_row(app_row(client.app_id, client.name, _("Using the microphone"),
-                    "audio-input-microphone-symbolic"));
-                count++;
+                collect_in_use(pending, client.app_id, client.name, _("Using the microphone"),
+                    "audio-input-microphone-symbolic");
             }
             var background = BackgroundApps.get_default();
             yield background.start();
             foreach (var app in background.list()) {
                 Privacy.Usage.get_default().record(app.app_id, "background");
-                in_use_group.add_row(app_row(app.app_id, app.display_name,
-                    app.message != "" ? app.message : _("Running in the background"), "system-run-symbolic"));
-                count++;
+                collect_in_use(pending, app.app_id, app.display_name,
+                    app.message != "" ? app.message : _("Running in the background"), "system-run-symbolic");
             }
-            in_use_group.visible = count > 0;
+            var stale = new Gee.ArrayList<string>();
+            foreach (string key in in_use_rows.keys) {
+                if (!pending.has_key(key)) stale.add(key);
+            }
+            foreach (string key in stale) {
+                in_use_group.remove_row(in_use_rows[key]);
+                in_use_rows.unset(key);
+            }
+            foreach (string key in pending.keys) {
+                if (in_use_rows.has_key(key)) {
+                    in_use_rows[key].subtitle = pending[key].subtitle;
+                } else {
+                    in_use_rows[key] = pending[key];
+                    in_use_group.add_row(pending[key]);
+                }
+            }
+            in_use_group.visible = pending.size > 0;
+            refreshing_in_use = false;
+        }
+
+        private void collect_in_use(Gee.HashMap<string, ActionRow> pending, string? app_id,
+                                    string name, string what, string icon_name) {
+            string key = app_id != null && app_id != "" ? app_id : name;
+            if (!pending.has_key(key)) {
+                pending[key] = app_row(app_id, name, what, icon_name);
+            } else if (!(what in pending[key].subtitle.split("\n"))) {
+                pending[key].subtitle += "\n" + what;
+            }
         }
 
         private async void refresh_recent() {

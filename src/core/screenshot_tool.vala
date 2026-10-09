@@ -183,6 +183,15 @@ namespace Singularity {
             audio_box.append(_audio_switch);
             row.append(audio_box);
 
+            var keys = new Gtk.EventControllerKey();
+            keys.propagation_phase = Gtk.PropagationPhase.CAPTURE;
+            keys.key_pressed.connect((keyval, code, state) => {
+                if (keyval != Gdk.Key.Return && keyval != Gdk.Key.KP_Enter) return false;
+                on_take_clicked();
+                return true;
+            });
+            ((Gtk.Widget) this).add_controller(keys);
+
             var mgr = SystemMonitor.get_default().notifications;
             mgr.action_invoked.connect((id, action) => {
                 _handle_notification_action(id, action);

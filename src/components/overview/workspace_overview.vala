@@ -160,8 +160,8 @@ namespace Singularity {
 
         private void update_wallpaper() {
             var manager = WallpaperManager.get_default();
-            if (manager.medium_texture != null) {
-                background_picture.set_paintable(manager.medium_texture);
+            if (manager.display_texture != null) {
+                background_picture.set_paintable(manager.display_texture);
             }
         }
 

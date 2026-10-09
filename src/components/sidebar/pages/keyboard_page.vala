@@ -8,10 +8,12 @@ namespace Singularity {
         private class ShortcutItem {
             public ActionRow row;
             public string terms;
+            public string shortcut_id;
 
-            public ShortcutItem(ActionRow row, string terms) {
+            public ShortcutItem(ActionRow row, string terms, string shortcut_id = "") {
                 this.row = row;
                 this.terms = terms;
+                this.shortcut_id = shortcut_id;
             }
         }
 
@@ -32,6 +34,8 @@ namespace Singularity {
         private Box shortcuts_box;
         private PreferencesGroup empty_group;
         private List<ShortcutSection> sections = new List<ShortcutSection>();
+        private Gee.HashMap<string, ShortcutLabel> shortcut_labels = new Gee.HashMap<string, ShortcutLabel>();
+        private Gee.HashMap<string, Button> reset_buttons = new Gee.HashMap<string, Button>();
 
         private SettingsView view;
 
@@ -54,7 +58,7 @@ namespace Singularity {
             shortcuts_box = new Box(Orientation.VERTICAL, 0);
             add_widget(shortcuts_box);
             rebuild_shortcuts();
-            manager.shortcut_changed.connect(() => rebuild_shortcuts());
+            manager.shortcut_changed.connect(refresh_shortcut);
             manager.custom_keybindings_changed.connect(() => rebuild_shortcuts());
 
             input_group = new PreferencesGroup(_("Input Sources"),
@@ -253,6 +257,8 @@ namespace Singularity {
         }
 
         private void rebuild_shortcuts() {
+            shortcut_labels.clear();
+            reset_buttons.clear();
             Widget? child = shortcuts_box.get_first_child();
             while (child != null) {
                 var next = child.get_next_sibling();
@@ -359,18 +365,18 @@ namespace Singularity {
                 icon_for_action(shortcut.action_name));
             row.activatable = false;
 
-            if (shortcut.accelerator != shortcut.default_accelerator) {
-                var reset_btn = new Button.from_icon_name("edit-undo-symbolic");
-                reset_btn.add_css_class("flat");
-                reset_btn.tooltip_text = _("Reset to Default");
-                reset_btn.clicked.connect(() => manager.reset_shortcut(shortcut.id));
-                row.add_suffix(reset_btn);
-            }
+            var reset_btn = new Button.from_icon_name("edit-undo-symbolic");
+            reset_btn.add_css_class("flat");
+            reset_btn.tooltip_text = _("Reset to Default");
+            reset_btn.visible = shortcut.accelerator != shortcut.default_accelerator;
+            row.add_suffix(reset_btn);
+            reset_buttons[shortcut.id] = reset_btn;
 
-            if (shortcut.accelerator != "" &&
-                    shortcut.secondary_accelerator != null &&
-                    shortcut.secondary_accelerator != shortcut.accelerator) {
-                row.add_suffix(new ShortcutLabel(shortcut.secondary_accelerator));
+            if (shortcut.secondary_accelerator != null) {
+                var secondary = new ShortcutLabel(shortcut.secondary_accelerator);
+                secondary.visible = shortcut.accelerator != "" && shortcut.secondary_accelerator != shortcut.accelerator;
+                row.add_suffix(secondary);
+                row.set_data<ShortcutLabel>("secondary-shortcut", secondary);
             }
 
             string shown_accel = shortcut.accelerator;
@@ -385,11 +391,37 @@ namespace Singularity {
             edit_btn.set_child(shortcut_label);
             edit_btn.clicked.connect(() => show_edit_dialog(shortcut));
             row.add_suffix(edit_btn);
+            reset_btn.clicked.connect(() => {
+                edit_btn.grab_focus();
+                manager.reset_shortcut(shortcut.id);
+            });
+            shortcut_labels[shortcut.id] = shortcut_label;
 
             section.group.add_row(row);
             string terms = "%s %s %s %s".printf(shortcut.name, shortcut.description,
                 shortcut.accelerator, shortcut.secondary_accelerator ?? "").down();
-            section.items.append(new ShortcutItem(row, terms));
+            section.items.append(new ShortcutItem(row, terms, shortcut.id));
+        }
+
+        private void refresh_shortcut(string action, string accelerator) {
+            foreach (var shortcut in manager.shortcuts) {
+                if (shortcut.action_name != action || !shortcut_labels.has_key(shortcut.id)) continue;
+                string shown = shortcut.accelerator;
+                if (shown == "" && shortcut.secondary_accelerator != null) shown = shortcut.secondary_accelerator;
+                shortcut_labels[shortcut.id].accelerator = shown;
+                reset_buttons[shortcut.id].visible = shortcut.accelerator != shortcut.default_accelerator;
+                foreach (var section in sections) {
+                    foreach (var item in section.items) {
+                        if (item.shortcut_id != shortcut.id) continue;
+                        item.terms = "%s %s %s %s".printf(shortcut.name, shortcut.description,
+                            shortcut.accelerator, shortcut.secondary_accelerator ?? "").down();
+                        var secondary = item.row.get_data<ShortcutLabel>("secondary-shortcut");
+                        if (secondary != null)
+                            secondary.visible = shortcut.accelerator != "" && shortcut.secondary_accelerator != shortcut.accelerator;
+                    }
+                }
+            }
+            filter_shortcuts();
         }
 
         private void add_custom_shortcut(ShortcutSection section, CustomKeybinding keybinding) {
