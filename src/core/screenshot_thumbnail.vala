@@ -78,10 +78,10 @@ namespace Singularity {
             _actions.halign = Gtk.Align.CENTER;
             add_action("singularity-markup-symbolic", _("Mark Up"), "markup");
             var note_btn = add_action("document-send-symbolic", _("Add to a Note"), "");
+            note_btn.visible = Singularity.Notes.NotePicker.available();
             note_btn.clicked.connect(() => {
                 _menu_open = true;
-                var menu = Singularity.Notes.NotePicker.popup(note_btn, (id) => add_to_note(id));
-                menu.closed.connect(() => {
+                Singularity.Notes.NotePicker.popup(note_btn, (id) => add_to_note(id), () => {
                     _menu_open = false;
                     arm_timeout(4);
                 });
@@ -148,17 +148,17 @@ namespace Singularity {
         }
 
         private void add_to_note(string? note_id) {
-            try {
-                var note = Singularity.Notes.NotePicker.target(note_id, _("Screenshot"));
-                string name = Singularity.Notes.NotePicker.attachment_name("screenshot", "png");
-                string link = Singularity.Notes.NotePicker.attach_file(note, File.new_for_path(_path), name);
-                Singularity.Notes.NotePicker.append(note, "![%s](%s)\n".printf(_("Screenshot"), link));
-                _status.label = note_id == null ? _("Added to a new note") : _("Added to %s").printf(note.title);
-            } catch (Error e) {
-                _status.label = e.message;
-                warning("[ScreenshotThumbnail] add to note failed: %s", e.message);
-            }
-            arm_timeout(3);
+            string name = Singularity.Notes.NotePicker.attachment_name("screenshot", "png");
+            Singularity.Notes.NotePicker.add_file.begin(note_id, _("Screenshot"), File.new_for_path(_path), name, "![%s]({link})\n".printf(_("Screenshot")), (obj, res) => {
+                try {
+                    var note = Singularity.Notes.NotePicker.add_file.end(res);
+                    _status.label = note.created ? _("Added to a new note") : _("Added to %s").printf(note.title);
+                } catch (Error e) {
+                    _status.label = e.message;
+                    warning("[ScreenshotThumbnail] add to note failed: %s", e.message);
+                }
+                arm_timeout(3);
+            });
         }
 
         public void dismiss() {

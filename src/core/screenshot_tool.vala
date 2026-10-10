@@ -10,13 +10,23 @@ namespace Singularity {
 
         public void* focused_handle { get; set; default = null; }
 
-        private Button _seg_screen;
-        private Button _seg_window;
-        private Button _seg_region;
+        private Gtk.ToggleButton _region_tile;
+        private Gtk.ToggleButton _screen_tile;
+        private Gtk.ToggleButton _window_tile;
+        private Gtk.ToggleButton _photo_btn;
+        private Gtk.ToggleButton _video_btn;
+        private Gtk.MenuButton _timer_btn;
+        private Gtk.Label _timer_label;
+        private int _delay = 0;
         private string _active_mode = "screen";
-        private Gtk.Entry _delay_entry;
-        private Gtk.Switch _cursor_switch;
-        private Gtk.Switch _audio_switch;
+        private Gtk.ToggleButton _cursor_toggle;
+        private Gtk.ToggleButton _audio_toggle;
+        private Gtk.Button _capture_btn;
+        private string? _frozen_plain = null;
+        private string? _frozen_cursor = null;
+        private Gdk.Rectangle _frozen_geo;
+        private int _freeze_pending = 0;
+        private uint _freeze_timeout = 0;
         private ScreenRecordingRequest? _last_recording = null;
         private GLib.Subprocess? _region_picker = null;
         private ulong screenshot_handler_id = 0;
@@ -72,125 +82,114 @@ namespace Singularity {
             box.margin_end = 14;
             card.append(box);
 
-            // Single row, left to right: mode selector, delay stepper,
-            // video/photo capture, cursor switch.
-            var row = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 16);
-            row.halign = Gtk.Align.CENTER;
-            box.append(row);
+            var modes = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 8);
+            modes.halign = Gtk.Align.CENTER;
+            box.append(modes);
+            _region_tile = make_tile("singularity-markup-crop-symbolic", _("Selection"), "region", null);
+            _screen_tile = make_tile("video-display-symbolic", _("Screen"), "screen", _region_tile);
+            _window_tile = make_tile("window-symbolic", _("Window"), "window", _region_tile);
+            modes.append(_region_tile);
+            modes.append(_screen_tile);
+            modes.append(_window_tile);
+            _screen_tile.active = true;
 
-            // 1. Mode selector (three icons: screen, window, region).
-            var seg_inner = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 0);
-            seg_inner.add_css_class("segmented-inner");
-            var seg_wrap = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 0);
-            seg_wrap.add_css_class("segmented-control");
-            seg_wrap.valign = Gtk.Align.CENTER;
-            seg_wrap.append(seg_inner);
+            var bottom = new Gtk.CenterBox();
+            box.append(bottom);
 
-            _seg_screen = make_mode_button("video-display-symbolic", "Screen", "screen");
-            _seg_screen.add_css_class("active");
-            seg_inner.append(_seg_screen);
+            var kind = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 0);
+            kind.add_css_class("screenshot-kind");
+            kind.valign = Gtk.Align.CENTER;
+            _photo_btn = new Gtk.ToggleButton();
+            _photo_btn.icon_name = "camera-photo-symbolic";
+            _photo_btn.tooltip_text = _("Screenshot");
+            _photo_btn.active = true;
+            _video_btn = new Gtk.ToggleButton();
+            _video_btn.icon_name = "camera-video-symbolic";
+            _video_btn.tooltip_text = _("Screen Recording");
+            _video_btn.group = _photo_btn;
+            _video_btn.toggled.connect(sync_kind);
+            kind.append(_photo_btn);
+            kind.append(_video_btn);
+            bottom.start_widget = kind;
 
-            _seg_window = make_mode_button("focus-windows-symbolic", "Window", "window");
-            seg_inner.append(_seg_window);
+            _capture_btn = new Gtk.Button();
+            _capture_btn.add_css_class("screenshot-shutter");
+            _capture_btn.valign = Gtk.Align.CENTER;
+            var dot = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 0);
+            dot.add_css_class("shutter-dot");
+            dot.halign = Gtk.Align.CENTER;
+            dot.valign = Gtk.Align.CENTER;
+            _capture_btn.child = dot;
+            _capture_btn.clicked.connect(() => {
+                if (_video_btn.active) on_video_clicked();
+                else on_take_clicked();
+            });
+            bottom.center_widget = _capture_btn;
+            default_widget = _capture_btn;
 
-            _seg_region = make_mode_button("selection-mode-symbolic", "Region", "region");
-            seg_inner.append(_seg_region);
+            var extras = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 4);
+            extras.valign = Gtk.Align.CENTER;
+            extras.halign = Gtk.Align.END;
 
-            row.append(seg_wrap);
+            _timer_btn = new Gtk.MenuButton();
+            _timer_btn.add_css_class("screenshot-option");
+            _timer_btn.tooltip_text = _("Timer");
+            var timer_box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 2);
+            timer_box.halign = Gtk.Align.CENTER;
+            timer_box.append(new Gtk.Image.from_icon_name("alarm-symbolic"));
+            _timer_label = new Gtk.Label("");
+            _timer_label.visible = false;
+            timer_box.append(_timer_label);
+            _timer_btn.child = timer_box;
+            var timer_pop = new Gtk.Popover();
+            var timer_list = new Gtk.Box(Gtk.Orientation.VERTICAL, 2);
+            int[] delays = { 0, 3, 5, 10 };
+            foreach (int d in delays) {
+                var item = new Gtk.Button.with_label(d == 0 ? _("No Timer") : ngettext("%d Second", "%d Seconds", d).printf(d));
+                item.add_css_class("flat");
+                item.child.halign = Gtk.Align.START;
+                item.clicked.connect(() => {
+                    _delay = d;
+                    _timer_label.label = "%d".printf(d);
+                    _timer_label.visible = d > 0;
+                    if (d > 0) _timer_btn.add_css_class("active");
+                    else _timer_btn.remove_css_class("active");
+                    timer_pop.popdown();
+                });
+                timer_list.append(item);
+            }
+            timer_pop.child = timer_list;
+            _timer_btn.popover = timer_pop;
+            extras.append(_timer_btn);
 
-            // 2. Delay field - leading timer icon, then a -/value/+ stepper.
-            var delay_field = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 2);
-            delay_field.add_css_class("screenshot-delay-field");
-            delay_field.valign = Gtk.Align.CENTER;
+            _cursor_toggle = new Gtk.ToggleButton();
+            _cursor_toggle.icon_name = "input-mouse-symbolic";
+            _cursor_toggle.tooltip_text = _("Show Pointer");
+            _cursor_toggle.add_css_class("screenshot-option");
+            _cursor_toggle.active = true;
+            extras.append(_cursor_toggle);
 
-            var timer_icon = new Gtk.Image.from_icon_name("alarm-symbolic");
-            timer_icon.add_css_class("dim-label");
-            timer_icon.margin_end = 4;
-            delay_field.append(timer_icon);
-
-            var minus_btn = new Gtk.Button.from_icon_name("list-remove-symbolic");
-            minus_btn.add_css_class("flat");
-            minus_btn.add_css_class("delay-step");
-            minus_btn.tooltip_text = _("Decrease delay");
-            minus_btn.clicked.connect(() => adjust_delay(-1));
-            delay_field.append(minus_btn);
-
-            _delay_entry = new Gtk.Entry();
-            _delay_entry.text = "0";
-            _delay_entry.width_chars = 2;
-            _delay_entry.max_width_chars = 3;
-            _delay_entry.xalign = 0.5f;
-            _delay_entry.input_purpose = Gtk.InputPurpose.DIGITS;
-            _delay_entry.add_css_class("flat");
-            _delay_entry.valign = Gtk.Align.CENTER;
-            delay_field.append(_delay_entry);
-
-            var plus_btn = new Gtk.Button.from_icon_name("list-add-symbolic");
-            plus_btn.add_css_class("flat");
-            plus_btn.add_css_class("delay-step");
-            plus_btn.tooltip_text = _("Increase delay");
-            plus_btn.clicked.connect(() => adjust_delay(1));
-            delay_field.append(plus_btn);
-
-            row.append(delay_field);
-
-            // 3. Video (record) / photo (capture) as a segmented control.
-            var act_inner = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 0);
-            act_inner.add_css_class("segmented-inner");
-            var act_wrap = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 0);
-            act_wrap.add_css_class("segmented-control");
-            act_wrap.valign = Gtk.Align.CENTER;
-            act_wrap.append(act_inner);
-
-            var video_btn = new Gtk.Button();
-            video_btn.icon_name = "camera-video-symbolic";
-            video_btn.tooltip_text = _("Record Video");
-            video_btn.add_css_class("segmented-button");
-            video_btn.has_frame = false;
-            video_btn.clicked.connect(on_video_clicked);
-            act_inner.append(video_btn);
-
-            var photo_btn = new Gtk.Button();
-            photo_btn.icon_name = "camera-photo-symbolic";
-            photo_btn.tooltip_text = _("Take Screenshot");
-            photo_btn.add_css_class("segmented-button");
-            photo_btn.has_frame = false;
-            photo_btn.clicked.connect(on_take_clicked);
-            act_inner.append(photo_btn);
-
-            row.append(act_wrap);
-
-            // 4. Mouse icon with an include-cursor switch to its right.
-            var cursor_box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 8);
-            cursor_box.valign = Gtk.Align.CENTER;
-            var mouse_icon = new Gtk.Image.from_icon_name("input-mouse-symbolic");
-            cursor_box.append(mouse_icon);
-            _cursor_switch = new Gtk.Switch();
-            _cursor_switch.active = true;
-            _cursor_switch.valign = Gtk.Align.CENTER;
-            _cursor_switch.tooltip_text = _("Include cursor");
-            cursor_box.append(_cursor_switch);
-            row.append(cursor_box);
-
-            var audio_box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 8);
-            audio_box.valign = Gtk.Align.CENTER;
-            var audio_icon = new Gtk.Image.from_icon_name("audio-volume-high-symbolic");
-            audio_box.append(audio_icon);
-            _audio_switch = new Gtk.Switch();
-            _audio_switch.active = false;
-            _audio_switch.valign = Gtk.Align.CENTER;
-            _audio_switch.tooltip_text = _("Record system audio");
-            audio_box.append(_audio_switch);
-            row.append(audio_box);
+            _audio_toggle = new Gtk.ToggleButton();
+            _audio_toggle.icon_name = "audio-volume-high-symbolic";
+            _audio_toggle.tooltip_text = _("Record Audio");
+            _audio_toggle.add_css_class("screenshot-option");
+            extras.append(_audio_toggle);
+            bottom.end_widget = extras;
 
             var keys = new Gtk.EventControllerKey();
             keys.propagation_phase = Gtk.PropagationPhase.CAPTURE;
             keys.key_pressed.connect((keyval, code, state) => {
                 if (keyval != Gdk.Key.Return && keyval != Gdk.Key.KP_Enter) return false;
-                on_take_clicked();
+                if (!_capture_btn.sensitive || _timer_btn.active) return false;
+                if (_video_btn.active) on_video_clicked();
+                else on_take_clicked();
                 return true;
             });
             ((Gtk.Widget) this).add_controller(keys);
+            sync_kind();
+            notify["visible"].connect(() => {
+                if (!visible) drop_frozen();
+            });
 
             var mgr = SystemMonitor.get_default().notifications;
             mgr.action_invoked.connect((id, action) => {
@@ -208,47 +207,212 @@ namespace Singularity {
                 recorder.stop();
                 return;
             }
+            if (_freeze_pending > 0) return;
+            freeze_screen();
+        }
+
+        private void show_dialog_now() {
             base.open_dialog();
         }
 
-        private Gtk.Button make_mode_button(string icon, string tooltip, string mode) {
-            var btn = new Gtk.Button();
-            btn.icon_name = icon;
-            btn.tooltip_text = tooltip;
-            btn.add_css_class("segmented-button");
-            btn.has_frame = false;
-            btn.clicked.connect(() => set_mode(mode));
-            return btn;
-        }
+        private delegate void CaptureDone(string? path);
 
-        // Current delay in seconds, parsed from the entry and clamped to >= 0.
-        private int current_delay() {
-            int v = int.parse(_delay_entry.text);
-            return v < 0 ? 0 : v;
-        }
-
-        // Step the delay entry by `step` seconds, never below zero.
-        private void adjust_delay(int step) {
-            int v = current_delay() + step;
-            if (v < 0) v = 0;
-            _delay_entry.text = v.to_string();
-        }
-
-        private void set_mode(string mode) {
-            _active_mode = mode;
-            if (mode == "screen") {
-                _seg_screen.add_css_class("active");
-                _seg_window.remove_css_class("active");
-                _seg_region.remove_css_class("active");
-            } else if (mode == "window") {
-                _seg_screen.remove_css_class("active");
-                _seg_window.add_css_class("active");
-                _seg_region.remove_css_class("active");
-            } else {
-                _seg_screen.remove_css_class("active");
-                _seg_window.remove_css_class("active");
-                _seg_region.add_css_class("active");
+        private void freeze_screen() {
+            drop_frozen();
+            if (_target_monitor == null) {
+                show_dialog_now();
+                return;
             }
+            _frozen_geo = _target_monitor.get_geometry();
+            _freeze_pending = 2;
+            _freeze_timeout = GLib.Timeout.add(1000, () => {
+                _freeze_timeout = 0;
+                finish_freeze(true);
+                return GLib.Source.REMOVE;
+            });
+            capture_to_temp(monitor_args(false), (path) => {
+                _frozen_plain = path;
+                finish_freeze(false);
+            });
+            capture_to_temp(monitor_args(true), (path) => {
+                _frozen_cursor = path;
+                finish_freeze(false);
+            });
+        }
+
+        private void finish_freeze(bool timed_out) {
+            if (_freeze_pending <= 0) return;
+            if (!timed_out && --_freeze_pending > 0) return;
+            _freeze_pending = 0;
+            if (_freeze_timeout != 0) {
+                GLib.Source.remove(_freeze_timeout);
+                _freeze_timeout = 0;
+            }
+            show_dialog_now();
+        }
+
+        private void drop_frozen() {
+            if (_frozen_plain != null) GLib.FileUtils.unlink(_frozen_plain);
+            if (_frozen_cursor != null) GLib.FileUtils.unlink(_frozen_cursor);
+            _frozen_plain = null;
+            _frozen_cursor = null;
+        }
+
+        private string? take_frozen() {
+            string? chosen = _cursor_toggle.active ? _frozen_cursor : _frozen_plain;
+            if (chosen == _frozen_cursor) _frozen_cursor = null;
+            else _frozen_plain = null;
+            return chosen;
+        }
+
+        private void capture_to_temp(string[]? capture_args, owned CaptureDone done) {
+            if (capture_args == null) {
+                done(null);
+                return;
+            }
+            string temp_path;
+            try {
+                int fd = GLib.FileUtils.open_tmp("singularity-screenshot-XXXXXX.png", out temp_path);
+                Posix.close(fd);
+            } catch (Error e) {
+                done(null);
+                return;
+            }
+            string[] argv = { AppSystem.resolve_companion_bin("singularity-screenshot") };
+            foreach (var arg in capture_args) argv += arg;
+            argv += temp_path;
+            try {
+                var proc = new GLib.Subprocess.newv(argv,
+                    GLib.SubprocessFlags.STDOUT_SILENCE | GLib.SubprocessFlags.STDERR_SILENCE);
+                proc.wait_check_async.begin(null, (obj, res) => {
+                    bool ok = false;
+                    try {
+                        ok = proc.wait_check_async.end(res);
+                    } catch (Error e) {
+                        ok = false;
+                    }
+                    if (!ok || !file_has_data(temp_path)) {
+                        GLib.FileUtils.unlink(temp_path);
+                        done(null);
+                        return;
+                    }
+                    done(temp_path);
+                });
+            } catch (Error e) {
+                GLib.FileUtils.unlink(temp_path);
+                done(null);
+            }
+        }
+
+        private void deliver_capture(string path, string message) {
+            ScreenshotPortal.get_default().copy_to_clipboard(path);
+            Singularity.Shell.ScreenFlash.flash();
+            _notify_screenshot(message, path);
+            GLib.Timeout.add(3000, () => {
+                GLib.FileUtils.unlink(path);
+                return GLib.Source.REMOVE;
+            });
+        }
+
+        private void deliver_crop(string frozen, int x, int y, int w, int h, string message) {
+            try {
+                var full = new Gdk.Pixbuf.from_file(frozen);
+                double scale = (double) full.width / int.max(1, _frozen_geo.width);
+                int cx = int.max(0, (int) Math.round((x - _frozen_geo.x) * scale));
+                int cy = int.max(0, (int) Math.round((y - _frozen_geo.y) * scale));
+                int cw = int.min(full.width - cx, (int) Math.round(w * scale));
+                int ch = int.min(full.height - cy, (int) Math.round(h * scale));
+                GLib.FileUtils.unlink(frozen);
+                if (cw <= 0 || ch <= 0) return;
+                string temp_path;
+                int fd = GLib.FileUtils.open_tmp("singularity-screenshot-XXXXXX.png", out temp_path);
+                Posix.close(fd);
+                new Gdk.Pixbuf.subpixbuf(full, cx, cy, cw, ch).savev(temp_path, "png", {}, {});
+                deliver_capture(temp_path, message);
+            } catch (Error e) {
+                warning("[ScreenshotTool] crop failed: %s", e.message);
+                GLib.FileUtils.unlink(frozen);
+            }
+        }
+
+        private bool use_frozen() {
+            string? frozen = take_frozen();
+            if (frozen == null) return false;
+            hide();
+            if (_active_mode == "window" && focused_handle != null) {
+                int x, y, w, h, maximized, fullscreen;
+                string? connector;
+                if (Singularity.wayland_get_window_geometry(focused_handle,
+                        out x, out y, out w, out h, out maximized, out fullscreen, out connector) && w > 0 && h > 0) {
+                    deliver_crop(frozen, x, y, w, h, "Window captured and copied to clipboard");
+                    return true;
+                }
+            }
+            if (_active_mode == "region") {
+                pick_frozen_region(frozen);
+                return true;
+            }
+            deliver_capture(frozen, "Saved and copied to clipboard");
+            return true;
+        }
+
+        private void pick_frozen_region(string frozen) {
+            if (_region_picker != null) {
+                GLib.FileUtils.unlink(frozen);
+                return;
+            }
+            GLib.Subprocess picker;
+            try {
+                picker = new GLib.Subprocess(GLib.SubprocessFlags.STDOUT_PIPE | GLib.SubprocessFlags.STDERR_SILENCE,
+                    AppSystem.resolve_companion_bin("singularity-region-picker"));
+            } catch (Error e) {
+                GLib.FileUtils.unlink(frozen);
+                _do_region();
+                return;
+            }
+            _region_picker = picker;
+            picker.communicate_utf8_async.begin(null, null, (obj, res) => {
+                string? output = null;
+                try {
+                    picker.communicate_utf8_async.end(res, out output, null);
+                } catch (Error e) {
+                    output = null;
+                }
+                _region_picker = null;
+                int x = 0, y = 0, w = 0, h = 0;
+                if (!picker.get_if_exited() || picker.get_exit_status() != 0 || output == null
+                        || !_parse_region(output, out x, out y, out w, out h)) {
+                    GLib.FileUtils.unlink(frozen);
+                    return;
+                }
+                deliver_crop(frozen, x, y, w, h, "Region saved and copied to clipboard");
+            });
+        }
+
+        private int current_delay() {
+            return _delay;
+        }
+
+        private Gtk.ToggleButton make_tile(string icon, string tooltip, string mode, Gtk.ToggleButton? group) {
+            var tile = new Gtk.ToggleButton();
+            tile.add_css_class("screenshot-tile");
+            tile.tooltip_text = tooltip;
+            var image = new Gtk.Image.from_icon_name(icon);
+            image.pixel_size = 24;
+            tile.child = image;
+            if (group != null) tile.group = group;
+            tile.toggled.connect(() => {
+                if (tile.active) _active_mode = mode;
+            });
+            return tile;
+        }
+
+        private void sync_kind() {
+            bool video = _video_btn.active;
+            _audio_toggle.visible = video;
+            if (video) _capture_btn.add_css_class("recording");
+            else _capture_btn.remove_css_class("recording");
+            _capture_btn.tooltip_text = video ? _("Start Recording") : _("Take Screenshot");
         }
 
         public void prepare_for_invocation(void* focused_handle) {
@@ -346,6 +510,7 @@ namespace Singularity {
             _pending_region = (_active_mode == "region");
             _pending_window = (_active_mode == "window");
 
+            if (delay_secs == 0 && use_frozen()) return;
             hide();
 
             if (delay_secs > 0) {
@@ -377,8 +542,8 @@ namespace Singularity {
         }
 
         private void _start_recording_after(ScreenRecordingRequest request, int delay_secs) {
-            request.cursor = _cursor_switch.active;
-            request.audio = _audio_switch.active;
+            request.cursor = _cursor_toggle.active;
+            request.audio = _audio_toggle.active;
             _last_recording = request;
             if (delay_secs > 0) {
                 GLib.Timeout.add_seconds(delay_secs, () => {
@@ -722,7 +887,7 @@ namespace Singularity {
             }
 
             string[] args = {};
-            if (_cursor_switch.active) args += "-c";
+            if (_cursor_toggle.active) args += "-c";
             string geometry = "%d,%d %dx%d".printf(x, y, w, h);
             args += "-g";
             args += geometry;
@@ -791,8 +956,12 @@ namespace Singularity {
         }
 
         private string[]? target_monitor_capture_args() {
+            return monitor_args(_cursor_toggle.active);
+        }
+
+        private string[]? monitor_args(bool cursor) {
             string[] args = {};
-            if (_cursor_switch.active) args += "-c";
+            if (cursor) args += "-c";
 
             if (_target_connector != null && _target_connector != "") {
                 args += "-o";
@@ -832,36 +1001,85 @@ namespace Singularity {
             provider.load_from_data(SCREENSHOT_CSS.data);
             Gtk.StyleContext.add_provider_for_display(
                 Gdk.Display.get_default(), provider,
-                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
+                Gtk.STYLE_PROVIDER_PRIORITY_USER + 1);
         }
 
         private const string SCREENSHOT_CSS = """
-/* Screenshot Tool. The card surface (background, border, shadow) comes from
-   the shared `.dialog-card` style; only the inner controls are styled here. */
-.screenshot-tool .segmented-button {
-    padding: 6px 16px;
+.screenshot-tool button.screenshot-tile {
+    min-width: 100px;
+    min-height: 60px;
+    border-radius: 14px;
+    background: alpha(@text_color, 0.06);
+    color: @text_color;
 }
-.screenshot-tool .screenshot-delay-field {
-    background-color: alpha(@text_color, 0.06);
-    border-radius: 8px;
-    padding: 2px 6px;
+.screenshot-tool button.screenshot-tile:hover {
+    background: alpha(@text_color, 0.10);
 }
-.screenshot-tool .screenshot-delay-field button.delay-step {
-    min-width: 18px;
-    min-height: 18px;
+.screenshot-tool button.screenshot-tile:checked {
+    background: @accent_bg_color;
+    color: @accent_fg_color;
+}
+.screenshot-tool .screenshot-kind {
+    background: alpha(@text_color, 0.06);
+    border-radius: 999px;
+    padding: 3px;
+}
+.screenshot-tool .screenshot-kind button {
+    min-width: 36px;
+    min-height: 30px;
     padding: 0;
-    margin: 0;
-}
-.screenshot-tool .screenshot-delay-field button.delay-step image {
-    -gtk-icon-size: 12px;
-}
-.screenshot-tool .screenshot-delay-field entry {
-    background: none;
-    box-shadow: none;
     border: none;
-    outline: none;
-    min-height: 24px;
+    border-radius: 999px;
+    background: transparent;
+    box-shadow: none;
+}
+.screenshot-tool .screenshot-kind button:hover:not(:checked) {
+    background: alpha(@text_color, 0.08);
+}
+.screenshot-tool .screenshot-kind button:checked {
+    background: @accent_bg_color;
+    color: @accent_fg_color;
+}
+.screenshot-tool button.screenshot-shutter {
+    min-width: 52px;
+    min-height: 52px;
     padding: 0;
+    border-radius: 999px;
+    background: none;
+    box-shadow: inset 0 0 0 3px @text_color;
+}
+.screenshot-tool button.screenshot-shutter .shutter-dot {
+    min-width: 40px;
+    min-height: 40px;
+    border-radius: 999px;
+    background: @text_color;
+    transition: background 150ms ease, min-width 150ms ease, min-height 150ms ease;
+}
+.screenshot-tool button.screenshot-shutter:hover .shutter-dot {
+    min-width: 36px;
+    min-height: 36px;
+}
+.screenshot-tool button.screenshot-shutter.recording .shutter-dot {
+    background: #e5534b;
+}
+.screenshot-tool button.screenshot-option,
+.screenshot-tool .screenshot-option > button {
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    box-shadow: none;
+}
+.screenshot-tool button.screenshot-option:hover,
+.screenshot-tool .screenshot-option > button:hover {
+    background: alpha(@text_color, 0.08);
+}
+.screenshot-tool button.screenshot-option:checked,
+.screenshot-tool .screenshot-option.active > button {
+    background: alpha(@accent_bg_color, 0.18);
+    color: @accent_color;
 }
 """;
     }

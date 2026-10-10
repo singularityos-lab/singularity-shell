@@ -209,7 +209,6 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         }
         var cal_manager = Singularity.Calendar.CalendarManager.get_default();
         Singularity.Calendar.LocalProvider.register_all(cal_manager);
-        Singularity.Calendar.TasksProvider.register(cal_manager);
         Singularity.Calendar.WebCalendarProvider.register_all(cal_manager);
         Singularity.LidManager.get_default();
         Singularity.IdleInhibitors.get_default().start();

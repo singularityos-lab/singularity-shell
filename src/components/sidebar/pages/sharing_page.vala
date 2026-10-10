@@ -148,6 +148,7 @@ namespace Singularity.SidebarPages {
         private ActionRow files_row;
         private ActionRow media_row;
         private ActionRow remote_row;
+        private ActionRow collab_row;
         private Label name_error;
 
         public SharingPage(SettingsView view) {
@@ -186,6 +187,7 @@ namespace Singularity.SidebarPages {
             media_row = service_row(services, _("Media Sharing"), "folder-music-symbolic", "sharing-media");
             remote_row = service_row(services, _("Remote Desktop"), "preferences-desktop-remote-desktop-symbolic",
                 "sharing-remote");
+            collab_row = service_row(services, _("Collaboration"), "system-users-symbolic", "sharing-collab");
             add_group(services);
 
             add_search_action(_("File Sharing"), _("Share folders on the network"), () => view.navigate_to("sharing-files"));
@@ -247,7 +249,22 @@ namespace Singularity.SidebarPages {
             }
         }
 
+        private async void sync_collab() {
+            if (!Singularity.Collab.Client.installed()) {
+                collab_row.subtitle = _("Not installed");
+                return;
+            }
+            var collab = Singularity.Collab.Client.get_default();
+            if (!(yield collab.get_enabled())) {
+                collab_row.subtitle = _("Off");
+                return;
+            }
+            int n = (yield collab.sessions()).size;
+            collab_row.subtitle = n > 0 ? ngettext("%d session active", "%d sessions active", (ulong) n).printf(n) : _("On");
+        }
+
         private void sync() {
+            sync_collab.begin();
             var s = client.settings;
             if (s == null) {
                 files_row.subtitle = _("Not installed");

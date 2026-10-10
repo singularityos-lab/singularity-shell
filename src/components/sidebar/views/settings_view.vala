@@ -544,6 +544,7 @@ namespace Singularity {
                 case "sharing-files": page = new Singularity.SidebarPages.FileSharingPage(this); break;
                 case "sharing-media": page = new Singularity.SidebarPages.MediaSharingPage(this); break;
                 case "sharing-remote": page = new Singularity.SidebarPages.RemoteDesktopPage(this); break;
+                case "sharing-collab": page = new Singularity.SidebarPages.CollaborationPage(this); break;
                 case "firewall": page = new Singularity.SidebarPages.FirewallPage(this); break;
                 case "apps": page = new Singularity.SidebarPages.AppsPage(app, this); break;
                 case "users": page = new Singularity.SidebarPages.UsersPage(this); break;
