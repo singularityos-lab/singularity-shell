@@ -66,6 +66,7 @@ struct lock_output {
     struct wl_surface *surface;
     struct ext_session_lock_surface_v1 *lock_surface;
     uint32_t width, height;
+    int32_t scale, pending_scale;
     bool configured;
     double mb_cx[3], mb_r[3], mb_cy;
     bool mb_valid;
@@ -430,8 +431,11 @@ static const struct wl_callback_listener frame_listener = { .done = frame_done }
 static void render_output(struct lock_output *o) {
     if (o->frame_cb) return;
     cairo_t *cr;
-    struct loginui_buffer *b = loginui_create_buffer(shm, o->width, o->height, &cr);
+    int32_t sc = o->scale > 0 ? o->scale : 1;
+    struct loginui_buffer *b = loginui_create_buffer(shm, o->width * (uint32_t)sc,
+                                                     o->height * (uint32_t)sc, &cr);
     if (!b) return;
+    cairo_scale(cr, sc, sc);
 
     time_t now = time(NULL);
     struct tm tm; localtime_r(&now, &tm);
@@ -478,10 +482,38 @@ static void render_output(struct lock_output *o) {
         o->frame_cb = wl_surface_frame(o->surface);
         wl_callback_add_listener(o->frame_cb, &frame_listener, o);
     }
+    wl_surface_set_buffer_scale(o->surface, sc);
     wl_surface_attach(o->surface, b->wl_buffer, 0, 0);
-    wl_surface_damage_buffer(o->surface, 0, 0, (int)o->width, (int)o->height);
+    wl_surface_damage_buffer(o->surface, 0, 0, (int)(o->width * (uint32_t)sc),
+                             (int)(o->height * (uint32_t)sc));
     wl_surface_commit(o->surface);
 }
+
+static void output_geometry(void *data, struct wl_output *wo, int32_t x, int32_t y,
+                            int32_t pw, int32_t ph, int32_t subpixel, const char *make,
+                            const char *model, int32_t transform) {}
+
+static void output_mode(void *data, struct wl_output *wo, uint32_t flags,
+                        int32_t w, int32_t h, int32_t refresh) {}
+
+static void output_scale(void *data, struct wl_output *wo, int32_t factor) {
+    struct lock_output *o = data;
+    if (factor > 0) o->pending_scale = factor;
+}
+
+static void output_done(void *data, struct wl_output *wo) {
+    struct lock_output *o = data;
+    if (o->pending_scale <= 0 || o->pending_scale == o->scale) return;
+    o->scale = o->pending_scale;
+    if (o->configured) render_output(o);
+}
+
+static const struct wl_output_listener output_listener = {
+    .geometry = output_geometry,
+    .mode = output_mode,
+    .done = output_done,
+    .scale = output_scale,
+};
 
 /* ── ext-session-lock ───────────────────────────────────────────────────── */
 
@@ -712,6 +744,7 @@ static void reg_global(void *data, struct wl_registry *reg, uint32_t name,
         o->name = name;
         o->wl_output = wl_registry_bind(reg, name, &wl_output_interface,
                                         version < 3 ? version : 3);
+        wl_output_add_listener(o->wl_output, &output_listener, o);
         o->next = outputs;
         outputs = o;
         if (locked) create_lock_surface(o);
