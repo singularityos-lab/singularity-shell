@@ -160,6 +160,7 @@ namespace Singularity {
                 { "wallpapers", _("Wallpapers"), _("Online and extra wallpaper sources"), "preferences-desktop-wallpaper-symbolic" },
                 { "search", _("Search"), _("Extra results in the launcher"), "system-search-symbolic" },
                 { "files", _("Files and Previews"), _("Icons and previews for file types"), "folder-symbolic" },
+                { "lock", _("Screensaver and Lock"), _("Idle, screensaver, lock and display power-off"), "preferences-desktop-screensaver-symbolic" },
                 { "tools", _("Tools"), _("Small utilities and helpers"), "applications-utilities-symbolic" },
                 { "other", _("Other"), _("Plugins without a category"), "application-x-addon-symbolic" }
             };
