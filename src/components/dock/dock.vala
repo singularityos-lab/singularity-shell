@@ -58,6 +58,7 @@ namespace Singularity {
         private GtkLayerShell.Edge _reveal_barrier_edge = GtkLayerShell.Edge.BOTTOM;
         private int _last_dimension = 0;
         private int _current_margin = 0;
+        private int _rest_margin = 0;
         private bool _menu_open = false;
         private Gee.ArrayList<Singularity.DockContextMenuProvider> _menu_providers =
             new Gee.ArrayList<Singularity.DockContextMenuProvider>();
@@ -453,16 +454,19 @@ namespace Singularity {
             set_margin(this, GtkLayerShell.Edge.LEFT, 0);
             set_margin(this, GtkLayerShell.Edge.RIGHT, 0);
             set_margin(this, GtkLayerShell.Edge.TOP, 0);
+            _rest_margin = 0;
             if (dock_style == "panel") {
                 _current_margin = 0;
                 return;
             }
             if (pos == "left") {
                 _current_margin = gap;
+                _rest_margin = gap;
                 set_margin(this, GtkLayerShell.Edge.LEFT, gap);
                 main_container.margin_end = gap + magnifier.headroom(true);
             } else if (pos == "right") {
                 _current_margin = gap;
+                _rest_margin = gap;
                 set_margin(this, GtkLayerShell.Edge.RIGHT, gap);
                 main_container.margin_start = gap + magnifier.headroom(true);
             } else {
@@ -471,7 +475,8 @@ namespace Singularity {
                 // container's bottom margin. Pull the surface down by that
                 // much so the shadow is not clipped at the surface edge,
                 // while the dock stays at the same visual gap (#162).
-                set_margin(this, GtkLayerShell.Edge.BOTTOM, int.max(0, gap - 21));
+                _rest_margin = int.max(0, gap - 21);
+                set_margin(this, GtkLayerShell.Edge.BOTTOM, _rest_margin);
                 main_container.margin_top = gap + magnifier.headroom(true);
             }
         }
@@ -868,6 +873,15 @@ namespace Singularity {
             set_exclusive_zone(this, zone);
             app_system.shell_dock_height = zone;
             if (changed) app_system.config_changed("dock-reservation");
+        }
+
+        public int shown_extent() {
+            if (!_enabled || hidden_by_scrolling_tiling()) return 0;
+            int headroom = dock_style == "panel" ? 0 : magnifier.headroom(true);
+            int body = _last_dimension > 10
+                ? _last_dimension - SHADOW_BOTTOM_PX - headroom
+                : _settings.get_int("dock-icon-size") + 20 + _settings.get_int("dock-gap");
+            return int.max(0, body) + _rest_margin;
         }
 
         private void update_autohide_state() {

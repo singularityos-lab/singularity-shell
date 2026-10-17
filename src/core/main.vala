@@ -760,6 +760,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         } else {
             dock = new Singularity.Dock(this);
         }
+        if (overview != null) overview.dock = dock;
         connect_shell_signals();
         if (hot_corner_manager != null) {
             if (panel != null) hot_corner_manager.attach_to_panel(panel);
@@ -991,6 +992,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     private void ensure_overview() {
         if (overview != null) return;
         overview = new Singularity.Overview(this, panel);
+        overview.dock = dock;
         overview.shown.connect(() => {
             set_tiling_layout_hold(overview, true);
             if (panel != null) panel.set_overview_mode(true);
