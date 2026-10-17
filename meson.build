@@ -532,6 +532,8 @@ singularity_core_sources = files(
     'src/core/lid_manager.vala',
     'src/core/idle_inhibitors.vala',
     'src/core/idle_manager.vala',
+    'src/core/logind_lock.vala',
+    'src/core/logind_lock_shell.vala',
     'src/core/parental/screen_time_tracker.vala',
     'src/core/parental/break_reminder.vala',
     'src/core/parental/parental_enforcer.vala',
@@ -790,6 +792,13 @@ safe_mode_test = executable('safe-mode-test',
   dependencies: [dependency('gobject-2.0')],
 )
 test('safe-mode', safe_mode_test)
+
+logind_lock_test = executable('logind-lock-test',
+  sources: ['src/core/logind_lock.vala', 'tests/logind_lock_test.vala'],
+  dependencies: [dependency('gio-2.0'), dependency('gio-unix-2.0')],
+  vala_args: ['--pkg', 'posix'],
+)
+test('logind-lock', logind_lock_test, timeout: 60)
 
 xsettings_daemon_test = executable('xsettings-daemon-test',
   sources: ['src/core/xsettings_daemon.vala', 'tests/xsettings_daemon_test.vala'],
