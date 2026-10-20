@@ -213,6 +213,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         Singularity.LidManager.get_default();
         Singularity.IdleInhibitors.get_default().start();
         Singularity.IdleManager.get_default().start();
+        Singularity.LogindLock.start();
         Singularity.ScreenTimeTracker.get_default().start();
         Singularity.SystemMonitor.get_default().night_light.refresh();
         Singularity.ParentalEnforcer.get_default().start();
