@@ -38,11 +38,7 @@ namespace Singularity.SidebarPages {
             logo_box.margin_top = 12;
             logo_box.margin_bottom = 4;
             logo_box.halign = Align.CENTER;
-            var logo = new Image.from_icon_name("computer-symbolic");
-            logo.icon_name = get_distro_icon_name();
-            logo.pixel_size = 96;
-            logo.add_css_class("accent-color");
-            logo_box.append(logo);
+            logo_box.append(build_distro_logo(96));
             add_widget(logo_box);
             var device_group = new PreferencesGroup();
             hostname_row = new EntryRow(_("Device Name"));
@@ -237,6 +233,26 @@ namespace Singularity.SidebarPages {
                 hostname_row.add_css_class("error");
                 hostname_row.tooltip_text = e.message;
             }
+        }
+
+        private Widget build_distro_logo(int size) {
+            var icon_name = get_distro_icon_name();
+            var display = Gdk.Display.get_default();
+            if (icon_name == "computer-symbolic" || display == null) {
+                var image = new Image.from_icon_name(icon_name);
+                image.pixel_size = size;
+                image.add_css_class("accent-color");
+                return image;
+            }
+            var paintable = Gtk.IconTheme.get_for_display(display).lookup_icon(
+                icon_name, null, size, 2, TextDirection.NONE, 0);
+            var picture = new Picture.for_paintable(paintable);
+            picture.content_fit = ContentFit.CONTAIN;
+            picture.can_shrink = true;
+            picture.set_size_request(size, size);
+            picture.halign = Align.CENTER;
+            picture.valign = Align.CENTER;
+            return picture;
         }
 
         private string get_distro_icon_name() {
