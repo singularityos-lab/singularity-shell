@@ -4,7 +4,7 @@
     Copyright © 2026 Singularity Desktop
   </copyright>
 
-  <interface name="zsingularity_process_manager_v1" version="1">
+  <interface name="zsingularity_process_manager_v1" version="2">
     <description summary="process owning a toplevel">
       Lets the shell find the process behind a toplevel, so it can end an
       application that stopped responding without guessing from process
@@ -39,6 +39,15 @@
       <arg name="toplevel" type="object" interface="zwlr_foreign_toplevel_handle_v1"/>
       <arg name="pid" type="int"/>
       <arg name="source" type="uint" enum="source"/>
+    </event>
+
+    <event name="resume_requested" since="2">
+      <description summary="the user asked to resume a paused toplevel">
+        Sent when the user activates the resume control drawn over a
+        toplevel whose process the compositor sees as frozen. The client
+        that paused the application is expected to thaw it.
+      </description>
+      <arg name="toplevel" type="object" interface="zwlr_foreign_toplevel_handle_v1"/>
     </event>
   </interface>
 </protocol>

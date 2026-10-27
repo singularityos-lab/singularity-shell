@@ -2186,7 +2186,7 @@ namespace Singularity {
                 }
             }
             var desktop_info = app_info as GLib.DesktopAppInfo;
-            if (desktop_info != null && Singularity.Crash.Reporter.get_default().watches_launches()) {
+            if (desktop_info != null) {
                 var uris = new GLib.List<string>();
                 if (files != null) {
                     foreach (var f in files) uris.append(f.get_uri());
@@ -2195,10 +2195,17 @@ namespace Singularity {
                 if (app_id.has_suffix(".desktop")) app_id = app_id.substring(0, app_id.length - 8);
                 string? program = desktop_info.get_executable();
                 string executable = program != null ? (GLib.Environment.find_program_in_path(program) ?? program) : "";
+                string? scope = AppPause.get_default().prepare_launch(app_id);
+                bool watch = Singularity.Crash.Reporter.get_default().watches_launches();
+                var flags = GLib.SpawnFlags.SEARCH_PATH;
+                if (watch) flags |= GLib.SpawnFlags.DO_NOT_REAP_CHILD;
+                GLib.SpawnChildSetupFunc? setup = null;
+                if (scope != null) setup = () => AppPause.join(scope);
                 try {
-                    desktop_info.launch_uris_as_manager(uris, ctx,
-                        GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.DO_NOT_REAP_CHILD, null,
-                        (info, pid) => Singularity.Crash.LaunchWatcher.get_default().watch(pid, app_id, executable));
+                    desktop_info.launch_uris_as_manager(uris, ctx, flags, setup,
+                        (info, pid) => {
+                            if (watch) Singularity.Crash.LaunchWatcher.get_default().watch(pid, app_id, executable);
+                        });
                 } catch (GLib.Error e) {
                     warning("launch_app: %s", e.message);
                 }

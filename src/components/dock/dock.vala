@@ -2311,6 +2311,16 @@ namespace Singularity {
                         if (window.handle != null) Singularity.close_window(window.handle);
                     });
                 }
+                var pause = Singularity.AppPause.get_default();
+                if (pause.is_paused(app_id)) {
+                    menu.add_item(_("Resume"), "media-playback-start-symbolic", () => {
+                        pause.resume(app_id);
+                    });
+                } else if (pause.can_pause(app_id)) {
+                    menu.add_item(_("Pause"), "media-playback-pause-symbolic", () => {
+                        pause.pause(app_id);
+                    });
+                }
                 menu.add_item("Quit", "application-exit-symbolic", () => {
                     // Close this app's own windows, not whatever is focused.
                     foreach (var win in app_system.get_windows()) {
@@ -2610,7 +2620,16 @@ namespace Singularity {
             // Click: minimize if app is active/focused, raise if running, launch if not
             unowned Gtk.Box wrapper_weak = wrapper;
             unowned Button btn_weak = btn;
+            var pause = Singularity.AppPause.get_default();
+            if (pause.is_paused(app_id)) btn.add_css_class("paused");
+            ulong pause_watch = pause.changed.connect((changed_id, paused) => {
+                if (AppPause.scope_name(changed_id) != AppPause.scope_name(app_id)) return;
+                if (paused) btn_weak.add_css_class("paused");
+                else btn_weak.remove_css_class("paused");
+            });
+            btn.destroy.connect(() => pause.disconnect(pause_watch));
             btn.clicked.connect(() => {
+                pause.resume(app_id);
                 var app_wins = new Gee.ArrayList<AppSystem.Window>();
                 foreach (var w in app_system.get_windows())
                     if (w.app_id != null && dock_matches(app_id, w.app_id)) app_wins.add(w);

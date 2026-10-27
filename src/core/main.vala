@@ -231,6 +231,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             var updates_scheduler = Singularity.UpdatesScheduler.get_default();
             updates_scheduler.open_requested.connect((page) => open_settings_page(page));
             updates_scheduler.start();
+            Singularity.AppPause.get_default().start();
             return Source.REMOVE;
         });
         Bus.own_name(
@@ -483,6 +484,9 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
                 conn.register_object<Singularity.Shell.ShellService>("/dev/sinty/Shell", this);
                 conn.register_object<Singularity.StageService>("/dev/sinty/Shell/Stage", new Singularity.StageService());
                 conn.register_object<Singularity.Shell.ShellChoiceService>("/dev/sinty/Shell/Choice", new Singularity.Shell.ShellChoiceService(this));
+                var pause_service = new Singularity.AppPauseService();
+                Singularity.AppPause.get_default().changed.connect((app_id, paused) => pause_service.changed(app_id, paused));
+                conn.register_object<Singularity.AppPauseService>("/dev/sinty/Shell/AppPause", pause_service);
             } catch (IOError e) {
                 warning("Failed to register Shell Service: %s", e.message);
             }

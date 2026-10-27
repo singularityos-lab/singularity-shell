@@ -58,9 +58,87 @@ handle_pid(void *data, struct zsingularity_process_manager_v1 *mgr,
 	pending_reply.received = TRUE;
 }
 
+static void
+handle_resume_requested(void *data, struct zsingularity_process_manager_v1 *mgr,
+		struct zwlr_foreign_toplevel_handle_v1 *toplevel)
+{
+	(void)data;
+	(void)mgr;
+	(void)toplevel;
+}
+
 static const struct zsingularity_process_manager_v1_listener manager_listener = {
 	.pid = handle_pid,
+	.resume_requested = handle_resume_requested,
 };
+
+static SingularityProcessInfoResumeFunc resume_func;
+static gpointer resume_data;
+static struct zsingularity_process_manager_v1 *resume_manager;
+
+static void
+handle_resume_pid(void *data, struct zsingularity_process_manager_v1 *mgr,
+		struct zwlr_foreign_toplevel_handle_v1 *toplevel,
+		int32_t pid, uint32_t source)
+{
+	(void)data;
+	(void)mgr;
+	(void)toplevel;
+	(void)pid;
+	(void)source;
+}
+
+static void
+handle_resume_event(void *data, struct zsingularity_process_manager_v1 *mgr,
+		struct zwlr_foreign_toplevel_handle_v1 *toplevel)
+{
+	(void)data;
+	(void)mgr;
+	if (resume_func && toplevel)
+		resume_func(toplevel, resume_data);
+}
+
+static const struct zsingularity_process_manager_v1_listener resume_listener = {
+	.pid = handle_resume_pid,
+	.resume_requested = handle_resume_event,
+};
+
+static void
+resume_registry_global(void *data, struct wl_registry *registry, uint32_t name,
+		const char *interface, uint32_t version)
+{
+	(void)data;
+	if (resume_manager || version < 2
+			|| strcmp(interface, zsingularity_process_manager_v1_interface.name) != 0)
+		return;
+	resume_manager = wl_registry_bind(registry, name,
+		&zsingularity_process_manager_v1_interface, 2);
+	zsingularity_process_manager_v1_add_listener(resume_manager,
+		&resume_listener, NULL);
+}
+
+static const struct wl_registry_listener resume_registry_listener = {
+	.global = resume_registry_global,
+	.global_remove = registry_global_remove,
+};
+
+gboolean
+singularity_process_info_watch_resume(SingularityProcessInfoResumeFunc func,
+		gpointer user_data)
+{
+	struct wl_display *display = singularity_wayland_display();
+	if (!display)
+		return FALSE;
+	resume_func = func;
+	resume_data = user_data;
+	if (resume_manager)
+		return TRUE;
+	struct wl_registry *registry = wl_display_get_registry(display);
+	wl_registry_add_listener(registry, &resume_registry_listener, NULL);
+	wl_display_roundtrip(display);
+	wl_registry_destroy(registry);
+	return resume_manager != NULL;
+}
 
 static struct zsingularity_process_manager_v1 *
 get_manager(void)
