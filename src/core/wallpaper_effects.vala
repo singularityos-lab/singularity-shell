@@ -6,6 +6,19 @@ namespace Singularity {
         public const int MAX_BLUR_RADIUS = 64;
 
         public static Gdk.Pixbuf apply(Gdk.Pixbuf source, string effect, int blur_radius) {
+            if (effect != "grayscale" && effect != "blur") return source;
+            var pixels = source.read_pixel_bytes();
+            var id = "%s\n%dx%d\n%d\n%d\n%s\n%d".printf(
+                Checksum.compute_for_bytes(ChecksumType.SHA256, pixels),
+                source.width, source.height, source.rowstride, source.has_alpha ? 1 : 0,
+                effect, blur_radius);
+            var packed = Singularity.Compute.for_thread().call(7, Singularity.Compute.key("wallpaper-effect", id.data), () => {
+                return Singularity.Compute.pack_pixbuf(compute(source, effect, blur_radius));
+            });
+            return Singularity.Compute.unpack_pixbuf(packed) ?? source;
+        }
+
+        private static Gdk.Pixbuf compute(Gdk.Pixbuf source, string effect, int blur_radius) {
             switch (effect) {
                 case "grayscale":
                     return grayscale(source);

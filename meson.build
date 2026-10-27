@@ -992,7 +992,7 @@ dynamic_wallpaper_test = executable('dynamic-wallpaper-test',
 test('dynamic-wallpaper', dynamic_wallpaper_test)
 wallpaper_effects_test = executable('wallpaper-effects-test',
   sources: ['src/core/wallpaper_effects.vala', 'tests/wallpaper_effects_test.vala'],
-  dependencies: core_deps + [gee_dep, cc.find_library('m')],
+  dependencies: core_deps + [libsingularity_dep, gee_dep, cc.find_library('m')],
 )
 test('wallpaper-effects', wallpaper_effects_test,
   depends: wallpaper_test_schema,
