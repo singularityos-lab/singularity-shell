@@ -46,6 +46,7 @@ namespace Singularity {
         private PreviewZoomImage? zoom_image = null;
         private LiveTextSession? live_text = null;
         private Poppler.Document? pdf_document = null;
+        private string? pdf_identity = null;
         private int pdf_page = 0;
         private Picture? pdf_picture = null;
         private Label? pdf_counter = null;
@@ -268,6 +269,7 @@ namespace Singularity {
             zoom_image = null;
             live_text = null;
             pdf_document = null;
+            pdf_identity = null;
             pdf_picture = null;
             pdf_counter = null;
             stage.remove_css_class("bare");
@@ -514,6 +516,16 @@ namespace Singularity {
                 } catch (Error e) {
                     document = null;
                 }
+                string? identity = null;
+                try {
+                    var info = target.query_info("time::modified,time::modified-usec,standard::size",
+                                                 FileQueryInfoFlags.NONE, cancel);
+                    identity = "%s\n%llu.%u\n%lld".printf(target.get_uri(),
+                        info.get_attribute_uint64("time::modified"), info.get_attribute_uint32("time::modified-usec"),
+                        info.get_size());
+                } catch (Error e) {
+                    identity = null;
+                }
                 Idle.add(() => {
                     if (gen != generation) return Source.REMOVE;
                     if (document == null || document.get_n_pages() < 1) {
@@ -521,6 +533,7 @@ namespace Singularity {
                         return Source.REMOVE;
                     }
                     pdf_document = document;
+                    pdf_identity = identity;
                     double pw, ph;
                     document.get_page(0).get_size(out pw, out ph);
                     fit_stage(pw * 1.5, ph * 1.5);
@@ -545,17 +558,25 @@ namespace Singularity {
             double scale = double.min((stage_w - 24.0) / pw, (stage_h - 24.0) / ph) * scale_factor;
             int w = int.max(1, (int) Math.round(pw * scale));
             int h = int.max(1, (int) Math.round(ph * scale));
-            var surface = new Cairo.ImageSurface(Cairo.Format.ARGB32, w, h);
-            var cr = new Cairo.Context(surface);
-            cr.set_source_rgb(1, 1, 1);
-            cr.paint();
-            cr.scale(scale, scale);
-            page.render(cr);
-            surface.flush();
-            unowned uint8[] data = surface.get_data();
-            data.length = surface.get_stride() * h;
-            var bytes = new Bytes(data);
-            pdf_picture.paintable = new Gdk.MemoryTexture(w, h, Gdk.MemoryFormat.B8G8R8A8_PREMULTIPLIED, bytes, surface.get_stride());
+            int stride = Cairo.Format.ARGB32.stride_for_width(w);
+            Singularity.Compute.Producer render = () => {
+                var surface = new Cairo.ImageSurface(Cairo.Format.ARGB32, w, h);
+                var cr = new Cairo.Context(surface);
+                cr.set_source_rgb(1, 1, 1);
+                cr.paint();
+                cr.scale(scale, scale);
+                page.render(cr);
+                surface.flush();
+                unowned uint8[] data = surface.get_data();
+                data.length = surface.get_stride() * h;
+                return data;
+            };
+            uint8[] pixels = pdf_identity != null
+                ? Singularity.Compute.for_thread().call(8, Singularity.Compute.key("pdf-page",
+                      "%s\n%d\n%dx%d".printf(pdf_identity, page_index, w, h).data), render)
+                : render();
+            if (pixels.length != stride * h) return true;
+            pdf_picture.paintable = new Gdk.MemoryTexture(w, h, Gdk.MemoryFormat.B8G8R8A8_PREMULTIPLIED, new Bytes(pixels), stride);
             return true;
         }
 

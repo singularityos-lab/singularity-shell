@@ -1127,8 +1127,10 @@ namespace Singularity {
         private static void rasterize_icon(owned IconJob job) {
             Gdk.Texture? texture = null;
             try {
-                var stream = job.file.read();
-                var pixbuf = new Gdk.Pixbuf.from_stream_at_scale(stream, job.px, job.px, true);
+                var path = job.file.get_path();
+                var pixbuf = path != null
+                    ? Singularity.Compute.load_scaled(path, job.px, job.px, true)
+                    : new Gdk.Pixbuf.from_stream_at_scale(job.file.read(), job.px, job.px, true);
                 texture = new Gdk.MemoryTexture(pixbuf.width, pixbuf.height,
                     pixbuf.has_alpha ? Gdk.MemoryFormat.R8G8B8A8 : Gdk.MemoryFormat.R8G8B8,
                     pixbuf.read_pixel_bytes(), pixbuf.rowstride);
