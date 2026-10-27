@@ -1497,7 +1497,7 @@ namespace Singularity {
             string? path = GLib.File.new_for_uri(uri).get_path();
             if (path == null) return -1.0;
             try {
-                var pixbuf = new Gdk.Pixbuf.from_file_at_scale(path, 128, 72, true);
+                var pixbuf = Singularity.Compute.load_scaled(path, 128, 72, true);
                 if (pixbuf.get_bits_per_sample() != 8 || pixbuf.get_n_channels() < 3) return -1.0;
                 int ch = pixbuf.get_n_channels();
                 int rs = pixbuf.get_rowstride();

@@ -118,7 +118,7 @@ namespace Singularity {
             _path = path;
             _status.label = message;
             try {
-                var pixbuf = new Gdk.Pixbuf.from_file_at_scale(path, 256, 160, true);
+                var pixbuf = Singularity.Compute.load_scaled(path, 256, 160, true);
                 _picture.paintable = Gdk.Texture.for_pixbuf(pixbuf);
             } catch (Error e) {
                 warning("[ScreenshotThumbnail] preview failed: %s", e.message);

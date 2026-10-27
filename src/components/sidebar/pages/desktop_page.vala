@@ -2121,7 +2121,7 @@ namespace Singularity {
                 Gdk.Pixbuf? pb = null;
                 foreach (string path in candidates) {
                     try {
-                        pb = new Gdk.Pixbuf.from_file_at_scale(path, 320, 180, true);
+                        pb = Singularity.Compute.load_scaled(path, 320, 180, true);
                         break;
                     } catch (Error e) {}
                 }
@@ -3095,7 +3095,7 @@ namespace Singularity {
                 thumb_mutex.unlock();
 
                 try {
-                    pb = new Gdk.Pixbuf.from_file_at_scale(thumb_path, 344, 208, true);
+                    pb = Singularity.Compute.load_scaled(thumb_path, 344, 208, true);
                 } catch (Error e) {}
 
                 thumb_mutex.lock();

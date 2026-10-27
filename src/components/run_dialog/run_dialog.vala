@@ -558,7 +558,7 @@ namespace Singularity {
             string? path = file.get_path();
             if (path == null) return;
             try {
-                var pixbuf = new Gdk.Pixbuf.from_file_at_scale(path, 300, 240, true);
+                var pixbuf = Singularity.Compute.load_scaled(path, 300, 240, true);
                 var texture = Gdk.Texture.for_pixbuf(pixbuf);
                 var picture = new Picture();
                 picture.set_paintable(texture);

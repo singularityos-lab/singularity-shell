@@ -245,10 +245,10 @@ namespace Singularity {
                     Pixbuf? pb_medium = null;
                     Pixbuf? pb_small = null;
                     try {
-                        pb_medium = new Pixbuf.from_file_at_scale(load_path, 320, 180, true);
+                        pb_medium = Singularity.Compute.load_scaled(load_path, 320, 180, true);
                     } catch (Error e) {}
                     try {
-                        pb_small = new Pixbuf.from_file_at_scale(load_path, 120, 67, false);
+                        pb_small = Singularity.Compute.load_scaled(load_path, 120, 67, false);
                     } catch (Error e) {}
 
                     pb_display = ensure_alpha(pb_display);
@@ -456,7 +456,7 @@ namespace Singularity {
             int src_h = 0;
             Gdk.Pixbuf.get_file_info(path, out src_w, out src_h);
             if (src_w <= 0 || src_h <= 0) {
-                return new Pixbuf.from_file_at_scale(path, target_w, target_h, true);
+                return Singularity.Compute.load_scaled(path, target_w, target_h, true);
             }
 
             double scale = double.max((double)target_w / (double)src_w,
@@ -470,7 +470,7 @@ namespace Singularity {
                 decode_w = int.max(1, (int)(decode_w * clamp));
                 decode_h = int.max(1, (int)(decode_h * clamp));
             }
-            return new Pixbuf.from_file_at_scale(path, decode_w, decode_h, true);
+            return Singularity.Compute.load_scaled(path, decode_w, decode_h, true);
         }
     }
 }

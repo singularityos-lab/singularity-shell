@@ -126,7 +126,7 @@ namespace Singularity {
             string? ct = content_type_for(file);
             if (ct != null && ct.has_prefix("image/")) {
                 try {
-                    var pb = new Gdk.Pixbuf.from_file_at_scale(path, icon_size, icon_size, true);
+                    var pb = Singularity.Compute.load_scaled(path, icon_size, icon_size, true);
                     img.set_from_paintable(Gdk.Texture.for_pixbuf(pb));
                     img.add_css_class("dock-resource-thumb");
                     return;
@@ -183,7 +183,7 @@ namespace Singularity {
                 pic.margin_top   = int.max(0, offy[i]);
                 pic.margin_bottom = int.max(0, -offy[i]);
                 try {
-                    var pb = new Gdk.Pixbuf.from_file_at_scale(media_paths[i], thumb, thumb, true);
+                    var pb = Singularity.Compute.load_scaled(media_paths[i], thumb, thumb, true);
                     pic.set_paintable(Gdk.Texture.for_pixbuf(pb));
                 } catch (Error e) {}
                 if (i == 0) overlay.set_child(pic);
@@ -257,7 +257,7 @@ namespace Singularity {
                 if (idx >= pending.length) return GLib.Source.REMOVE;
                 var job = pending[idx++];
                 try {
-                    var pb = new Gdk.Pixbuf.from_file_at_scale(job.path, 56, 56, true);
+                    var pb = Singularity.Compute.load_scaled(job.path, 56, 56, true);
                     job.img.set_from_paintable(Gdk.Texture.for_pixbuf(pb));
                 } catch (Error e) {}
                 return GLib.Source.CONTINUE;

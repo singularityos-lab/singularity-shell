@@ -513,14 +513,14 @@ namespace Singularity {
     public static void load_notification_icon(Image img, string icon_str, string app_name) {
         if (icon_str.has_prefix("/")) {
             try {
-                var pixbuf = new Gdk.Pixbuf.from_file_at_scale(icon_str, 48, 48, true);
+                var pixbuf = Singularity.Compute.load_scaled(icon_str, 48, 48, true);
                 img.paintable = Gdk.Texture.for_pixbuf(pixbuf);
                 return;
             } catch {}
         } else if (icon_str.has_prefix("file://")) {
             try {
                 var path = GLib.Filename.from_uri(icon_str);
-                var pixbuf = new Gdk.Pixbuf.from_file_at_scale(path, 48, 48, true);
+                var pixbuf = Singularity.Compute.load_scaled(path, 48, 48, true);
                 img.paintable = Gdk.Texture.for_pixbuf(pixbuf);
                 return;
             } catch {}

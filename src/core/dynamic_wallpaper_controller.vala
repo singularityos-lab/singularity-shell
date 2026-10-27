@@ -275,8 +275,8 @@ namespace Singularity {
         public static bool render_blend(string from, string to, double progress, int w, int h, string target) {
             try {
                 DirUtils.create_with_parents(Path.get_dirname(target), 0700);
-                var a = cover(new Gdk.Pixbuf.from_file_at_scale(from, w, h, true), w, h);
-                var b = cover(new Gdk.Pixbuf.from_file_at_scale(to, w, h, true), w, h);
+                var a = cover(Singularity.Compute.load_scaled(from, w, h, true), w, h);
+                var b = cover(Singularity.Compute.load_scaled(to, w, h, true), w, h);
                 var out_pb = a.copy();
                 b.composite(out_pb, 0, 0, w, h, 0, 0, 1.0, 1.0, Gdk.InterpType.BILINEAR,
                     (int) Math.round(progress.clamp(0.0, 1.0) * 255));

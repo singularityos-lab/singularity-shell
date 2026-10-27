@@ -198,7 +198,7 @@ namespace Singularity {
                 if (!GLib.FileUtils.test(p, GLib.FileTest.EXISTS)) {
                     _icon_overrides.unset(nid);
                 } else {
-                    var pixbuf = new Gdk.Pixbuf.from_file_at_scale(p, 256, 256, true);
+                    var pixbuf = Singularity.Compute.load_scaled(p, 256, 256, true);
                     _icon_overrides[nid] = Gdk.Texture.for_pixbuf(pixbuf);
                 }
             } catch (Error e) {
@@ -399,7 +399,7 @@ namespace Singularity {
                     if (icon_path.has_prefix("/") || icon_path.has_prefix("file://")) {
                         try {
                             string p = icon_path.has_prefix("file://") ? GLib.Uri.unescape_string(icon_path.substring(7)) : icon_path;
-                            var pb = new Gdk.Pixbuf.from_file_at_scale(p, 22, 22, true);
+                            var pb = Singularity.Compute.load_scaled(p, 22, 22, true);
                             img.paintable = Gdk.Texture.for_pixbuf(pb);
                         } catch {}
                     } else {
@@ -506,7 +506,7 @@ namespace Singularity {
                         string p = icon_path.has_prefix("file://")
                             ? GLib.Uri.unescape_string(icon_path.substring(7))
                             : icon_path;
-                        var pb = new Gdk.Pixbuf.from_file_at_scale(p, 18, 18, true);
+                        var pb = Singularity.Compute.load_scaled(p, 18, 18, true);
                         img.paintable = Gdk.Texture.for_pixbuf(pb);
                     } catch {}
                 } else {

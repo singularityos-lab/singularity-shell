@@ -360,7 +360,7 @@ namespace Singularity {
                 Gdk.Pixbuf? cached = _icon_pixbuf_cache.lookup(cache_key);
                 if (cached == null) {
                     try {
-                        cached = new Gdk.Pixbuf.from_file_at_scale(path, ICON_SIZE, ICON_SIZE, true);
+                        cached = Singularity.Compute.load_scaled(path, ICON_SIZE, ICON_SIZE, true);
                         _icon_pixbuf_cache.insert(cache_key, cached);
                         _icon_pixbuf_cache_order.push_tail(cache_key);
                         trim_icon_pixbuf_cache();
