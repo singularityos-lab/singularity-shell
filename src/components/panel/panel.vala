@@ -715,6 +715,15 @@ namespace Singularity {
                 audio_icon.tooltip_text = "%d%%".printf((int)audio.volume);
             });
 
+            var hearing_icon = new Image.from_icon_name(VolumeOsd.HEARING_RISK_ICON);
+            hearing_icon.pixel_size = 16;
+            hearing_icon.add_css_class("warning");
+            hearing_icon.tooltip_text = _("High volume on headphones can damage your hearing");
+            hearing_icon.visible = audio.hearing_risk;
+            audio.state_changed.connect(() => {
+                hearing_icon.visible = audio.hearing_risk;
+            });
+
             var battery_icon = new Image.from_icon_name("battery-full-symbolic");
             battery_icon.pixel_size = 16;
 
@@ -724,6 +733,7 @@ namespace Singularity {
 
             sys_pill.append(network_icon);
             sys_pill.append(audio_icon);
+            sys_pill.append(hearing_icon);
             sys_pill.append(battery_icon);
             sys_pill.append(battery_label);
 

@@ -220,7 +220,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         Singularity.AccessibilityFeedback.get_default();
         var osd_audio = Singularity.SystemMonitor.get_default().audio;
         osd_audio.external_volume_changed.connect(() => {
-            Singularity.Shell.OsdOverlay.get_default().show_osd(osd_audio.icon_name, osd_audio.is_muted ? -1 : osd_audio.volume);
+            Singularity.VolumeOsd.show(osd_audio);
         });
         event_reminders = new Singularity.EventReminders();
         Singularity.Crash.Reporter.get_default().start();

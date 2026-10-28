@@ -41,6 +41,7 @@ namespace Singularity {
             vol_box.append(vol_scale);
             vol_row.set_child(vol_box);
             out_group.add_row(vol_row);
+            out_group.add_row(new HearingRiskRow(audio));
             var eq_row = EqualizerPage.entry_row(view);
             out_group.add_row(eq_row);
             EqualizerPage.register_search(this, view, eq_row);

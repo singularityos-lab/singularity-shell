@@ -507,6 +507,7 @@ namespace Singularity {
             vol_box.append(vol_scale);
             vol_row.set_child(vol_box);
             sliders_group.add_row(vol_row);
+            sliders_group.add_row(new HearingRiskRow(audio));
 
             // Device picker: ExpanderRow (like timezone selector) that slides open below
             var dev_row = new ExpanderRow(

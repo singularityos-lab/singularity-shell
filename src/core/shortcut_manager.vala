@@ -1117,7 +1117,7 @@ namespace Singularity {
         public void volume_up() throws Error {
             var audio = SystemMonitor.get_default().audio;
             audio.update_volume((audio.volume + 5.0).clamp(0.0, 100.0));
-            Singularity.Shell.OsdOverlay.get_default().show_osd(audio.icon_name, audio.volume);
+            VolumeOsd.show(audio);
         }
 
         public void switch_windows_next() throws Error {
@@ -1135,16 +1135,13 @@ namespace Singularity {
         public void volume_down() throws Error {
             var audio = SystemMonitor.get_default().audio;
             audio.update_volume((audio.volume - 5.0).clamp(0.0, 100.0));
-            Singularity.Shell.OsdOverlay.get_default().show_osd(audio.icon_name, audio.volume);
+            VolumeOsd.show(audio);
         }
 
         public void volume_mute() throws Error {
             var audio = SystemMonitor.get_default().audio;
             audio.toggle_mute();
-            Singularity.Shell.OsdOverlay.get_default().show_osd(
-                audio.icon_name,
-                audio.is_muted ? -1 : audio.volume
-            );
+            VolumeOsd.show(audio);
         }
 
         private void switch_input_method() {
