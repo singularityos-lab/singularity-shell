@@ -369,6 +369,10 @@ namespace Singularity {
             return max;
         }
 
+        public bool uses_media(string path) {
+            return plays_media(path);
+        }
+
         private bool plays_media(string path) {
             string? members = read(path + "/cgroup.procs");
             if (members == null) return false;

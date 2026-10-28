@@ -106,6 +106,16 @@ namespace Singularity.SidebarPages {
             add_group(profile_group);
 
 
+            var background_group = new PreferencesGroup(_("Background Apps"));
+            background_group.description = _("Apps you cannot see keep running, but give way to the one you are using.");
+            var background_row = new SwitchRow(_("Lighter Background Apps"),
+                _("When all the windows of an app are minimized or covered, it gets less processor, disk and memory, and its windows stop drawing. Apps playing audio or video are left alone."),
+                _settings.get_boolean("background-apps"));
+            _settings.bind("background-apps", background_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            background_group.add_row(background_row);
+            background_group.visible = AppPause.get_default().available;
+            add_group(background_group);
+
             build_fans();
 
             var tuning_group = new PreferencesGroup(_("Tuning"));

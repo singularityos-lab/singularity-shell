@@ -424,6 +424,7 @@ singularity_core_sources = files(
     'src/core/xsettings_daemon.vala',
     'src/core/process_terminator.vala',
     'src/core/app_pause.vala',
+    'src/core/app_background.vala',
     'src/core/ush_portal.vala',
     'src/core/shell_choice.vala',
     'src/core/screenshot_portal.vala',
