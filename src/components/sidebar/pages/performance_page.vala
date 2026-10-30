@@ -196,6 +196,7 @@ namespace Singularity.SidebarPages {
         private async void set_scheduler(bool enabled) {
             var io = AppIoClasses.get_default();
             string? failure = yield io.switch_scheduler(enabled);
+            if (failure == null && io.switched_on != enabled) failure = _("The setting could not be applied.");
             scheduler_error.label = failure ?? "";
             scheduler_error.visible = failure != null;
             yield refresh_scheduler();
@@ -207,11 +208,11 @@ namespace Singularity.SidebarPages {
             scheduler_group.visible = io.installed;
             if (!io.installed) return;
             scheduler_guard = true;
-            scheduler_row.switch_btn.active = io.enabled;
+            scheduler_row.switch_btn.active = io.switched_on;
             scheduler_guard = false;
-            scheduler_latency.visible = io.enabled;
-            scheduler_limit.visible = io.enabled;
-            if (!io.enabled) return;
+            scheduler_latency.visible = io.switched_on;
+            scheduler_limit.visible = io.switched_on;
+            if (!io.switched_on) return;
             var counters = yield io.stats();
             int64 sync = counters.lookup("sync_p99_us") ?? 0;
             int64 read = counters.lookup("read_p99_us") ?? 0;

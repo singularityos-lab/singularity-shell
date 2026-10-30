@@ -16,6 +16,7 @@ namespace Singularity {
 
         public bool installed { get; private set; default = false; }
         public bool enabled { get; private set; default = false; }
+        public bool switched_on { get; private set; default = false; }
 
         public static AppIoClasses get_default() {
             if (instance == null) instance = new AppIoClasses();
@@ -55,6 +56,7 @@ namespace Singularity {
             } catch (Error e) {
             }
             installed = now_installed;
+            switched_on = now_enabled;
             enabled = now_enabled && AppPause.get_default().available;
             update_poll();
         }
