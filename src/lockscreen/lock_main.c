@@ -583,16 +583,29 @@ static void submit_password(void) {
 /* ── Keyboard ───────────────────────────────────────────────────────────── */
 
 static void kb_keymap(void *data, struct wl_keyboard *kb, uint32_t format, int fd, uint32_t size) {
-    if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) { close(fd); return; }
+    if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) {
+        fprintf(stderr, "lock: unsupported keymap format %u\n", format);
+        close(fd);
+        return;
+    }
     char *map = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
     close(fd);
-    if (map == MAP_FAILED) return;
+    if (map == MAP_FAILED) {
+        fprintf(stderr, "lock: cannot map the keymap\n");
+        return;
+    }
     if (xkb_keymap) xkb_keymap_unref(xkb_keymap);
     if (xkb_state) xkb_state_unref(xkb_state);
+    xkb_state = NULL;
     xkb_keymap = xkb_keymap_new_from_string(xkb_context, map,
         XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
     munmap(map, size);
-    if (xkb_keymap) xkb_state = xkb_state_new(xkb_keymap);
+    if (!xkb_keymap) {
+        fprintf(stderr, "lock: cannot compile the keymap\n");
+        return;
+    }
+    xkb_state = xkb_state_new(xkb_keymap);
+    if (!xkb_state) fprintf(stderr, "lock: cannot create the keyboard state\n");
 }
 static void kb_enter(void *d, struct wl_keyboard *kb, uint32_t s, struct wl_surface *sf, struct wl_array *keys) {}
 static void kb_leave(void *d, struct wl_keyboard *kb, uint32_t s, struct wl_surface *sf) {}
@@ -604,8 +617,14 @@ static void kb_repeat(void *d, struct wl_keyboard *kb, int32_t rate, int32_t del
 
 static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
                    uint32_t time, uint32_t key, uint32_t state) {
-    if (!xkb_state || state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+    if (state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
     if (anim_phase == PHASE_LEAVE) return;
+    if (!xkb_state) {
+        snprintf(status_text, sizeof status_text, "%s", "Keyboard unavailable");
+        status_error = true;
+        render_all();
+        return;
+    }
     xkb_keycode_t kc = key + 8;
     xkb_keysym_t sym = xkb_state_key_get_one_sym(xkb_state, kc);
 
