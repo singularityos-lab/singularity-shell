@@ -18,6 +18,12 @@ namespace Singularity.SidebarPages {
         private SettingsSubpages subpages;
         private SettingsPage games_page;
         private SettingsPage fans_page;
+        private PreferencesGroup scheduler_group;
+        private SwitchRow scheduler_row;
+        private ActionRow scheduler_latency;
+        private ActionRow scheduler_limit;
+        private Label scheduler_error;
+        private bool scheduler_guard;
 
         public PerformancePage(SettingsView view) {
             base(_("Performance"));
@@ -116,6 +122,8 @@ namespace Singularity.SidebarPages {
             background_group.visible = AppPause.get_default().available;
             add_group(background_group);
 
+            build_scheduler();
+
             build_fans();
 
             var tuning_group = new PreferencesGroup(_("Tuning"));
@@ -131,6 +139,68 @@ namespace Singularity.SidebarPages {
             vrr_link.activated.connect(() => view.navigate_to("displays"));
             display_group.add_row(vrr_link);
             add_group(display_group);
+        }
+
+        private void build_scheduler() {
+            scheduler_group = new PreferencesGroup(_("Disk Priority"));
+            scheduler_group.description = _("Keeps the system responsive while builds, virtual machines and large copies write to disk.");
+            scheduler_group.visible = false;
+            scheduler_row = new SwitchRow(_("Sinty Scheduler"),
+                _("The app you are using reaches the disk first. Background work uses all the disk when nobody needs it and steps aside when you do."));
+            scheduler_row.switch_btn.notify["active"].connect(() => {
+                if (scheduler_guard) return;
+                set_scheduler.begin(scheduler_row.switch_btn.active);
+            });
+            scheduler_group.add_row(scheduler_row);
+            scheduler_latency = new ActionRow(_("Disk response of the app in use"), null);
+            scheduler_group.add_row(scheduler_latency);
+            scheduler_limit = new ActionRow(_("Background requests allowed"), null);
+            scheduler_group.add_row(scheduler_limit);
+            add_group(scheduler_group);
+
+            scheduler_error = new Label("");
+            scheduler_error.add_css_class("error");
+            scheduler_error.wrap = true;
+            scheduler_error.visible = false;
+            scheduler_error.margin_start = 16;
+            scheduler_error.margin_end = 16;
+            scheduler_error.xalign = 0f;
+            var wrapper = new Box(Orientation.VERTICAL, 0);
+            wrapper.append(scheduler_error);
+            add_widget(wrapper);
+
+            refresh_scheduler.begin();
+            map.connect(() => refresh_scheduler.begin());
+            Timeout.add_seconds(2, () => {
+                if (get_mapped()) refresh_scheduler.begin();
+                return Source.CONTINUE;
+            });
+        }
+
+        private async void set_scheduler(bool enabled) {
+            var io = AppIoClasses.get_default();
+            string? failure = yield io.switch_scheduler(enabled);
+            scheduler_error.label = failure ?? "";
+            scheduler_error.visible = failure != null;
+            yield refresh_scheduler();
+        }
+
+        private async void refresh_scheduler() {
+            var io = AppIoClasses.get_default();
+            yield io.refresh();
+            scheduler_group.visible = io.installed;
+            if (!io.installed) return;
+            scheduler_guard = true;
+            scheduler_row.switch_btn.active = io.enabled;
+            scheduler_guard = false;
+            scheduler_latency.visible = io.enabled;
+            scheduler_limit.visible = io.enabled;
+            if (!io.enabled) return;
+            var counters = yield io.stats();
+            int64 sync = counters.lookup("sync_p99_us") ?? 0;
+            int64 read = counters.lookup("read_p99_us") ?? 0;
+            scheduler_latency.subtitle = _("Reads %.1f ms, writes %.1f ms").printf(read / 1000.0, sync / 1000.0);
+            scheduler_limit.subtitle = ((int64) (counters.lookup("background_limit") ?? 0)).to_string();
         }
 
         private void build_fans() {

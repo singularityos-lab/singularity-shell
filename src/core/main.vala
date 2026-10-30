@@ -233,6 +233,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             updates_scheduler.start();
             Singularity.AppPause.get_default().start();
             Singularity.AppBackground.get_default().start();
+            Singularity.AppIoClasses.get_default().start();
             return Source.REMOVE;
         });
         Bus.own_name(

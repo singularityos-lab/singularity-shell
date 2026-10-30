@@ -87,6 +87,8 @@ namespace Singularity {
             available = true;
         }
 
+        public string session_path { get { return session; } }
+
         public void start() {
             if (!available) return;
             var css = new Gtk.CssProvider();

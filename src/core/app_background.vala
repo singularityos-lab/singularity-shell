@@ -38,6 +38,10 @@ namespace Singularity {
             list = Path.build_filename(dir, "background-apps.list");
         }
 
+        public bool is_lowered(string path) {
+            return lowered.contains(path);
+        }
+
         public void start() {
             if (!AppPause.get_default().available) return;
             settings = new GLib.Settings("dev.sinty.desktop");

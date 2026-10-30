@@ -2196,6 +2196,7 @@ namespace Singularity {
                 string? program = desktop_info.get_executable();
                 string executable = program != null ? (GLib.Environment.find_program_in_path(program) ?? program) : "";
                 string? scope = AppPause.get_default().prepare_launch(app_id);
+                if (scope != null) AppIoClasses.get_default().app_launching(app_id);
                 bool watch = Singularity.Crash.Reporter.get_default().watches_launches();
                 var flags = GLib.SpawnFlags.SEARCH_PATH;
                 if (watch) flags |= GLib.SpawnFlags.DO_NOT_REAP_CHILD;

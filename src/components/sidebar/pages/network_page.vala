@@ -6,6 +6,8 @@ namespace Singularity {
     public class NetworkPage : SettingsPage {
         private PreferencesGroup vpn_error_group;
         private ActionRow vpn_error_row;
+        private SettingsView settings_view;
+        private NetworkManagerWrapper settings_network;
 
         private Widget build_wifi_actions(NetworkManagerWrapper network) {
             var group = new Box(Orientation.VERTICAL, 0);
@@ -74,6 +76,8 @@ namespace Singularity {
                 view.go_home();
             });
             var network = SystemMonitor.get_default().network;
+            settings_view = view;
+            settings_network = network;
             var wifi_group = new PreferencesGroup(_("Wi-Fi"));
             var toggle_row = new SwitchRow(_("Wi-Fi"), null, network.wifi_enabled);
             toggle_row.switch_btn.notify["active"].connect(() => {
@@ -118,6 +122,18 @@ namespace Singularity {
             header.append(scan_btn);
             add_group(wifi_group);
             add_group(build_wifi_actions(network));
+            var saved_group = new PreferencesGroup(null);
+            var saved_row = new ActionRow(_("Saved Networks"), _("Details and forgetting networks out of range"),
+                "network-wireless-symbolic");
+            saved_row.activatable = true;
+            saved_row.add_suffix(new Image.from_icon_name("go-next-symbolic"));
+            var saved_click = new GestureClick();
+            saved_click.released.connect(() => {
+                view.open_subpage(new SavedNetworksPage(view, network), "saved-networks");
+            });
+            saved_row.add_controller(saved_click);
+            saved_group.add_row(saved_row);
+            add_group(saved_group);
             var wired_group = new PreferencesGroup(_("Wired"));
             var wired_rows = new List<Widget>();
             update_wired_list(wired_group, ref wired_rows, network);
@@ -421,9 +437,18 @@ namespace Singularity {
                     lock_slot.width_request = 16;
                     row.add_suffix(lock_slot);
                 }
+                var saved_conn = entry.saved ? network.saved_wifi_connection(ssid) : null;
+                if (saved_conn != null) {
+                    var details = detail_button(ssid);
+                    details.clicked.connect(() => open_detail(saved_conn, ssid, null));
+                    row.add_suffix(details);
+                }
                 var gesture = new GestureClick();
                 gesture.released.connect(() => {
-                    if (is_connected) return;
+                    if (is_connected) {
+                        if (saved_conn != null) open_detail(saved_conn, ssid, null);
+                        return;
+                    }
                     if (entry.saved && network.activate_saved_wifi(ssid, ap)) return;
                     bool secured = (ap.rsn_flags != NM.80211ApSecurityFlags.NONE || ap.wpa_flags != NM.80211ApSecurityFlags.NONE);
                     if (secured) {
@@ -454,6 +479,23 @@ namespace Singularity {
                 this.ap = ap;
                 this.ssid = ssid;
             }
+        }
+
+        private Button detail_button(string name) {
+            var button = new Button.from_icon_name("emblem-system-symbolic");
+            button.add_css_class("flat");
+            button.add_css_class("circular");
+            button.valign = Align.CENTER;
+            button.tooltip_text = _("Connection Details");
+            button.update_property(AccessibleProperty.LABEL, _("Connection Details"),
+                AccessibleProperty.DESCRIPTION, name, -1);
+            return button;
+        }
+
+        private void open_detail(NM.RemoteConnection conn, string title, string? iface) {
+            settings_view.open_subpage(
+                new ConnectionDetailPage(settings_view, settings_network, conn, title, iface),
+                "connection-detail");
         }
 
         private static string signal_icon_name(uint8 strength) {
@@ -579,6 +621,13 @@ namespace Singularity {
                     var lbl = new Label(_("Not Connected"));
                     lbl.add_css_class("dim-label");
                     row.add_suffix(lbl);
+                }
+                var wired_conn = settings_network.wired_connection(port.iface);
+                if (wired_conn != null) {
+                    string iface = port.iface;
+                    var details = detail_button(iface);
+                    details.clicked.connect(() => open_detail(wired_conn, iface, iface));
+                    row.add_suffix(details);
                 }
                 group.add_row(row);
                 rows.append(row);
