@@ -378,6 +378,10 @@ namespace Singularity.SidebarPages {
                 string[] parts = {};
                 if (battery.health >= 0) parts += _("%d%% of original capacity").printf(battery.health);
                 if (battery.cycles >= 0) parts += ngettext("%d charge cycle", "%d charge cycles", battery.cycles).printf(battery.cycles);
+                if (battery.health > 80 && battery.health < 100 && battery.cycles > 0) {
+                    int left = battery.cycles * (battery.health - 80) / (100 - battery.health);
+                    parts += ngettext("about %d cycle left until 80%%", "about %d cycles left until 80%%", left).printf(left);
+                }
                 if (parts.length == 0) continue;
                 var row = new ActionRow(title, string.joinv(", ", parts), "battery-full-charged-symbolic");
                 row.activatable = false;
