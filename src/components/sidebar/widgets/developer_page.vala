@@ -60,15 +60,6 @@ namespace Singularity {
 
         private SettingsView _view;
         private SwitchRow _unlock_switch;
-        private PreferencesGroup _compute_group;
-        private SwitchRow _compute_switch;
-        private SelectionRow _compute_mode;
-        private ActionRow _compute_hits;
-        private ActionRow _compute_saved;
-        private ActionRow _compute_mismatches;
-        private Label _compute_error;
-        private DBusProxy? _compute;
-        private bool _compute_guard;
         private Label _unlock_error;
         private bool _unlock_guard = false;
 
@@ -168,8 +159,6 @@ namespace Singularity {
                 build_sdb_ui ();
                 this.map.connect (() => refresh_sdb_state.begin ());
 
-                build_compute_ui ();
-                this.map.connect (() => refresh_compute.begin ());
             }
 
             // Debug Control
@@ -957,146 +946,6 @@ namespace Singularity {
             _unlock_guard = true;
             _unlock_switch.switch_btn.active = active;
             _unlock_guard = false;
-        }
-
-        private void build_compute_ui () {
-            _compute_group = new PreferencesGroup (_("Sinty Compute"));
-            _compute_group.description = _("Lets the kernel tell programs when the memory behind a stored result changed, so the result can be reused instead of computed again.");
-            _compute_group.visible = false;
-
-            _compute_switch = new SwitchRow (_("Sinty Compute"),
-                _("Loads the kernel module and enables result reuse for programs that support it"));
-            _compute_switch.switch_btn.notify["active"].connect (() => {
-                if (_compute_guard) return;
-                compute_call.begin ("SetEnabled", new Variant ("(b)", _compute_switch.switch_btn.active));
-            });
-            _compute_group.add_row (_compute_switch);
-
-            var modes = new Gee.ArrayList<Singularity.Core.AppSettingOption> ();
-            modes.add (compute_option ("measure", _("Measure"), _("Count what could be reused without reusing it")));
-            modes.add (compute_option ("active", _("Active"), _("Reuse results that are still valid")));
-            modes.add (compute_option ("verify", _("Verify"), _("Compute again and compare with the stored result")));
-            _compute_mode = new SelectionRow.with_options (_("Mode"), modes, "measure");
-            _compute_mode.selected.connect ((id) => {
-                if (_compute_guard) return;
-                compute_call.begin ("SetMode", new Variant ("(s)", id));
-            });
-            _compute_group.add_row (_compute_mode);
-
-            _compute_hits = new ActionRow (_("Reused results"), null);
-            _compute_group.add_row (_compute_hits);
-            _compute_saved = new ActionRow (_("Time saved"), null);
-            _compute_group.add_row (_compute_saved);
-            _compute_mismatches = new ActionRow (_("Mismatches found by verification"), null);
-            _compute_group.add_row (_compute_mismatches);
-
-            var reset = new ActionRow (_("Reset Statistics"), null, "view-refresh-symbolic");
-            reset.activatable = true;
-            reset.activated.connect (() => compute_call.begin ("ResetStats", null));
-            _compute_group.add_row (reset);
-            add_group (_compute_group);
-
-            _compute_error = new Label ("");
-            _compute_error.add_css_class ("error");
-            _compute_error.wrap = true;
-            _compute_error.visible = false;
-            _compute_error.margin_start = 16;
-            _compute_error.margin_end = 16;
-            _compute_error.xalign = 0f;
-            var wrapper = new Box (Orientation.VERTICAL, 0);
-            wrapper.append (_compute_error);
-            add_widget (wrapper);
-        }
-
-        private static Singularity.Core.AppSettingOption compute_option (string id, string label, string subtitle) {
-            var opt = new Singularity.Core.AppSettingOption ();
-            opt.id = id;
-            opt.label = label;
-            opt.subtitle = subtitle;
-            return opt;
-        }
-
-        private async DBusProxy? compute_proxy () {
-            if (_compute != null) return _compute;
-            try {
-                _compute = yield new DBusProxy.for_bus (BusType.SYSTEM, DBusProxyFlags.NONE, null,
-                    "dev.sinty.Compute", "/dev/sinty/Compute", "dev.sinty.Compute1");
-            } catch (Error e) {
-                _compute = null;
-            }
-            return _compute;
-        }
-
-        private async void refresh_compute () {
-            var proxy = yield compute_proxy ();
-            VariantDict props = null;
-            if (proxy != null) {
-                try {
-                    var all = yield proxy.get_connection ().call ("dev.sinty.Compute", "/dev/sinty/Compute",
-                        "org.freedesktop.DBus.Properties", "GetAll", new Variant ("(s)", "dev.sinty.Compute1"),
-                        new VariantType ("(a{sv})"), DBusCallFlags.NONE, -1);
-                    props = new VariantDict (all.get_child_value (0));
-                } catch (Error e) {
-                    props = null;
-                }
-            }
-            bool installed = false, enabled = false;
-            string mode = "measure";
-            if (props != null) {
-                props.lookup ("Installed", "b", out installed);
-                props.lookup ("Enabled", "b", out enabled);
-                props.lookup ("Mode", "s", out mode);
-            }
-            _compute_group.visible = installed;
-            if (!installed) return;
-
-            _compute_guard = true;
-            _compute_switch.switch_btn.active = enabled;
-            _compute_mode.current_value = mode;
-            _compute_guard = false;
-            _compute_mode.sensitive = _compute_switch.switch_btn.active;
-
-            int64 hits = 0, saved = 0, mismatches = 0;
-            try {
-                var reply = yield proxy.call ("GetStats", null, DBusCallFlags.NONE, -1);
-                var iter = reply.get_child_value (0).iterator ();
-                string key;
-                int64 value;
-                while (iter.next ("{sx}", out key, out value)) {
-                    if (key == "hits") hits = value;
-                    else if (key == "saved_ns") saved = value;
-                    else if (key == "mismatches") mismatches = value;
-                }
-            } catch (Error e) {
-                show_compute_error (e.message);
-            }
-            _compute_hits.subtitle = "%lld".printf (hits);
-            _compute_saved.subtitle = format_compute_time (saved);
-            _compute_mismatches.subtitle = "%lld".printf (mismatches);
-        }
-
-        private static string format_compute_time (int64 ns) {
-            if (ns >= 1000000000) return _("%.1f s").printf (ns / 1e9);
-            if (ns >= 1000000) return _("%.1f ms").printf (ns / 1e6);
-            return _("%lld µs").printf (ns / 1000);
-        }
-
-        private async void compute_call (string method, Variant? args) {
-            var proxy = yield compute_proxy ();
-            if (proxy == null) return;
-            try {
-                yield proxy.call (method, args, DBusCallFlags.ALLOW_INTERACTIVE_AUTHORIZATION, -1);
-                show_compute_error (null);
-            } catch (Error e) {
-                DBusError.strip_remote_error (e);
-                show_compute_error (e.message);
-            }
-            yield refresh_compute ();
-        }
-
-        private void show_compute_error (string? message) {
-            _compute_error.label = message ?? "";
-            _compute_error.visible = message != null;
         }
 
         private void build_sdb_ui () {

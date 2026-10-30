@@ -24,6 +24,17 @@ namespace Singularity.SidebarPages {
         private ActionRow scheduler_limit;
         private Label scheduler_error;
         private bool scheduler_guard;
+        private PreferencesGroup hardware_group;
+        private Gee.ArrayList<Widget> hardware_rows = new Gee.ArrayList<Widget>();
+        private PreferencesGroup _compute_group;
+        private SwitchRow _compute_switch;
+        private SelectionRow _compute_mode;
+        private ActionRow _compute_hits;
+        private ActionRow _compute_saved;
+        private ActionRow _compute_mismatches;
+        private Label _compute_error;
+        private DBusProxy? _compute;
+        private bool _compute_guard;
 
         public PerformancePage(SettingsView view) {
             base(_("Performance"));
@@ -123,6 +134,11 @@ namespace Singularity.SidebarPages {
             add_group(background_group);
 
             build_scheduler();
+            build_hardware();
+            if (Singularity.Runtime.is_sinty_os()) {
+                build_compute();
+                map.connect(() => refresh_compute.begin());
+            }
 
             build_fans();
 
@@ -201,6 +217,217 @@ namespace Singularity.SidebarPages {
             int64 read = counters.lookup("read_p99_us") ?? 0;
             scheduler_latency.subtitle = _("Reads %.1f ms, writes %.1f ms").printf(read / 1000.0, sync / 1000.0);
             scheduler_limit.subtitle = ((int64) (counters.lookup("background_limit") ?? 0)).to_string();
+        }
+
+        private void build_compute() {
+            _compute_group = new PreferencesGroup(_("Sinty Compute"));
+            _compute_group.description = _("Lets the kernel tell programs when the memory behind a stored result changed, so the result can be reused instead of computed again.");
+            _compute_group.visible = false;
+
+            _compute_switch = new SwitchRow(_("Sinty Compute"),
+                _("Loads the kernel module and enables result reuse for programs that support it"));
+            _compute_switch.switch_btn.notify["active"].connect(() => {
+                if (_compute_guard) return;
+                compute_call.begin("SetEnabled", new Variant("(b)", _compute_switch.switch_btn.active));
+            });
+            _compute_group.add_row(_compute_switch);
+
+            var modes = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
+            modes.add(compute_option("measure", _("Measure"), _("Count what could be reused without reusing it")));
+            modes.add(compute_option("active", _("Active"), _("Reuse results that are still valid")));
+            modes.add(compute_option("verify", _("Verify"), _("Compute again and compare with the stored result")));
+            _compute_mode = new SelectionRow.with_options(_("Mode"), modes, "measure");
+            _compute_mode.selected.connect((id) => {
+                if (_compute_guard) return;
+                compute_call.begin("SetMode", new Variant("(s)", id));
+            });
+            _compute_group.add_row(_compute_mode);
+
+            _compute_hits = new ActionRow(_("Reused results"), null);
+            _compute_group.add_row(_compute_hits);
+            _compute_saved = new ActionRow(_("Time saved"), null);
+            _compute_group.add_row(_compute_saved);
+            _compute_mismatches = new ActionRow(_("Mismatches found by verification"), null);
+            _compute_group.add_row(_compute_mismatches);
+
+            var reset = new ActionRow(_("Reset Statistics"), null, "view-refresh-symbolic");
+            reset.activatable = true;
+            reset.activated.connect(() => compute_call.begin("ResetStats", null));
+            _compute_group.add_row(reset);
+            add_group(_compute_group);
+
+            _compute_error = new Label("");
+            _compute_error.add_css_class("error");
+            _compute_error.wrap = true;
+            _compute_error.visible = false;
+            _compute_error.margin_start = 16;
+            _compute_error.margin_end = 16;
+            _compute_error.xalign = 0f;
+            var wrapper = new Box(Orientation.VERTICAL, 0);
+            wrapper.append(_compute_error);
+            add_widget(wrapper);
+        }
+
+        private static Singularity.Core.AppSettingOption compute_option(string id, string label, string subtitle) {
+            var opt = new Singularity.Core.AppSettingOption();
+            opt.id = id;
+            opt.label = label;
+            opt.subtitle = subtitle;
+            return opt;
+        }
+
+        private async DBusProxy? compute_proxy() {
+            if (_compute != null) return _compute;
+            try {
+                _compute = yield new DBusProxy.for_bus(BusType.SYSTEM, DBusProxyFlags.NONE, null,
+                    "dev.sinty.Compute", "/dev/sinty/Compute", "dev.sinty.Compute1");
+            } catch (Error e) {
+                _compute = null;
+            }
+            return _compute;
+        }
+
+        private async void refresh_compute() {
+            var proxy = yield compute_proxy();
+            VariantDict props = null;
+            if (proxy != null) {
+                try {
+                    var all = yield proxy.get_connection().call("dev.sinty.Compute", "/dev/sinty/Compute",
+                        "org.freedesktop.DBus.Properties", "GetAll", new Variant("(s)", "dev.sinty.Compute1"),
+                        new VariantType("(a{sv})"), DBusCallFlags.NONE, -1);
+                    props = new VariantDict(all.get_child_value(0));
+                } catch (Error e) {
+                    props = null;
+                }
+            }
+            bool installed = false, enabled = false;
+            string mode = "measure";
+            if (props != null) {
+                props.lookup("Installed", "b", out installed);
+                props.lookup("Enabled", "b", out enabled);
+                props.lookup("Mode", "s", out mode);
+            }
+            _compute_group.visible = installed;
+            if (!installed) return;
+
+            _compute_guard = true;
+            _compute_switch.switch_btn.active = enabled;
+            _compute_mode.current_value = mode;
+            _compute_guard = false;
+            _compute_mode.sensitive = _compute_switch.switch_btn.active;
+
+            int64 hits = 0, saved = 0, mismatches = 0;
+            try {
+                var reply = yield proxy.call("GetStats", null, DBusCallFlags.NONE, -1);
+                var iter = reply.get_child_value(0).iterator();
+                string key;
+                int64 value;
+                while (iter.next("{sx}", out key, out value)) {
+                    if (key == "hits") hits = value;
+                    else if (key == "saved_ns") saved = value;
+                    else if (key == "mismatches") mismatches = value;
+                }
+            } catch (Error e) {
+                show_compute_error(e.message);
+            }
+            _compute_hits.subtitle = "%lld".printf(hits);
+            _compute_saved.subtitle = format_compute_time(saved);
+            _compute_mismatches.subtitle = "%lld".printf(mismatches);
+        }
+
+        private static string format_compute_time(int64 ns) {
+            if (ns >= 1000000000) return _("%.1f s").printf(ns / 1e9);
+            if (ns >= 1000000) return _("%.1f ms").printf(ns / 1e6);
+            return _("%lld µs").printf(ns / 1000);
+        }
+
+        private async void compute_call(string method, Variant? args) {
+            var proxy = yield compute_proxy();
+            if (proxy == null) return;
+            try {
+                yield proxy.call(method, args, DBusCallFlags.ALLOW_INTERACTIVE_AUTHORIZATION, -1);
+                show_compute_error(null);
+            } catch (Error e) {
+                DBusError.strip_remote_error(e);
+                show_compute_error(e.message);
+            }
+            yield refresh_compute();
+        }
+
+        private void show_compute_error(string? message) {
+            _compute_error.label = message ?? "";
+            _compute_error.visible = message != null;
+        }
+
+        private void build_hardware() {
+            hardware_group = new PreferencesGroup(_("Hardware Health"));
+            hardware_group.visible = false;
+            add_group(hardware_group);
+            BatteryManager.get_default().changed.connect(() => refresh_hardware.begin());
+            map.connect(() => refresh_hardware.begin());
+            refresh_hardware.begin();
+        }
+
+        private async void refresh_hardware() {
+            var rows = new Gee.ArrayList<Widget>();
+            var batteries = BatteryManager.get_default().batteries;
+            for (int i = 0; i < batteries.size; i++) {
+                var battery = batteries[i];
+                string title = batteries.size > 1 ? _("Battery %d").printf(i + 1) : _("Battery");
+                string[] parts = {};
+                if (battery.health >= 0) parts += _("%d%% of original capacity").printf(battery.health);
+                if (battery.cycles >= 0) parts += ngettext("%d charge cycle", "%d charge cycles", battery.cycles).printf(battery.cycles);
+                if (parts.length == 0) continue;
+                var row = new ActionRow(title, string.joinv(", ", parts), "battery-full-charged-symbolic");
+                row.activatable = false;
+                rows.add(row);
+            }
+            yield add_disk_rows(rows);
+            foreach (var row in hardware_rows) hardware_group.remove_row(row);
+            hardware_rows = rows;
+            foreach (var row in rows) hardware_group.add_row(row);
+            hardware_group.visible = rows.size > 0;
+        }
+
+        private async void add_disk_rows(Gee.ArrayList<Widget> rows) {
+            const string UDISKS = "org.freedesktop.UDisks2";
+            const string NVME = "org.freedesktop.UDisks2.NVMe.Controller";
+            try {
+                var bus = yield Bus.get(BusType.SYSTEM);
+                var reply = yield bus.call(UDISKS, "/org/freedesktop/UDisks2", "org.freedesktop.DBus.ObjectManager",
+                    "GetManagedObjects", null, new VariantType("(a{oa{sa{sv}}})"), DBusCallFlags.NONE, 5000);
+                var objects = reply.get_child_value(0);
+                for (size_t i = 0; i < objects.n_children(); i++) {
+                    var entry = objects.get_child_value(i);
+                    var ifaces = entry.get_child_value(1);
+                    if (ifaces.lookup_value(NVME, null) == null) continue;
+                    string path = entry.get_child_value(0).get_string();
+                    string model = "";
+                    var drive = ifaces.lookup_value("org.freedesktop.UDisks2.Drive", null);
+                    if (drive != null) {
+                        var name = drive.lookup_value("Model", VariantType.STRING);
+                        if (name != null) model = name.get_string().strip();
+                    }
+                    var attrs = yield bus.call(UDISKS, path, NVME, "SmartGetAttributes",
+                        new Variant.tuple({ new Variant.array(new VariantType("{sv}"), {}) }),
+                        new VariantType("(a{sv})"), DBusCallFlags.NONE, 5000);
+                    var dict = attrs.get_child_value(0);
+                    var used = dict.lookup_value("percent_used", VariantType.BYTE);
+                    var written = dict.lookup_value("total_data_written", VariantType.UINT64);
+                    if (used == null || written == null) continue;
+                    uint percent = used.get_byte();
+                    string text = _("%u%% of life left, %s written").printf(100 - uint.min(percent, 100), GLib.format_size(written.get_uint64()));
+                    if (percent > 0 && percent < 100) {
+                        uint64 left = written.get_uint64() / percent * (100 - percent);
+                        text = _("%u%% of life left, %s written, about %s of writes left").printf(100 - percent, GLib.format_size(written.get_uint64()), GLib.format_size(left));
+                    }
+                    var row = new ActionRow(model != "" ? model : _("Disk"), text, "drive-harddisk-symbolic");
+                    row.activatable = false;
+                    rows.add(row);
+                }
+            } catch (Error e) {
+                debug("disk health: %s", e.message);
+            }
         }
 
         private void build_fans() {
