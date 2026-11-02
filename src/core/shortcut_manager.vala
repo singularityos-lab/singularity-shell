@@ -71,6 +71,7 @@ namespace Singularity {
         private GLib.Subprocess? pip_region_picker = null;
         public signal void shortcut_changed(string action_name, string new_accelerator);
         public signal void run_command_triggered();
+        public signal void agent_triggered();
         public signal void retile_triggered();
         public signal void launcher_triggered();
         public signal void launcher_hide_triggered();
@@ -109,6 +110,7 @@ namespace Singularity {
             register_shortcut("Keyboard Shortcuts", "Show the keyboard shortcuts", "<Super>slash", "toggle_shortcut_cheatsheet");
             register_shortcut("Command Palette", "Open the command palette", "<Super>Tab", "run_command");
             register_shortcut("Command Palette (alt)", "Open the command palette", "<Shift><Alt>F2", "run_command", "run_command_alt");
+            register_shortcut("Sinty AI", "Ask the configured AI", "<Super>a", "toggle_agent");
             register_shortcut("Re-tile Windows", "Re-arrange windows in grid", "<Super>r", "retile_windows");
             register_shortcut("Screenshot", "Open screenshot tool", "Print", "screenshot_tool");
             register_shortcut("Screenshot Region", "Select region to screenshot", "<Shift>Print", "screenshot_region");
@@ -1001,6 +1003,7 @@ namespace Singularity {
                     case "toggle_desktop_reveal": Singularity.wayland_toggle_desktop_reveal(); break;
                     case "spawn_terminal": spawn_terminal(); break;
                     case "run_command": run_command(); break;
+                    case "toggle_agent": agent_triggered(); break;
                     case "toggle_emoji_picker": emoji_picker_triggered(); break;
                     case "toggle_clipboard_history": clipboard_history_triggered(); break;
                     case "toggle_shortcut_cheatsheet": shortcut_cheatsheet_triggered(); break;

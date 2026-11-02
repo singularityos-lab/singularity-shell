@@ -114,6 +114,7 @@ namespace Singularity {
             nav_box.append(create_settings_row(_("Plugins"), "emblem-system-symbolic", "plugins"));
             nav_box.append(create_settings_row(_("Power"), "battery-full-charged-symbolic", "power"));
             nav_box.append(create_settings_row(_("Performance"), "power-profile-performance-symbolic", "performance"));
+            if (AgentConfig.available()) nav_box.append(create_settings_row(_("Sinty AI"), "dialog-question-symbolic", "agent"));
             nav_box.append(create_settings_row(_("Updates"), "software-update-available-symbolic", "updates"));
             nav_box.append(create_settings_row(_("System"), "computer-symbolic", "system"));
 
@@ -243,7 +244,7 @@ namespace Singularity {
                 case "network": case "apps": case "users": case "accounts":
                 case "displays": case "region": case "datetime": case "desktop":
                 case "sound": case "bluetooth": case "printers": case "keyboard": case "tablet": case "developer": case "connected-devices":
-                case "accessibility": case "plugins": case "performance": case "system": case "power":
+                case "accessibility": case "plugins": case "performance": case "agent": case "system": case "power":
                 case "autostart": case "notifications": case "updates": case "privacy": case "sharing":
                 case "wellbeing":
                     return true;
@@ -277,6 +278,7 @@ namespace Singularity {
                 case "plugins": return "emblem-system-symbolic";
                 case "power": return "battery-full-charged-symbolic";
                 case "performance": return "power-profile-performance-symbolic";
+                case "agent": return "dialog-question-symbolic";
                 case "updates": return "software-update-available-symbolic";
                 case "system": return "computer-symbolic";
             }
@@ -286,7 +288,7 @@ namespace Singularity {
         private string[] get_searchable_pages() {
             return { "network", "sharing", "apps", "autostart", "privacy", "users", "accounts", "displays", "region", "datetime",
                      "desktop", "sound", "notifications", "wellbeing", "bluetooth", "connected-devices", "printers", "keyboard", "tablet", "developer", "accessibility",
-                     "plugins", "power", "performance", "updates", "system" };
+                     "plugins", "power", "performance", "agent", "updates", "system" };
         }
 
         private void setup_settings_search() {
@@ -590,6 +592,7 @@ namespace Singularity {
                 case "plugins": page = new Singularity.PluginsPage(this); break;
                 case "power": page = new Singularity.SidebarPages.PowerPage(this); break;
                 case "performance": page = new Singularity.SidebarPages.PerformancePage(this); break;
+                case "agent": page = new Singularity.SidebarPages.AgentPage(this); break;
                 case "updates": page = new Singularity.SidebarPages.UpdatesPage(this); break;
                 case "system": page = new Singularity.SidebarPages.SystemPage(this); break;
                 default:
