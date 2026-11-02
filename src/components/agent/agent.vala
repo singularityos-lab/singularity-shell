@@ -46,106 +46,30 @@ namespace Singularity {
             FileUtils.set_contents(path(), generator.to_data(null));
         }
 
+        public static async int key_state(string provider) {
+            try {
+                var bus = yield Bus.@get(BusType.SESSION);
+                var locked = yield bus.call("org.freedesktop.secrets", "/org/freedesktop/secrets/aliases/default",
+                    "org.freedesktop.DBus.Properties", "Get",
+                    new Variant("(ss)", "org.freedesktop.Secret.Collection", "Locked"),
+                    new VariantType("(v)"), DBusCallFlags.NONE, 5000, null);
+                if (locked.get_child_value(0).get_variant().get_boolean()) return -1;
+                var attributes = new VariantBuilder(new VariantType("a{ss}"));
+                attributes.add("{ss}", "provider", provider);
+                attributes.add("{ss}", "xdg:schema", "dev.sinty.agent.Key");
+                var reply = yield bus.call("org.freedesktop.secrets", "/org/freedesktop/secrets",
+                    "org.freedesktop.Secret.Service", "SearchItems",
+                    new Variant("(a{ss})", attributes), new VariantType("(aoao)"),
+                    DBusCallFlags.NONE, 5000, null);
+                return reply.get_child_value(0).n_children() > 0 ? 1 : 0;
+            } catch (Error e) {
+                debug("Cannot look for the API key: %s", e.message);
+                return -1;
+            }
+        }
+
         public static void remove() {
             FileUtils.unlink(path());
-        }
-    }
-
-    public class AgentDialog : Singularity.Shell.ShellDialog {
-        private Entry entry;
-        private Label answer;
-        private Spinner spinner;
-        private Subprocess? running = null;
-
-        public AgentDialog(Gtk.Application app) {
-            Object(
-                application: app,
-                anchor_top: true,
-                anchor_bottom: true,
-                anchor_left: true,
-                anchor_right: true
-            );
-            add_css_class("power-confirm-dialog");
-
-            var box = new Box(Orientation.VERTICAL, 14);
-            box.halign = Align.CENTER;
-            box.valign = Align.CENTER;
-            box.add_css_class("power-card");
-            box.margin_top = 28;
-            box.margin_bottom = 28;
-            box.margin_start = 28;
-            box.margin_end = 28;
-            content_box.append(box);
-
-            var row = new Box(Orientation.HORIZONTAL, 10);
-            entry = new Entry();
-            entry.placeholder_text = _("Ask Sinty AI");
-            entry.hexpand = true;
-            entry.width_chars = 56;
-            entry.activate.connect(ask);
-            row.append(entry);
-            spinner = new Spinner();
-            row.append(spinner);
-            box.append(row);
-
-            answer = new Label("");
-            answer.wrap = true;
-            answer.wrap_mode = Pango.WrapMode.WORD_CHAR;
-            answer.selectable = true;
-            answer.xalign = 0;
-            answer.max_width_chars = 64;
-            var scroll = new ScrolledWindow();
-            scroll.hscrollbar_policy = PolicyType.NEVER;
-            scroll.propagate_natural_height = true;
-            scroll.max_content_height = 420;
-            scroll.child = answer;
-            box.append(scroll);
-
-            var keys = new EventControllerKey();
-            keys.key_pressed.connect((keyval, keycode, state) => {
-                if (keyval != Gdk.Key.Escape) return false;
-                close_dialog();
-                return true;
-            });
-            ((Widget) this).add_controller(keys);
-            hide();
-        }
-
-        public void toggle() {
-            if (visible) {
-                close_dialog();
-                return;
-            }
-            open_dialog();
-            entry.grab_focus();
-        }
-
-        private void ask() {
-            var text = entry.text.strip();
-            if (text == "" || running != null) return;
-            if (text.has_prefix("--")) text = " " + text;
-            answer.label = "";
-            spinner.start();
-            entry.sensitive = false;
-            run.begin(text);
-        }
-
-        private async void run(string text) {
-            string? out_text = null;
-            string? err_text = null;
-            try {
-                running = new Subprocess(SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_PIPE,
-                    AgentConfig.BINARY, "ask", text);
-                yield running.communicate_utf8_async(null, null, out out_text, out err_text);
-                answer.label = running.get_successful() ? (out_text ?? "") : (err_text ?? _("The request failed"));
-            } catch (Error e) {
-                answer.label = e.message;
-            }
-            running = null;
-            spinner.stop();
-            entry.sensitive = true;
-            entry.text = "";
-            entry.grab_focus();
         }
     }
 

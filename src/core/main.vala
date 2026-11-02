@@ -66,7 +66,6 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     private Singularity.EventReminders? event_reminders = null;
     private Singularity.AccountAlerts? account_alerts = null;
     private Singularity.RunDialog? run_dialog = null;
-    private Singularity.AgentDialog? agent_dialog = null;
     private Singularity.EmojiPicker? emoji_picker = null;
     private Singularity.ClipboardPopup? clipboard_popup = null;
     private Singularity.OnScreenKeyboard? screen_keyboard = null;
@@ -446,8 +445,8 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         });
         Singularity.SystemMonitor.get_default().shortcuts.agent_triggered.connect(() => {
             if (!Singularity.AgentConfig.configured()) return;
-            if (agent_dialog == null) agent_dialog = new Singularity.AgentDialog(this);
-            agent_dialog.toggle();
+            ensure_run_dialog();
+            run_dialog.toggle_ai();
         });
         Singularity.AgentConfirmations.start(this);
         Singularity.ClipboardHistory.get_default().start();
