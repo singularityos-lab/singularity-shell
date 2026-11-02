@@ -408,7 +408,7 @@ namespace Singularity {
                 ai_process = process;
                 yield process.communicate_utf8_async(null, null, out out_text, out err_text);
                 ok = process.get_successful();
-                failure = err_text ?? "";
+                failure = ((out_text ?? "") + "\n" + (err_text ?? "")).strip();
             } catch (Error e) {
                 failure = e.message;
             }
