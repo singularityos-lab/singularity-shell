@@ -19,6 +19,9 @@ namespace Singularity {
         private bool ai_compact = false;
         private Subprocess? ai_process = null;
         private Spinner ai_spinner;
+        private DropDown ai_mode_select;
+        private bool ai_mode_syncing = false;
+        private const string[] AGENT_MODES = { "plan", "ask", "auto", "autopilot" };
         private Button ai_close;
         private Label ai_answer;
         private ScrolledWindow ai_scroll;
@@ -123,6 +126,15 @@ namespace Singularity {
             ai_controls.halign = Align.END;
             ai_controls.valign = Align.CENTER;
             ai_controls.margin_end = 6;
+            ai_mode_select = new DropDown.from_strings({
+                _("Plan"), _("Ask"), _("Auto"), _("Autopilot")
+            });
+            ai_mode_select.tooltip_text = _("How much Sinty AI may do without asking");
+            ai_mode_select.visible = false;
+            ai_mode_select.notify["selected"].connect(() => {
+                if (!ai_mode_syncing) set_agent_mode(ai_mode_select.selected);
+            });
+            ai_controls.append(ai_mode_select);
             ai_spinner = new Spinner();
             ai_spinner.visible = false;
             ai_controls.append(ai_spinner);
@@ -339,11 +351,53 @@ namespace Singularity {
             clear_suggestions();
             hide_preview();
             set_results_visible(false);
+            sync_agent_mode();
+        }
+
+        private void sync_agent_mode() {
+            Bus.get.begin(BusType.SESSION, null, (obj, res) => {
+                try {
+                    var bus = Bus.get.end(res);
+                    var reply = bus.call_sync("dev.sinty.Agent", "/dev/sinty/Agent",
+                        "dev.sinty.Agent1", "GetStatus", null, new VariantType("(s)"),
+                        DBusCallFlags.NONE, 2000);
+                    string json;
+                    reply.get("(s)", out json);
+                    var parser = new Json.Parser();
+                    parser.load_from_data(json);
+                    var current = parser.get_root().get_object().get_string_member_with_default("mode", "ask");
+                    for (uint i = 0; i < AGENT_MODES.length; i++) {
+                        if (AGENT_MODES[i] != current) continue;
+                        ai_mode_syncing = true;
+                        ai_mode_select.selected = i;
+                        ai_mode_syncing = false;
+                    }
+                    ai_mode_select.visible = ai_mode;
+                } catch (Error e) {
+                    ai_mode_select.visible = false;
+                }
+            });
+        }
+
+        private void set_agent_mode(uint index) {
+            if (index >= AGENT_MODES.length) return;
+            Bus.get.begin(BusType.SESSION, null, (obj, res) => {
+                try {
+                    var bus = Bus.get.end(res);
+                    bus.call_sync("dev.sinty.Agent", "/dev/sinty/Agent", "dev.sinty.Agent1",
+                        "SetMode", new Variant("(s)", AGENT_MODES[index]), null,
+                        DBusCallFlags.NONE, 2000);
+                } catch (Error e) {
+                    warning("Sinty AI mode: %s", e.message);
+                    sync_agent_mode();
+                }
+            });
         }
 
         private void leave_ai_mode() {
             stop_ai();
             set_ai_compact(false);
+            ai_mode_select.visible = false;
             ai_mode = false;
             ai_direct = false;
             action_prefix.label = "!";
