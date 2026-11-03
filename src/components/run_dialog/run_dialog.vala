@@ -488,8 +488,15 @@ namespace Singularity {
             entry.sensitive = true;
             GtkLayerShell.set_keyboard_mode(this, GtkLayerShell.KeyboardMode.ON_DEMAND);
             if (ok) {
-                ai_answer.label = (out_text ?? "").strip();
-                ai_scroll.visible = ai_answer.label != "";
+                string answer = (out_text ?? "").strip();
+                string markup = AnswerMarkup.to_pango(answer);
+                try {
+                    Pango.parse_markup(markup, -1, 0, null, null, null);
+                    ai_answer.set_markup(markup);
+                } catch (Error e) {
+                    ai_answer.label = answer;
+                }
+                ai_scroll.visible = answer != "";
                 updating_text = true;
                 entry.text = "";
                 updating_text = false;
