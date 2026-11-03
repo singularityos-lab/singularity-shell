@@ -16,6 +16,9 @@ namespace Singularity {
             out string message) throws GLib.Error;
         public abstract async void set_sdb_enabled (bool enabled, out bool ok,
             out bool active, out string message) throws GLib.Error;
+        public abstract async void six_status (out bool available, out string state) throws GLib.Error;
+        public abstract async void set_six_enabled (bool enabled, out bool ok,
+            out string state, out string message) throws GLib.Error;
     }
 
     public class DeveloperPage : SettingsPage {
@@ -62,6 +65,8 @@ namespace Singularity {
         private SwitchRow _unlock_switch;
         private Label _unlock_error;
         private bool _unlock_guard = false;
+        private SwitchRow _six_switch;
+        private bool _six_guard = false;
 
         private PreferencesGroup _sdb_group;
         private SwitchRow _sdb_switch;
@@ -139,6 +144,11 @@ namespace Singularity {
                     _("Lets the recovery environment unlock the bootloader. Unlocking erases all data and disables verified boot."));
                 _unlock_switch.switch_btn.notify["active"].connect (on_unlock_toggled);
                 boot_group.add_row (_unlock_switch);
+                _six_switch = new SwitchRow (_("Experimental SIX kernel"),
+                    _("Tries the new kernel at the next restart. If it does not start, the system returns to the current kernel on its own."));
+                _six_switch.visible = false;
+                _six_switch.switch_btn.notify["active"].connect (on_six_toggled);
+                boot_group.add_row (_six_switch);
                 add_group (boot_group);
 
                 _unlock_error = new Label ("");
@@ -155,6 +165,7 @@ namespace Singularity {
                 // The agent is the source of truth, so re-read it every time the page
                 // is shown rather than trusting the mirrored key.
                 this.map.connect (() => { refresh_unlock_state.begin (); });
+                this.map.connect (() => { refresh_six_state.begin (); });
 
                 build_sdb_ui ();
                 this.map.connect (() => refresh_sdb_state.begin ());
@@ -921,6 +932,50 @@ namespace Singularity {
                     _("Consent could not be revoked, so unlocking is still allowed. %s")
                         .printf (message));
             }
+        }
+
+        private async void refresh_six_state () {
+            try {
+                UshBroker broker = yield Bus.get_proxy (BusType.SESSION, "dev.sinty.ush.Broker", "/dev/sinty/ush/Broker");
+                bool available;
+                string state;
+                yield broker.six_status (out available, out state);
+                _six_switch.visible = available;
+                set_six_switch (state);
+            } catch (GLib.Error e) {
+                _six_switch.visible = false;
+            }
+        }
+
+        private void set_six_switch (string state) {
+            _six_guard = true;
+            _six_switch.switch_btn.active = state != "off";
+            _six_guard = false;
+            _six_switch.subtitle = state == "ready"
+                ? _("The new kernel will be tried at the next restart. If it does not start, the system returns to the current kernel on its own.")
+                : _("Tries the new kernel at the next restart. If it does not start, the system returns to the current kernel on its own.");
+        }
+
+        private void on_six_toggled () {
+            if (_six_guard) return;
+            apply_six.begin (_six_switch.switch_btn.active);
+        }
+
+        private async void apply_six (bool enabled) {
+            _six_switch.sensitive = false;
+            try {
+                UshBroker broker = yield Bus.get_proxy (BusType.SESSION, "dev.sinty.ush.Broker", "/dev/sinty/ush/Broker");
+                bool ok;
+                string state;
+                string message;
+                yield broker.set_six_enabled (enabled, out ok, out state, out message);
+                set_six_switch (state);
+                show_unlock_error (ok ? null : message);
+            } catch (GLib.Error e) {
+                set_six_switch (enabled ? "off" : "on");
+                show_unlock_error (e.message);
+            }
+            _six_switch.sensitive = true;
         }
 
         private async void refresh_unlock_state () {
