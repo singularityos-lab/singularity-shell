@@ -68,6 +68,20 @@ namespace Singularity {
             }
         }
 
+        public static async string? grant_session() {
+            try {
+                var bus = yield Bus.@get(BusType.SESSION);
+                var reply = yield bus.call("dev.sinty.Agent", "/dev/sinty/Agent", "dev.sinty.Agent1",
+                    "GrantSession", null, new VariantType("(s)"), DBusCallFlags.NONE, 5000, null);
+                string token;
+                reply.get("(s)", out token);
+                return token;
+            } catch (Error e) {
+                warning("No AI session token: %s", e.message);
+                return null;
+            }
+        }
+
         public static void remove() {
             FileUtils.unlink(path());
         }

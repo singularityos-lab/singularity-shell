@@ -15,6 +15,7 @@ namespace Singularity {
         private GLib.Settings _desktop_settings = new GLib.Settings("dev.sinty.desktop");
         private bool action_mode = false;
         private bool ai_mode = false;
+        private Box ai_controls;
         private bool ai_direct = false;
         private bool ai_compact = false;
         private Subprocess? ai_process = null;
@@ -122,7 +123,7 @@ namespace Singularity {
             action_prefix.visible = false;
             entry_overlay.add_overlay(action_prefix);
 
-            var ai_controls = new Box(Orientation.HORIZONTAL, 6);
+            ai_controls = new Box(Orientation.HORIZONTAL, 6);
             ai_controls.halign = Align.END;
             ai_controls.valign = Align.CENTER;
             ai_controls.margin_end = 6;
@@ -373,8 +374,10 @@ namespace Singularity {
                         ai_mode_syncing = false;
                     }
                     ai_mode_select.visible = ai_mode;
+                    reserve_ai_space();
                 } catch (Error e) {
                     ai_mode_select.visible = false;
+                    reserve_ai_space();
                 }
             });
         }
@@ -399,6 +402,7 @@ namespace Singularity {
             set_ai_compact(false);
             ai_mode_select.visible = false;
             ai_mode = false;
+            reserve_ai_space();
             ai_direct = false;
             action_prefix.label = "!";
             action_prefix.visible = false;
@@ -413,6 +417,14 @@ namespace Singularity {
             updating_text = false;
         }
 
+        private void reserve_ai_space() {
+            int min, nat, bmin, bnat;
+            ai_controls.measure(Orientation.HORIZONTAL, -1, out min, out nat, out bmin, out bnat);
+            var text = entry.get_delegate() as Widget;
+            if (text == null) return;
+            text.margin_end = ai_mode_select.visible || ai_close.visible ? nat + ai_controls.margin_end + 6 : 0;
+        }
+
         private void stop_ai() {
             if (ai_process != null) ai_process.force_exit();
             ai_process = null;
@@ -424,6 +436,7 @@ namespace Singularity {
             if (ai_compact == compact) return;
             ai_compact = compact;
             ai_close.visible = compact;
+            reserve_ai_space();
             GtkLayerShell.set_anchor(this, GtkLayerShell.Edge.BOTTOM, !compact);
             GtkLayerShell.set_anchor(this, GtkLayerShell.Edge.LEFT, !compact);
             GtkLayerShell.set_anchor(this, GtkLayerShell.Edge.RIGHT, !compact);
@@ -457,8 +470,10 @@ namespace Singularity {
             bool ok = false;
             string failure = "";
             try {
-                process = new Subprocess(SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_PIPE,
-                    AgentConfig.BINARY, "ask", text);
+                var launcher = new SubprocessLauncher(SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_PIPE);
+                var token = yield AgentConfig.grant_session();
+                if (token != null) launcher.setenv("SINTY_AGENT_TOKEN", token, true);
+                process = launcher.spawnv({ AgentConfig.BINARY, "ask", text });
                 ai_process = process;
                 yield process.communicate_utf8_async(null, null, out out_text, out err_text);
                 ok = process.get_successful();
