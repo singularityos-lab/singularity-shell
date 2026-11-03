@@ -2876,7 +2876,7 @@ namespace Singularity {
             // Membership sets.
             var pin_set = new Gee.HashSet<string>();
             foreach (var p in pinned) {
-                if (!ParentalEnforcer.get_default().hides(p)) pin_set.add("pin:" + p);
+                if (!ParentalEnforcer.get_default().hides(p) && app_system.get_app_info(p) != null) pin_set.add("pin:" + p);
             }
             var res_set = new Gee.HashSet<string>();
             foreach (var u in resources_area.uris()) res_set.add("res:" + u);
