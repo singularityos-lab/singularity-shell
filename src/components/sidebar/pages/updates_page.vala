@@ -16,6 +16,7 @@ namespace Singularity.SidebarPages {
         private ActionRow progress_row;
         private ExpanderRow notes_row;
         private ActionRow later_row;
+        private ActionRow newer_row;
         private ActionRow firmware_row;
         private ActionRow auto_row;
         private GLib.Settings settings;
@@ -62,6 +63,14 @@ namespace Singularity.SidebarPages {
             later_row.add_suffix(later_btn);
             later_row.visible = false;
             system_group.add_row(later_row);
+
+            newer_row = new ActionRow(_("Newer Update"), _("Look for a version released after this download"));
+            var newer_btn = new Button.with_label(_("Check"));
+            newer_btn.valign = Align.CENTER;
+            newer_btn.clicked.connect(() => run_action.begin("check"));
+            newer_row.add_suffix(newer_btn);
+            newer_row.visible = false;
+            system_group.add_row(newer_row);
 
             firmware_row = new ActionRow(_("Firmware"), _("Looking for devices..."), "application-x-firmware-symbolic");
             firmware_row.activatable = true;
@@ -281,6 +290,7 @@ namespace Singularity.SidebarPages {
                 progress_row.subtitle = "";
             }
             later_row.visible = provider.state == State.SCHEDULED && provider.can_unschedule;
+            newer_row.visible = provider.state == State.SCHEDULED && !busy;
             update_notes();
         }
 
