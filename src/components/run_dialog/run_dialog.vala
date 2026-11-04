@@ -19,6 +19,7 @@ namespace Singularity {
         private bool ai_direct = false;
         private bool ai_compact = false;
         private Subprocess? ai_process = null;
+        private string ai_conversation = "";
         private Spinner ai_spinner;
         private DropDown ai_mode_select;
         private bool ai_mode_syncing = false;
@@ -473,7 +474,7 @@ namespace Singularity {
                 var launcher = new SubprocessLauncher(SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_PIPE);
                 var token = yield AgentConfig.grant_session();
                 if (token != null) launcher.setenv("SINTY_AGENT_TOKEN", token, true);
-                process = launcher.spawnv({ AgentConfig.BINARY, "ask", text });
+                process = launcher.spawnv({ AgentConfig.BINARY, "ask", "--conversation", ai_conversation, text });
                 ai_process = process;
                 yield process.communicate_utf8_async(null, null, out out_text, out err_text);
                 ok = process.get_successful();
@@ -1061,6 +1062,7 @@ exec dbus-run-session -- %s/bin/labwc -s "$S"
 
         public override void open_dialog() {
             setting_entries = null;
+            ai_conversation = "palette-" + GLib.get_real_time().to_string() + "-" + GLib.Random.next_int().to_string();
             load_history();
             _history_pos = -1;
             leave_ai_mode();
