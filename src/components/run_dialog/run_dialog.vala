@@ -12,6 +12,8 @@ namespace Singularity {
         private Box preview_box;
         private SearchManager search_manager;
         private Singularity.Animation.TimedAnimation? dialog_animation;
+        private bool closing = false;
+        private uint close_guard = 0;
         private GLib.Settings _desktop_settings = new GLib.Settings("dev.sinty.desktop");
         private bool action_mode = false;
         private bool ai_mode = false;
@@ -22,6 +24,7 @@ namespace Singularity {
         private string ai_conversation = "";
         private Spinner ai_spinner;
         private DropDown ai_mode_select;
+        private Box ai_cards;
         private bool ai_mode_syncing = false;
         private const string[] AGENT_MODES = { "plan", "ask", "auto", "autopilot" };
         private Button ai_close;
@@ -67,7 +70,8 @@ namespace Singularity {
             add_css_class("run-dialog");
             var compact_css = new CssProvider();
             compact_css.load_from_string(
-                "window.run-dialog.run-compact { background-color: transparent; }");
+                "window.run-dialog.run-compact { background-color: transparent; }" +
+                ".agent-card { padding: 12px; border-radius: 14px; background-color: alpha(currentColor, 0.06); }");
             StyleContext.add_provider_for_display(Gdk.Display.get_default(), compact_css,
                 STYLE_PROVIDER_PRIORITY_USER);
             search_manager = SearchManager.get_default();
@@ -174,9 +178,18 @@ namespace Singularity {
             ai_scroll = new ScrolledWindow();
             ai_scroll.hscrollbar_policy = PolicyType.NEVER;
             ai_scroll.propagate_natural_height = true;
-            ai_scroll.max_content_height = 360;
+            ai_scroll.max_content_height = 560;
             ai_scroll.width_request = 450;
-            ai_scroll.child = ai_answer;
+            ai_cards = new Box(Orientation.VERTICAL, 8);
+            ai_cards.margin_start = 6;
+            ai_cards.margin_end = 6;
+            ai_cards.margin_top = 6;
+            ai_cards.visible = false;
+            var ai_body = new Box(Orientation.VERTICAL, 0);
+            ai_body.append(ai_cards);
+            ai_body.append(ai_answer);
+            ai_scroll.child = ai_body;
+            watch_agent_cards();
             ai_scroll.visible = false;
             content_box.append(ai_scroll);
 
@@ -220,6 +233,14 @@ namespace Singularity {
             var list_keys = new EventControllerKey();
             list_keys.key_pressed.connect(on_list_key_pressed);
             suggestions_list.add_controller(list_keys);
+
+            var card_keys = new EventControllerKey();
+            card_keys.key_pressed.connect((keyval) => {
+                if (keyval != Gdk.Key.Escape) return false;
+                close_dialog();
+                return true;
+            });
+            ai_body.add_controller(card_keys);
 
             hide();
         }
@@ -357,45 +378,57 @@ namespace Singularity {
         }
 
         private void sync_agent_mode() {
-            Bus.get.begin(BusType.SESSION, null, (obj, res) => {
-                try {
-                    var bus = Bus.get.end(res);
-                    var reply = bus.call_sync("dev.sinty.Agent", "/dev/sinty/Agent",
-                        "dev.sinty.Agent1", "GetStatus", null, new VariantType("(s)"),
-                        DBusCallFlags.NONE, 2000);
-                    string json;
-                    reply.get("(s)", out json);
-                    var parser = new Json.Parser();
-                    parser.load_from_data(json);
-                    var current = parser.get_root().get_object().get_string_member_with_default("mode", "ask");
-                    for (uint i = 0; i < AGENT_MODES.length; i++) {
-                        if (AGENT_MODES[i] != current) continue;
-                        ai_mode_syncing = true;
-                        ai_mode_select.selected = i;
-                        ai_mode_syncing = false;
-                    }
-                    ai_mode_select.visible = ai_mode;
-                    reserve_ai_space();
-                } catch (Error e) {
-                    ai_mode_select.visible = false;
-                    reserve_ai_space();
+            ai_mode_select.visible = ai_mode;
+            reserve_ai_space();
+            fetch_agent_mode.begin(2);
+        }
+
+        private async void fetch_agent_mode(int attempts) {
+            try {
+                var bus = yield Bus.get(BusType.SESSION);
+                var reply = yield bus.call("dev.sinty.Agent", "/dev/sinty/Agent",
+                    "dev.sinty.Agent1", "GetStatus", null, new VariantType("(s)"),
+                    DBusCallFlags.NONE, 10000, null);
+                string json;
+                reply.get("(s)", out json);
+                var parser = new Json.Parser();
+                parser.load_from_data(json);
+                var current = parser.get_root().get_object().get_string_member_with_default("mode", "ask");
+                for (uint i = 0; i < AGENT_MODES.length; i++) {
+                    if (AGENT_MODES[i] != current) continue;
+                    ai_mode_syncing = true;
+                    ai_mode_select.selected = i;
+                    ai_mode_syncing = false;
                 }
-            });
+                ai_mode_select.visible = ai_mode;
+            } catch (Error e) {
+                if (attempts > 1 && ai_mode) {
+                    Timeout.add(500, () => {
+                        fetch_agent_mode.begin(attempts - 1);
+                        return Source.REMOVE;
+                    });
+                    return;
+                }
+                warning("Sinty AI status: %s", e.message);
+                ai_mode_select.visible = false;
+            }
+            reserve_ai_space();
         }
 
         private void set_agent_mode(uint index) {
             if (index >= AGENT_MODES.length) return;
-            Bus.get.begin(BusType.SESSION, null, (obj, res) => {
-                try {
-                    var bus = Bus.get.end(res);
-                    bus.call_sync("dev.sinty.Agent", "/dev/sinty/Agent", "dev.sinty.Agent1",
-                        "SetMode", new Variant("(s)", AGENT_MODES[index]), null,
-                        DBusCallFlags.NONE, 2000);
-                } catch (Error e) {
-                    warning("Sinty AI mode: %s", e.message);
-                    sync_agent_mode();
-                }
-            });
+            store_agent_mode.begin(AGENT_MODES[index]);
+        }
+
+        private async void store_agent_mode(string mode) {
+            try {
+                var bus = yield Bus.get(BusType.SESSION);
+                yield bus.call("dev.sinty.Agent", "/dev/sinty/Agent", "dev.sinty.Agent1",
+                    "SetMode", new Variant("(s)", mode), null, DBusCallFlags.NONE, 10000, null);
+            } catch (Error e) {
+                warning("Sinty AI mode: %s", e.message);
+                sync_agent_mode();
+            }
         }
 
         private void leave_ai_mode() {
@@ -408,6 +441,7 @@ namespace Singularity {
             action_prefix.label = "!";
             action_prefix.visible = false;
             ai_answer.label = "";
+            clear_agent_cards();
             ai_scroll.visible = false;
             entry.sensitive = true;
             entry.remove_css_class("action-mode");
@@ -441,13 +475,47 @@ namespace Singularity {
             GtkLayerShell.set_anchor(this, GtkLayerShell.Edge.BOTTOM, !compact);
             GtkLayerShell.set_anchor(this, GtkLayerShell.Edge.LEFT, !compact);
             GtkLayerShell.set_anchor(this, GtkLayerShell.Edge.RIGHT, !compact);
-            GtkLayerShell.set_margin(this, GtkLayerShell.Edge.TOP, compact ? 48 : 0);
-            GtkLayerShell.set_keyboard_mode(this, compact
-                ? GtkLayerShell.KeyboardMode.NONE : GtkLayerShell.KeyboardMode.ON_DEMAND);
+            GtkLayerShell.set_margin(this, GtkLayerShell.Edge.TOP, compact ? 12 : 0);
+            content_box.margin_top = compact ? 36 : 0;
+            content_box.margin_bottom = compact ? 60 : 0;
+            content_box.margin_start = compact ? 48 : 0;
+            content_box.margin_end = compact ? 48 : 0;
             if (compact) add_css_class("run-compact");
             else remove_css_class("run-compact");
             if (compact) set_default_size(-1, -1);
             queue_resize();
+        }
+
+        private void watch_agent_cards() {
+            Bus.get.begin(BusType.SESSION, null, (obj, res) => {
+                try {
+                    var bus = Bus.get.end(res);
+                    bus.signal_subscribe("dev.sinty.Agent", "dev.sinty.Agent1", "IntentDone", "/dev/sinty/Agent",
+                        null, DBusSignalFlags.NONE, (conn, sender, path, iface, name, parameters) => {
+                            string app, intent, args, result;
+                            parameters.get("(ssss)", out app, out intent, out args, out result);
+                            show_agent_card(app, intent, args, result);
+                        });
+                } catch (Error e) {
+                    warning("Sinty AI cards: %s", e.message);
+                }
+            });
+        }
+
+        private void show_agent_card(string app, string intent, string args, string result) {
+            if (!visible || !ai_mode) return;
+            var card = AgentCards.get_default().build(app, intent, args, result);
+            if (card == null) return;
+            ai_cards.append(card);
+            ai_cards.visible = true;
+            ai_scroll.visible = true;
+            queue_resize();
+        }
+
+        private void clear_agent_cards() {
+            Widget? child;
+            while ((child = ai_cards.get_first_child()) != null) ai_cards.remove(child);
+            ai_cards.visible = false;
         }
 
         private void ask_ai() {
@@ -456,6 +524,7 @@ namespace Singularity {
             if (text.has_prefix("--")) text = " " + text;
             error_label.visible = false;
             ai_answer.label = "";
+            clear_agent_cards();
             ai_scroll.visible = false;
             ai_spinner.visible = true;
             ai_spinner.start();
@@ -487,7 +556,7 @@ namespace Singularity {
             ai_spinner.stop();
             ai_spinner.visible = false;
             entry.sensitive = true;
-            GtkLayerShell.set_keyboard_mode(this, GtkLayerShell.KeyboardMode.ON_DEMAND);
+            entry.grab_focus();
             if (ok) {
                 string answer = (out_text ?? "").strip();
                 string markup = AnswerMarkup.to_pango(answer);
@@ -497,7 +566,8 @@ namespace Singularity {
                 } catch (Error e) {
                     ai_answer.label = answer;
                 }
-                ai_scroll.visible = answer != "";
+                ai_answer.visible = answer != "";
+                ai_scroll.visible = answer != "" || ai_cards.visible;
                 updating_text = true;
                 entry.text = "";
                 updating_text = false;
@@ -1067,6 +1137,7 @@ exec dbus-run-session -- %s/bin/labwc -s "$S"
             _history_pos = -1;
             leave_ai_mode();
             leave_action_mode();
+            cancel_close();
             opacity = 0;
             if (dialog_animation != null) dialog_animation.skip();
             dialog_animation = new Singularity.Animation.TimedAnimation(
@@ -1093,17 +1164,42 @@ exec dbus-run-session -- %s/bin/labwc -s "$S"
                 Singularity.Animation.TimedAnimation.Easing.EASE_IN_CUBIC
             );
             dialog_animation.tick.connect(() => { opacity = dialog_animation.value; });
-            dialog_animation.done.connect(() => { hide(); });
+            dialog_animation.done.connect(finish_close);
+            closing = true;
+            if (close_guard != 0) GLib.Source.remove(close_guard);
+            close_guard = GLib.Timeout.add(300, () => {
+                close_guard = 0;
+                finish_close();
+                return GLib.Source.REMOVE;
+            });
             dialog_animation.play();
+        }
+
+        private void cancel_close() {
+            closing = false;
+            if (close_guard != 0) {
+                GLib.Source.remove(close_guard);
+                close_guard = 0;
+            }
+        }
+
+        private void finish_close() {
+            if (!closing) return;
+            cancel_close();
+            hide();
+        }
+
+        private bool shown() {
+            return visible && !closing;
         }
 
         public void toggle_ai() {
             if (!AgentConfig.configured()) return;
-            if (visible && ai_mode) {
+            if (shown() && ai_mode) {
                 close_dialog();
                 return;
             }
-            if (!visible) open_dialog();
+            if (!shown()) open_dialog();
             else leave_action_mode();
             enter_ai_mode("");
             ai_direct = true;
@@ -1111,7 +1207,7 @@ exec dbus-run-session -- %s/bin/labwc -s "$S"
         }
 
         public void toggle() {
-            if (visible) {
+            if (shown()) {
                 close_dialog();
             } else {
                 open_dialog();
