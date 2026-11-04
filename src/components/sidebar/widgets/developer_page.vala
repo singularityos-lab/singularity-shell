@@ -67,6 +67,7 @@ namespace Singularity {
         private bool _unlock_guard = false;
         private SwitchRow _six_switch;
         private bool _six_guard = false;
+        private uint _six_poll = 0;
 
         private PreferencesGroup _sdb_group;
         private SwitchRow _sdb_switch;
@@ -166,6 +167,12 @@ namespace Singularity {
                 // is shown rather than trusting the mirrored key.
                 this.map.connect (() => { refresh_unlock_state.begin (); });
                 this.map.connect (() => { refresh_six_state.begin (); });
+                this.unmap.connect (() => {
+                    if (_six_poll != 0) {
+                        Source.remove (_six_poll);
+                        _six_poll = 0;
+                    }
+                });
 
                 build_sdb_ui ();
                 this.map.connect (() => refresh_sdb_state.begin ());
@@ -951,9 +958,22 @@ namespace Singularity {
             _six_guard = true;
             _six_switch.switch_btn.active = state != "off";
             _six_guard = false;
-            _six_switch.subtitle = state == "ready"
-                ? _("The new kernel will be tried at the next restart. If it does not start, the system returns to the current kernel on its own.")
-                : _("Tries the new kernel at the next restart. If it does not start, the system returns to the current kernel on its own.");
+            if (state == "ready") {
+                _six_switch.subtitle = _("The new kernel will be tried at the next restart. If it does not start, the system returns to the current kernel on its own.");
+            } else if (state.has_prefix("downloading:")) {
+                _six_switch.subtitle = _("Downloading the new kernel, %s%%").printf(state.substring(12));
+                if (_six_poll == 0 && get_mapped ()) {
+                    _six_poll = Timeout.add_seconds (3, () => {
+                        _six_poll = 0;
+                        refresh_six_state.begin ();
+                        return Source.REMOVE;
+                    });
+                }
+            } else if (state == "waiting") {
+                _six_switch.subtitle = _("Downloaded. It is prepared once the latest system update has started successfully three times.");
+            } else {
+                _six_switch.subtitle = _("Tries the new kernel at the next restart. If it does not start, the system returns to the current kernel on its own.");
+            }
         }
 
         private void on_six_toggled () {
