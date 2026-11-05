@@ -61,15 +61,10 @@ namespace Singularity.SidebarPages {
             var time_box = new Box(Orientation.HORIZONTAL, 6);
             time_box.halign = Align.CENTER;
             var now = new DateTime.now_local();
-            var hour = new SpinButton.with_range(0, 23, 1);
-            hour.value = now.get_hour();
-            hour.wrap = true;
-            var min = new SpinButton.with_range(0, 59, 1);
-            min.value = now.get_minute();
-            min.wrap = true;
-            time_box.append(hour);
-            time_box.append(new Label(":"));
-            time_box.append(min);
+            var time_picker = new TimePicker();
+            time_picker.hour = now.get_hour();
+            time_picker.minute = now.get_minute();
+            time_box.append(time_picker);
             box.append(time_box);
             var apply = new Button.with_label(_("Apply"));
             apply.add_css_class("suggested-action");
@@ -77,7 +72,7 @@ namespace Singularity.SidebarPages {
                 var date = cal.get_date();
                 var dt = new DateTime.local(
                     date.get_year(), date.get_month(), date.get_day_of_month(),
-                    (int) hour.value, (int) min.value, 0);
+                    time_picker.hour, time_picker.minute, 0);
                 manager.set_time(dt.to_unix() * 1000000);
                 pop.popdown();
             });

@@ -23,7 +23,7 @@ namespace Singularity {
         private Subprocess? ai_process = null;
         private string ai_conversation = "";
         private Spinner ai_spinner;
-        private DropDown ai_mode_select;
+        private Singularity.Widgets.ChoiceButton ai_mode_select;
         private Box ai_cards;
         private bool ai_mode_syncing = false;
         private const string[] AGENT_MODES = { "plan", "ask", "auto", "autopilot" };
@@ -132,7 +132,7 @@ namespace Singularity {
             ai_controls.halign = Align.END;
             ai_controls.valign = Align.CENTER;
             ai_controls.margin_end = 6;
-            ai_mode_select = new DropDown.from_strings({
+            ai_mode_select = new Singularity.Widgets.ChoiceButton.from_strings({
                 _("Plan"), _("Ask"), _("Auto"), _("Autopilot")
             });
             ai_mode_select.tooltip_text = _("How much Sinty AI may do without asking");

@@ -200,7 +200,7 @@ namespace Singularity {
 
         private static Widget enum_control (GLib.Settings settings, string key, owned string[] choices) {
             var model = new StringList (choices);
-            var dd = new DropDown (model, null);
+            var dd = new Singularity.Widgets.ChoiceButton (model, null);
             string cur = settings.get_string (key);
             for (uint i = 0; i < choices.length; i++)
                 if (choices[i] == cur) { dd.selected = i; break; }

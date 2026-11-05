@@ -331,10 +331,10 @@ namespace Singularity.Shell {
 
             // Time row (hidden when all-day)
             var time_box = new Box(Orientation.HORIZONTAL, 8);
-            var start_spin = build_time_spin(existing != null ? existing.start_time.get_hour() : 9,
-                                             existing != null ? existing.start_time.get_minute() : 0);
-            var end_spin = build_time_spin(existing != null ? existing.end_time.get_hour() : 10,
-                                           existing != null ? existing.end_time.get_minute() : 0);
+            var start_spin = build_time_picker(existing != null ? existing.start_time.get_hour() : 9,
+                                               existing != null ? existing.start_time.get_minute() : 0);
+            var end_spin = build_time_picker(existing != null ? existing.end_time.get_hour() : 10,
+                                             existing != null ? existing.end_time.get_minute() : 0);
             time_box.append(new Label(_("From")));
             time_box.append(start_spin);
             time_box.append(new Label(_("To")));
@@ -375,10 +375,10 @@ namespace Singularity.Shell {
                 evt.description = desc_entry.text.strip();
                 evt.all_day = all_day_sw.active;
 
-                int start_h = (int) start_spin.get_value();
-                int start_m = existing != null ? existing.start_time.get_minute() : 0;
-                int end_h = (int) end_spin.get_value();
-                int end_m = existing != null ? existing.end_time.get_minute() : 0;
+                int start_h = start_spin.hour;
+                int start_m = start_spin.minute;
+                int end_h = end_spin.hour;
+                int end_m = end_spin.minute;
 
                 DateTime base_date = existing != null ? existing.start_time : (selected_date ?? new DateTime.now_local());
                 if (evt.all_day) {
@@ -407,11 +407,11 @@ namespace Singularity.Shell {
             title_entry.grab_focus();
         }
 
-        private SpinButton build_time_spin(int hour, int minute) {
-            var adj = new Adjustment((double)hour, 0, 23, 1, 1, 0);
-            var spin = new SpinButton(adj, 1, 0);
-            spin.width_chars = 3;
-            return spin;
+        private Singularity.Widgets.TimePicker build_time_picker(int hour, int minute) {
+            var picker = new Singularity.Widgets.TimePicker();
+            picker.hour = hour;
+            picker.minute = minute;
+            return picker;
         }
 
     }

@@ -144,7 +144,7 @@ namespace Singularity.SidebarPages {
                 var iter = range_value.iterator ();
                 Variant? v;
                 while ((v = iter.next_value ()) != null) choices.append (v.get_string ());
-                var dd = new DropDown (choices, null);
+                var dd = new ChoiceButton (choices, null);
                 dd.notify["selected"].connect (() => {
                     if (syncing) return;
                     var item = dd.selected_item as StringObject;
@@ -220,8 +220,8 @@ namespace Singularity.SidebarPages {
             var editor = editors[key];
             if (editor is Switch) {
                 ((Switch) editor).active = value.get_boolean ();
-            } else if (editor is DropDown) {
-                var dd = (DropDown) editor;
+            } else if (editor is ChoiceButton) {
+                var dd = (ChoiceButton) editor;
                 var model = (StringList) dd.model;
                 string current = value.is_of_type (VariantType.STRING) ? value.get_string () : value.print (false);
                 for (uint i = 0; i < model.get_n_items (); i++) {

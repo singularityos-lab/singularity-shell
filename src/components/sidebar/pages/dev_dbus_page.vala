@@ -38,11 +38,9 @@ namespace Singularity.SidebarPages {
             add_widget (search);
 
             var options = new PreferencesGroup ();
-            var unique_row = new ActionRow (_("Show Unique Names"), _("Connections such as :1.42 that have no well-known name"));
-            unique_switch = new Switch ();
-            unique_switch.valign = Align.CENTER;
+            var unique_row = new SwitchRow (_("Show Unique Names"), _("Connections such as :1.42 that have no well-known name"));
+            unique_switch = unique_row.switch_btn;
             unique_switch.notify["active"].connect (apply_filter);
-            unique_row.add_suffix (unique_switch);
             options.add_row (unique_row);
             add_group (options);
 
