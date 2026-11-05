@@ -70,15 +70,146 @@ namespace Singularity {
         private delegate void SyncCallback();
         private delegate void ActionCallback(SettingsPageAction action);
 
-        public NetworkPage(SettingsView view) {
-            base(_("Network"));
+        public const string WIFI = "network-wifi";
+        public const string WIRED = "network-wired";
+        public const string VPN = "network-vpn";
+        public const string HOTSPOT = "network-hotspot";
+        public const string DYNAMIC = "network-dynamic";
+
+        public static string[] sections() {
+            return { WIFI, WIRED, VPN, DYNAMIC, HOTSPOT };
+        }
+
+        public static string section_title(string section) {
+            if (section == WIFI) return _("Wi-Fi");
+            if (section == WIRED) return _("Wired");
+            if (section == VPN) return _("VPN");
+            if (section == HOTSPOT) return _("Hotspot & Sharing");
+            if (section == DYNAMIC) return _("Dynamic Internet");
+            return _("Network");
+        }
+
+        public static string section_icon(string section) {
+            if (section == WIFI) return "network-wireless-symbolic";
+            if (section == WIRED) return "network-wired-symbolic";
+            if (section == VPN) return "network-vpn-symbolic";
+            if (section == HOTSPOT) return "network-wireless-hotspot-symbolic";
+            if (section == DYNAMIC) return "network-transmit-receive-symbolic";
+            return "network-wireless-symbolic";
+        }
+
+        public NetworkPage(SettingsView view, string section = "") {
+            base(section_title(section));
             back_clicked.connect(() => {
-                view.go_home();
+                if (section == "") view.go_home();
+                else view.navigate_to("network");
             });
             var network = SystemMonitor.get_default().network;
             settings_view = view;
             settings_network = network;
-            var wifi_group = new PreferencesGroup(_("Wi-Fi"));
+            if (section == WIFI) build_wifi(view, network);
+            else if (section == WIRED) build_wired(network);
+            else if (section == VPN) build_vpn(view, network);
+            else if (section == HOTSPOT) build_hotspot(network);
+            else if (section == DYNAMIC) build_dynamic(network);
+            else build_overview(view, network);
+        }
+
+        private ActionRow section_row(PreferencesGroup group, string section) {
+            var row = new ActionRow(section_title(section), null, section_icon(section));
+            row.activatable = true;
+            row.set_data<bool>("settings-search-skip", true);
+            row.add_suffix(Singularity.SidebarPages.PermissionRows.chevron());
+            row.activated.connect(() => settings_view.navigate_to(section));
+            group.add_row(row);
+            return row;
+        }
+
+        private static string wifi_summary(NetworkManagerWrapper network) {
+            if (!network.has_wifi) return _("No Wi-Fi adapter");
+            if (!network.wifi_enabled) return _("Off");
+            return network.active_wifi_ssid() ?? _("Not connected");
+        }
+
+        private static string wired_summary(NetworkManagerWrapper network) {
+            if (!network.has_ethernet) return _("No wired adapter");
+            return network.is_wired_connected ? _("Connected") : _("Not connected");
+        }
+
+        private static string vpn_summary(NetworkManagerWrapper network) {
+            if (network.vpn_active && network.vpn_name != "") return network.vpn_name;
+            foreach (var provider in VpnProviderRegistry.get_default().list()) {
+                foreach (var conn in provider.get_connections()) {
+                    if (conn.state == VpnState.CONNECTED) return conn.display_name;
+                }
+            }
+            return _("Not connected");
+        }
+
+        private static string hotspot_summary(NetworkManagerWrapper network) {
+            if (network.wifi_hotspot_active) return _("Hotspot on");
+            if (network.ethernet_sharing_active) return _("Sharing to wired device");
+            return _("Off");
+        }
+
+        private void build_overview(SettingsView view, NetworkManagerWrapper network) {
+            var connections = new PreferencesGroup(_("Connections"));
+            var wifi_row = section_row(connections, WIFI);
+            var wired_row = section_row(connections, WIRED);
+            var vpn_row = section_row(connections, VPN);
+            add_group(connections);
+
+            var internet = new PreferencesGroup(_("Internet"));
+            var dynamic_row = section_row(internet, DYNAMIC);
+            var hotspot_row = section_row(internet, HOTSPOT);
+            add_group(internet);
+
+            SyncCallback sync = () => {
+                wifi_row.subtitle = wifi_summary(network);
+                wired_row.subtitle = wired_summary(network);
+                vpn_row.subtitle = vpn_summary(network);
+                dynamic_row.subtitle = network.dynamic_internet.enabled ? _("On") : _("Off");
+                hotspot_row.subtitle = hotspot_summary(network);
+            };
+            network.state_changed.connect(() => sync());
+            network.ethernet_ports_changed.connect(() => sync());
+            network.vpn_state_changed.connect(() => sync());
+            network.hotspot_state_changed.connect(() => sync());
+            network.dynamic_internet.changed.connect(() => sync());
+            var vpn_registry = VpnProviderRegistry.get_default();
+            foreach (var p in vpn_registry.list()) p.changed.connect(() => sync());
+            vpn_registry.added.connect((p) => {
+                p.changed.connect(() => sync());
+                sync();
+            });
+            sync();
+
+            var security_group = new PreferencesGroup(_("Security"));
+            var firewall_row = new ActionRow(_("Firewall"), _("Profiles and allowed apps"), "security-high-symbolic");
+            firewall_row.activatable = true;
+            var firewall_chevron = new Image.from_icon_name("go-next-symbolic");
+            firewall_chevron.pixel_size = 12;
+            firewall_chevron.add_css_class("dim-label");
+            firewall_chevron.valign = Align.CENTER;
+            firewall_row.add_suffix(firewall_chevron);
+            firewall_row.set_data<bool>("settings-search-skip", true);
+            firewall_row.activated.connect(() => view.navigate_to("firewall"));
+            security_group.add_row(firewall_row);
+            add_group(security_group);
+            add_search_action(_("Firewall"), _("Home and Public profiles, allowed apps and ports"),
+                () => view.navigate_to("firewall"));
+            var firewall = FirewallManager.get_default();
+            firewall.changed.connect(() => {
+                var st = firewall.current;
+                if (firewall.backend == null) firewall_row.subtitle = _("Not available on this system");
+                else if (st == null || !st.enabled) firewall_row.subtitle = _("Off");
+                else firewall_row.subtitle = st.profile == FirewallProfile.PUBLIC ? _("On, Public network") : _("On, Home network");
+            });
+            firewall.refresh.begin();
+        }
+
+        private void build_wifi(SettingsView view, NetworkManagerWrapper network) {
+            var wifi_group = new PreferencesGroup(null);
             var toggle_row = new SwitchRow(_("Wi-Fi"), null, network.wifi_enabled);
             toggle_row.switch_btn.notify["active"].connect(() => {
                 if (toggle_row.switch_btn.active != network.wifi_enabled) {
@@ -134,7 +265,10 @@ namespace Singularity {
             saved_row.add_controller(saved_click);
             saved_group.add_row(saved_row);
             add_group(saved_group);
-            var wired_group = new PreferencesGroup(_("Wired"));
+        }
+
+        private void build_wired(NetworkManagerWrapper network) {
+            var wired_group = new PreferencesGroup(null);
             var wired_rows = new List<Widget>();
             update_wired_list(wired_group, ref wired_rows, network);
             network.ethernet_ports_changed.connect(() => {
@@ -142,7 +276,10 @@ namespace Singularity {
             });
             add_group(wired_group);
 
-            var dynamic_group = new PreferencesGroup(_("Dynamic Internet"),
+        }
+
+        private void build_dynamic(NetworkManagerWrapper network) {
+            var dynamic_group = new PreferencesGroup(null,
                 _("Keeps available connections ready and switches when another link is healthier."));
             var dynamic_toggle = new SwitchRow(_("Dynamic Internet"),
                 network.dynamic_internet.status, network.dynamic_internet.enabled);
@@ -163,11 +300,14 @@ namespace Singularity {
             });
             add_group(dynamic_group);
 
+        }
+
+        private void build_hotspot(NetworkManagerWrapper network) {
             var hs_settings = new GLib.Settings("dev.sinty.desktop");
             string init_ssid, init_pw; bool init_wpa3;
             ensure_hotspot_credentials(hs_settings, out init_ssid, out init_pw, out init_wpa3);
 
-            var hs_group = new PreferencesGroup(_("Hotspot & Sharing"));
+            var hs_group = new PreferencesGroup(null);
             var hotspot_row = new SwitchRow(_("Wi-Fi Hotspot"),
                 _("Share your connection over Wi-Fi"), network.wifi_hotspot_active);
             var ssid_row = new EntryRow(_("Hotspot Name"));
@@ -179,17 +319,31 @@ namespace Singularity {
             var eth_row = new SwitchRow(_("Share to Wired Device"),
                 _("Give internet to a device connected by cable"), network.ethernet_sharing_active);
 
-            hotspot_row.visible = network.has_wifi;
-            ssid_row.visible = network.has_wifi;
-            pw_row.visible = network.has_wifi;
-            wpa3_row.visible = network.has_wifi;
-            eth_row.visible = network.has_ethernet;
+            var none_row = new PreferencesRow();
+            var none_label = new Label(_("No Wi-Fi or wired adapter to share from"));
+            none_label.add_css_class("dim-label");
+            none_label.margin_top = 12;
+            none_label.margin_bottom = 12;
+            none_row.set_child(none_label);
+
+            SyncCallback sync_adapters = () => {
+                hotspot_row.visible = network.has_wifi;
+                ssid_row.visible = network.has_wifi;
+                pw_row.visible = network.has_wifi;
+                wpa3_row.visible = network.has_wifi;
+                eth_row.visible = network.has_ethernet;
+                none_row.visible = !network.has_wifi && !network.has_ethernet;
+            };
+            sync_adapters();
+            network.state_changed.connect(() => sync_adapters());
+            network.ethernet_ports_changed.connect(() => sync_adapters());
 
             hs_group.add_row(hotspot_row);
             hs_group.add_row(ssid_row);
             hs_group.add_row(pw_row);
             hs_group.add_row(wpa3_row);
             hs_group.add_row(eth_row);
+            hs_group.add_row(none_row);
             add_group(hs_group);
 
             string pending_hotspot_ssid = "";
@@ -248,7 +402,10 @@ namespace Singularity {
                 }
             });
 
-            var vpn_group = new PreferencesGroup(_("VPN"));
+        }
+
+        private void build_vpn(SettingsView view, NetworkManagerWrapper network) {
+            var vpn_group = new PreferencesGroup(null);
             var vpn_rows = new List<Widget>();
             update_vpn_list(vpn_group, ref vpn_rows, network);
 
@@ -287,7 +444,7 @@ namespace Singularity {
             add_group(vpn_group);
             add_group(vpn_error_group);
 
-            var vpn_setup_group = new PreferencesGroup(_("VPN Profiles"));
+            var vpn_setup_group = new PreferencesGroup(_("New Profile"));
             var add_row = new ActionRow(_("Add VPN"), _("Enter WireGuard or OpenVPN details"), "list-add-symbolic");
             add_row.activated.connect(() => {
                 view.open_subpage(new VpnConfigPage(view, network), "vpn-config");
@@ -328,27 +485,6 @@ namespace Singularity {
             vpn_setup_group.add_row(import_row);
             add_group(vpn_setup_group);
 
-            var security_group = new PreferencesGroup(_("Security"));
-            var firewall_row = new ActionRow(_("Firewall"), _("Profiles and allowed apps"), "security-high-symbolic");
-            firewall_row.activatable = true;
-            var firewall_chevron = new Image.from_icon_name("go-next-symbolic");
-            firewall_chevron.pixel_size = 12;
-            firewall_chevron.add_css_class("dim-label");
-            firewall_chevron.valign = Align.CENTER;
-            firewall_row.add_suffix(firewall_chevron);
-            firewall_row.activated.connect(() => view.navigate_to("firewall"));
-            security_group.add_row(firewall_row);
-            add_group(security_group);
-            add_search_action(_("Firewall"), _("Home and Public profiles, allowed apps and ports"),
-                () => view.navigate_to("firewall"));
-            var firewall = FirewallManager.get_default();
-            firewall.changed.connect(() => {
-                var st = firewall.current;
-                if (firewall.backend == null) firewall_row.subtitle = _("Not available on this system");
-                else if (st == null || !st.enabled) firewall_row.subtitle = _("Off");
-                else firewall_row.subtitle = st.profile == FirewallProfile.PUBLIC ? _("On, Public network") : _("On, Home network");
-            });
-            firewall.refresh.begin();
         }
 
         public static void ensure_hotspot_credentials(GLib.Settings s,

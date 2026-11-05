@@ -255,6 +255,9 @@ namespace Singularity {
         private string get_page_icon(string page_name) {
             switch (page_name) {
                 case "network": return "network-wireless-symbolic";
+                case NetworkPage.WIFI: case NetworkPage.WIRED: case NetworkPage.VPN:
+                case NetworkPage.DYNAMIC: case NetworkPage.HOTSPOT:
+                    return NetworkPage.section_icon(page_name);
                 case "sharing": return "folder-remote-symbolic";
                 case "apps": return "view-app-grid-symbolic";
                 case "users": return "system-users-symbolic";
@@ -286,7 +289,8 @@ namespace Singularity {
         }
 
         private string[] get_searchable_pages() {
-            return { "network", "sharing", "apps", "autostart", "privacy", "users", "accounts", "displays", "region", "datetime",
+            return { "network", NetworkPage.WIFI, NetworkPage.WIRED, NetworkPage.VPN, NetworkPage.DYNAMIC,
+                     NetworkPage.HOTSPOT, "sharing", "apps", "autostart", "privacy", "users", "accounts", "displays", "region", "datetime",
                      "desktop", "sound", "notifications", "wellbeing", "bluetooth", "connected-devices", "printers", "keyboard", "tablet", "developer", "accessibility",
                      "plugins", "power", "performance", "agent", "updates", "system" };
         }
@@ -596,6 +600,10 @@ namespace Singularity {
                 case "updates": page = new Singularity.SidebarPages.UpdatesPage(this); break;
                 case "system": page = new Singularity.SidebarPages.SystemPage(this); break;
                 default:
+                    if (page_name in NetworkPage.sections()) {
+                        page = new NetworkPage(this, page_name);
+                        break;
+                    }
                     if (page_name.has_prefix("privacy-")) {
                         var category = Singularity.SidebarPages.PrivacyCategory.find(page_name.substring(8));
                         if (category != null) page = new Singularity.SidebarPages.PrivacyCategoryPage(this, category);
@@ -620,7 +628,8 @@ namespace Singularity {
                     sp.back_btn.visible = true;
                     // This drill-down page returns to Desktop, not Settings home.
                     if (page_name != "wallpaper-browser" && !page_name.has_prefix("privacy-")
-                            && !page_name.has_prefix("sharing-") && page_name != "firewall") {
+                            && !page_name.has_prefix("sharing-") && !page_name.has_prefix("network-")
+                            && page_name != "firewall") {
                         sp.back_clicked.connect(() => { go_home(); });
                     }
                 }

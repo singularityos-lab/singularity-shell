@@ -388,10 +388,10 @@ namespace Singularity {
                                 network.start_wifi_hotspot(ssid, pw, wpa3);
                             }
                         });
-                        var hotspot_nav = make_tile_with_nav(hotspot_tile, "network");
+                        var hotspot_nav = make_tile_with_nav(hotspot_tile, NetworkPage.HOTSPOT);
 
                         // Wi-Fi & Bluetooth (only when the hardware exists)
-                        var wifi_nav = make_tile_with_nav(wifi_tile, "network");
+                        var wifi_nav = make_tile_with_nav(wifi_tile, NetworkPage.WIFI);
                         var bt_nav = make_tile_with_nav(bt_tile, "bluetooth");
 
                         // Keyboard-backlight tile only when the hardware exists (hide the whole
@@ -425,7 +425,7 @@ namespace Singularity {
                         add_quick_tile("power-profile", ppm_wrapper, ppm_tile, () => ppm.available);
                         add_quick_tile("do-not-disturb", FocusQuickTile.wrap(dnd_tile,
                             () => open_detail_page(_("Focus"), FocusQuickTile.detail(() => open_settings_page("notifications")))), dnd_tile);
-                        add_quick_tile("vpn", make_tile_with_nav(vpn_tile, "network"), vpn_tile);
+                        add_quick_tile("vpn", make_tile_with_nav(vpn_tile, NetworkPage.VPN), vpn_tile);
                         add_quick_tile("tiling", tiling_wrapper, tile_tile,
                             () => settings.get_boolean("preview-features-enabled"));
                         add_quick_tile("hotspot", hotspot_nav, hotspot_tile, () => network.has_wifi);

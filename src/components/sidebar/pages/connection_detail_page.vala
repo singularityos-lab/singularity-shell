@@ -7,7 +7,7 @@ namespace Singularity {
         public SavedNetworksPage(SettingsView view, NetworkManagerWrapper network) {
             base(_("Saved Networks"));
             back_btn.visible = true;
-            back_clicked.connect(() => view.navigate_to("network"));
+            back_clicked.connect(() => view.navigate_to(NetworkPage.WIFI));
             var group = new PreferencesGroup(null);
             var saved = network.saved_wifi_connections();
             for (int i = 0; i < saved.length; i++) {
@@ -66,7 +66,7 @@ namespace Singularity {
             this.conn = conn;
             this.wired_iface = wired_iface;
             back_btn.visible = true;
-            back_clicked.connect(() => view.navigate_to("network"));
+            back_clicked.connect(() => view.navigate_to(wired_iface != null ? NetworkPage.WIRED : NetworkPage.WIFI));
 
             traffic_group = new PreferencesGroup(_("Traffic"));
             down_row = traffic_row(_("Download"), "go-down-symbolic", out down_line);
@@ -207,7 +207,7 @@ namespace Singularity {
             forget_row.confirmed.connect(() => {
                 network.forget_connection.begin(conn, (obj, res) => {
                     network.forget_connection.end(res);
-                    view.navigate_to("network");
+                    view.navigate_to(wired_iface != null ? NetworkPage.WIRED : NetworkPage.WIFI);
                 });
             });
             group.add_row(forget_row);

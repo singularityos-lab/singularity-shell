@@ -40,7 +40,7 @@ namespace Singularity {
             this.network = network;
             this.view = view;
             back_btn.visible = true;
-            back_clicked.connect(() => view.navigate_to("network"));
+            back_clicked.connect(() => view.navigate_to(NetworkPage.VPN));
 
             // Connection type + name.
             var general = new PreferencesGroup(_("Connection"));
@@ -145,7 +145,7 @@ namespace Singularity {
                     ov_username.text.strip(), ov_password.text, ca);
             }
             // Return to the Network page so the new VPN (or any error) shows up.
-            view.navigate_to("network");
+            view.navigate_to(NetworkPage.VPN);
         }
     }
 }
