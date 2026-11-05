@@ -1417,13 +1417,14 @@ namespace Singularity {
             var suffix_revealer = wrapper.get_data<Gtk.Revealer>("suffix_revealer");
             if (btn == null || item_overlay == null || suffix_box == null || suffix_revealer == null) return;
 
-            // Clear current overlay badges
-            Widget? overlay_child = item_overlay.get_first_child();
-            while (overlay_child != null) {
-                Widget next = overlay_child.get_next_sibling();
-                if (overlay_child != btn) item_overlay.remove_overlay(overlay_child);
-                overlay_child = next;
+            var previous = wrapper.get_data<Gee.ArrayList<Gtk.Widget>>("extension_overlays");
+            if (previous != null) {
+                foreach (var old in previous) {
+                    if (old.get_parent() == item_overlay) item_overlay.remove_overlay(old);
+                }
             }
+            var added = new Gee.ArrayList<Gtk.Widget>();
+            wrapper.set_data("extension_overlays", added);
             // Clear suffix area
             Widget? sc = suffix_box.get_first_child();
             while (sc != null) {
@@ -1470,6 +1471,7 @@ namespace Singularity {
                 app_badge.add_css_class("dock-mpris-app-badge");
                 load_app_icon(app_badge, app_id, app_info);
                 item_overlay.add_overlay(app_badge);
+                added.add(app_badge);
             } else {
                 var img = new Image();
                 img.pixel_size = icon_size;
@@ -1488,6 +1490,7 @@ namespace Singularity {
                 ov.can_target = false;
                 ov.add_css_class("dock-icon-badge");
                 item_overlay.add_overlay(ov);
+                added.add(ov);
             }
 
             // Pill styling only when there's a suffix widget to show.

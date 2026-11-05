@@ -21,7 +21,7 @@ namespace Singularity {
             add_css_class("dock-launch-ripple");
         }
 
-        public weak Singularity.Animation.MotionBin? icon { get; set; }
+        public Singularity.Animation.MotionBin? icon { get; set; }
 
         public override void snapshot(Gtk.Snapshot snapshot) {
             double width = get_width();
