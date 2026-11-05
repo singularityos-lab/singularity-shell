@@ -460,9 +460,11 @@ namespace Singularity {
             string dbus_shorts = (bus != null && bus != "")
                 ? "env DBUS_SESSION_BUS_ADDRESS=%s %s".printf(bus, call)
                 : call;
+            if (Singularity.Compositor.LabwcBackend.get_default().shared_session())
+                dbus_shorts = "/usr/bin/singularity-shortcut";
 
             // Keyboard layout (xkb)
-            string xkb_layout = settings.get_string("xkb-layout");
+            string xkb_layout = settings.get_user_value("xkb-layout") != null ? settings.get_string("xkb-layout") : "";
             string xkb_variant = settings.get_string("xkb-variant");
             try {
                 var input_settings = new GLib.Settings("org.gnome.desktop.input-sources");

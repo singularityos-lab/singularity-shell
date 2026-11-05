@@ -36,6 +36,28 @@ namespace Singularity.Compositor {
             return GLib.Path.build_filename(config_dir(), filename);
         }
 
+        private const string SESSION_DIR = "/run/singularity/labwc-session";
+
+        public bool shared_session() {
+            return FileUtils.test(SESSION_DIR, FileTest.IS_DIR) && Posix.access(SESSION_DIR, Posix.W_OK) == 0;
+        }
+
+        private bool write_session_config(string path, string contents) {
+            string? existing = null;
+            try { FileUtils.get_contents(path, out existing); } catch { }
+            if (existing != null && existing == contents) {
+                return false;
+            }
+            try {
+                FileUtils.set_contents_full(path, contents, contents.length,
+                    FileSetContentsFlags.CONSISTENT, 0640);
+            } catch (Error e) {
+                warning("LabwcBackend: failed to write %s: %s", path, e.message);
+                return false;
+            }
+            return true;
+        }
+
         /**
          * Writes a labwc config file, skipping the write when the contents are
          * already up to date.
@@ -44,6 +66,9 @@ namespace Singularity.Compositor {
          *         already current (or the write failed).
          */
         public bool write_config(string filename, string contents) {
+            if ((filename == "rc.xml" || filename == "menu.xml") && shared_session()) {
+                return write_session_config(Path.build_filename(SESSION_DIR, filename), contents);
+            }
             string path = config_path(filename);
             string? existing = null;
             try { GLib.FileUtils.get_contents(path, out existing); } catch { }
@@ -69,6 +94,7 @@ namespace Singularity.Compositor {
 
         /** Asks the running labwc to reload its configuration. */
         public void reconfigure() {
+            if (shared_session()) return;
             try {
                 Process.spawn_command_line_async("%s -r".printf(binary()));
             } catch (Error e) {
