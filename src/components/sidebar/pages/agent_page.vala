@@ -15,6 +15,15 @@ namespace Singularity.SidebarPages {
         private uint key_timeout = 0;
         private string stored_key = "";
 
+        private static string phones_summary() {
+            string[] names = {};
+            foreach (var d in NearbyClient.get_default().devices) {
+                if (d.paired && d.has_plugin("sinty-ai")) names += d.name;
+            }
+            if (names.length == 0) return _("Turn on Sinty AI for a phone in Connected Devices");
+            return string.joinv(", ", names);
+        }
+
         public AgentPage(SettingsView view) {
             base(_("Sinty AI"));
             back_btn.visible = true;
@@ -62,6 +71,22 @@ namespace Singularity.SidebarPages {
             model_group.add_row(key_row);
             refresh_key_state.begin();
             add_group(model_group);
+
+            var phones = new PreferencesGroup(_("Phones"),
+                _("Ask Sinty AI from a paired phone. It has the same powers as this panel and asks you the same questions."));
+            var phones_row = new ActionRow(_("Paired Phones"), phones_summary(), "phone-symbolic");
+            phones_row.activatable = true;
+            var arrow = new Image.from_icon_name("go-next-symbolic");
+            arrow.pixel_size = 12;
+            arrow.add_css_class("dim-label");
+            arrow.valign = Align.CENTER;
+            phones_row.add_suffix(arrow);
+            phones_row.activated.connect(() => view.navigate_to("connected-devices"));
+            var nearby = NearbyClient.get_default();
+            ulong watch = nearby.changed.connect(() => phones_row.subtitle = phones_summary());
+            phones_row.destroy.connect(() => nearby.disconnect(watch));
+            phones.add_row(phones_row);
+            add_group(phones);
 
             model_group.sensitive = enabled_row.switch_btn.active;
             enabled_row.switch_btn.notify["active"].connect(() => {

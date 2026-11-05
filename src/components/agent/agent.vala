@@ -92,6 +92,8 @@ namespace Singularity {
         private const string PATH = "/dev/sinty/Agent";
         private const string IFACE = "dev.sinty.Agent1";
 
+        private static Gee.HashMap<uint32, Singularity.Shell.ShellDialog> open_dialogs;
+
         public static void start(Gtk.Application app) {
             if (!AgentConfig.available()) return;
             try {
@@ -102,6 +104,13 @@ namespace Singularity {
                         string text;
                         parameters.get("(us)", out id, out text);
                         show(app, conn, id, text);
+                    });
+                bus.signal_subscribe(NAME, IFACE, "ConfirmClosed", PATH, null, DBusSignalFlags.NONE,
+                    (conn, sender, object_path, iface, name, parameters) => {
+                        uint32 id;
+                        parameters.get("(u)", out id);
+                        var dialog = open_dialogs[id];
+                        if (dialog != null) dialog.close_dialog();
                     });
             } catch (Error e) {
                 warning("Cannot watch AI confirmations: %s", e.message);
@@ -115,6 +124,11 @@ namespace Singularity {
         private static void show(Gtk.Application app, DBusConnection conn, uint32 id, string text) {
             var dialog = new Singularity.Shell.ShellDialog.anchored(app, true, true, true, true);
             dialog.add_css_class("power-confirm-dialog");
+            if (open_dialogs == null) open_dialogs = new Gee.HashMap<uint32, Singularity.Shell.ShellDialog>();
+            open_dialogs[id] = dialog;
+            dialog.notify["visible"].connect(() => {
+                if (!dialog.visible && open_dialogs[id] == dialog) open_dialogs.unset(id);
+            });
             var box = new Box(Orientation.VERTICAL, 14);
             box.halign = Align.CENTER;
             box.valign = Align.CENTER;

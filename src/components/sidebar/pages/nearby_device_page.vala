@@ -147,7 +147,7 @@ namespace Singularity.SidebarPages {
             var client = NearbyClient.get_default();
             var d = client.find(device_id);
             var group = new PreferencesGroup(_("On This Computer"), _("Turned off features ignore everything the device sends for them."));
-            foreach (string plugin in client.features_for_settings()) {
+            foreach (string plugin in client.features_for_settings(d)) {
                 var row = new SwitchRow(NearbyClient.feature_title(plugin), NearbyClient.feature_description(plugin), d != null && d.has_plugin(plugin));
                 string p = plugin;
                 row.switch_btn.notify["active"].connect(() => {
