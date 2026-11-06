@@ -315,23 +315,38 @@ namespace Singularity {
         }
 
         private void deliver_crop(string frozen, int x, int y, int w, int h, string message) {
+            crop_frozen.begin(frozen, x, y, w, h, _frozen_geo.x, _frozen_geo.y, _frozen_geo.width, message);
+        }
+
+        private static string? crop_to_file(string frozen, int x, int y, int w, int h,
+                                            int gx, int gy, int gw) throws Error {
             try {
                 var full = new Gdk.Pixbuf.from_file(frozen);
-                double scale = (double) full.width / int.max(1, _frozen_geo.width);
-                int cx = int.max(0, (int) Math.round((x - _frozen_geo.x) * scale));
-                int cy = int.max(0, (int) Math.round((y - _frozen_geo.y) * scale));
+                double scale = (double) full.width / int.max(1, gw);
+                int cx = int.max(0, (int) Math.round((x - gx) * scale));
+                int cy = int.max(0, (int) Math.round((y - gy) * scale));
                 int cw = int.min(full.width - cx, (int) Math.round(w * scale));
                 int ch = int.min(full.height - cy, (int) Math.round(h * scale));
-                GLib.FileUtils.unlink(frozen);
-                if (cw <= 0 || ch <= 0) return;
+                if (cw <= 0 || ch <= 0) return null;
                 string temp_path;
                 int fd = GLib.FileUtils.open_tmp("singularity-screenshot-XXXXXX.png", out temp_path);
                 Posix.close(fd);
                 new Gdk.Pixbuf.subpixbuf(full, cx, cy, cw, ch).savev(temp_path, "png", {}, {});
-                deliver_capture(temp_path, message);
+                return temp_path;
+            } finally {
+                GLib.FileUtils.unlink(frozen);
+            }
+        }
+
+        private async void crop_frozen(string frozen, int x, int y, int w, int h,
+                                       int gx, int gy, int gw, string message) {
+            try {
+                var path = yield Singularity.Async.run<string?>((c) => {
+                    return crop_to_file(frozen, x, y, w, h, gx, gy, gw);
+                }, Singularity.Async.Qos.INTERACTIVE);
+                if (path != null) deliver_capture(path, message);
             } catch (Error e) {
                 warning("[ScreenshotTool] crop failed: %s", e.message);
-                GLib.FileUtils.unlink(frozen);
             }
         }
 

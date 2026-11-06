@@ -101,9 +101,53 @@ namespace Singularity.SidebarPages {
             security_row.activated.connect(open_security);
             security_group.add_row(security_row);
 
-            _components = SystemComponents.collect();
+            _components = {};
             var comp_group = new PreferencesGroup(null,
                 _("Versions, licenses and build details of the components the session relies on"));
+            load_components.begin(comp_group);
+            components_page.add_group(comp_group);
+            details_group.add_row(subpages.link(_("System Components"), _("Versions and licenses of what the session relies on"),
+                "application-x-addon-symbolic", components_page, "system-components"));
+
+            var graphics_group = new PreferencesGroup(_("Advanced"));
+            var gfx_settings = new GLib.Settings("dev.sinty.desktop");
+            string[] gfx_labels = { _("Automatic"), _("Hardware acceleration"), _("Software") };
+            string[] gfx_values = { "auto", "hardware", "software" };
+            string cur_mode = gfx_settings.get_string("rendering-mode");
+            string cur_label = gfx_labels[0];
+            for (int i = 0; i < gfx_values.length; i++)
+                if (gfx_values[i] == cur_mode) cur_label = gfx_labels[i];
+            var gfx_row = new SelectionRow(_("Rendering"), gfx_labels, cur_label);
+            gfx_row.subtitle = _("Software is a safe fallback if the screen glitches or crashes. Restart to apply.");
+            gfx_row.selected.connect((val) => {
+                for (int i = 0; i < gfx_labels.length; i++)
+                    if (gfx_labels[i] == val) gfx_settings.set_string("rendering-mode", gfx_values[i]);
+            });
+            graphics_group.add_row(gfx_row);
+            add_group(graphics_group);
+
+            var preview_group = graphics_group;
+            var settings = new GLib.Settings("dev.sinty.desktop");
+            bool preview_enabled = settings.get_boolean("preview-features-enabled");
+            var preview_row = new SwitchRow(_("Preview Features"), _("Enable experimental features like Auto-Tiling"), preview_enabled);
+            settings.bind("preview-features-enabled", preview_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            preview_group.add_row(preview_row);
+            var dev_row = new SwitchRow(_("Developer Mode"), _("Show the Developer settings page"), settings.get_boolean("developer-mode"));
+            settings.bind("developer-mode", dev_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+            preview_group.add_row(dev_row);
+        }
+
+        private async void load_components(PreferencesGroup comp_group) {
+            SystemComponents.Component[] found = {};
+            try {
+                yield Singularity.Async.run<bool>((c) => {
+                    found = SystemComponents.collect();
+                    return true;
+                }, Singularity.Async.Qos.UTILITY, Singularity.Async.scope_of(this));
+            } catch (Error e) {
+                return;
+            }
+            _components = found;
             foreach (var c in _components) {
                 if (c.caps.length == 0) {
                     var row = new ActionRow(c.name, c.license);
@@ -145,36 +189,6 @@ namespace Singularity.SidebarPages {
                 }
                 comp_group.add_row(row);
             }
-            components_page.add_group(comp_group);
-            details_group.add_row(subpages.link(_("System Components"), _("Versions and licenses of what the session relies on"),
-                "application-x-addon-symbolic", components_page, "system-components"));
-
-            var graphics_group = new PreferencesGroup(_("Advanced"));
-            var gfx_settings = new GLib.Settings("dev.sinty.desktop");
-            string[] gfx_labels = { _("Automatic"), _("Hardware acceleration"), _("Software") };
-            string[] gfx_values = { "auto", "hardware", "software" };
-            string cur_mode = gfx_settings.get_string("rendering-mode");
-            string cur_label = gfx_labels[0];
-            for (int i = 0; i < gfx_values.length; i++)
-                if (gfx_values[i] == cur_mode) cur_label = gfx_labels[i];
-            var gfx_row = new SelectionRow(_("Rendering"), gfx_labels, cur_label);
-            gfx_row.subtitle = _("Software is a safe fallback if the screen glitches or crashes. Restart to apply.");
-            gfx_row.selected.connect((val) => {
-                for (int i = 0; i < gfx_labels.length; i++)
-                    if (gfx_labels[i] == val) gfx_settings.set_string("rendering-mode", gfx_values[i]);
-            });
-            graphics_group.add_row(gfx_row);
-            add_group(graphics_group);
-
-            var preview_group = graphics_group;
-            var settings = new GLib.Settings("dev.sinty.desktop");
-            bool preview_enabled = settings.get_boolean("preview-features-enabled");
-            var preview_row = new SwitchRow(_("Preview Features"), _("Enable experimental features like Auto-Tiling"), preview_enabled);
-            settings.bind("preview-features-enabled", preview_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
-            preview_group.add_row(preview_row);
-            var dev_row = new SwitchRow(_("Developer Mode"), _("Show the Developer settings page"), settings.get_boolean("developer-mode"));
-            settings.bind("developer-mode", dev_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
-            preview_group.add_row(dev_row);
         }
 
         private void open_security() {
