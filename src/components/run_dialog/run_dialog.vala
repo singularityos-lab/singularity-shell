@@ -25,6 +25,7 @@ namespace Singularity {
         private Spinner ai_spinner;
         private Singularity.Widgets.ChoiceButton ai_mode_select;
         private Box ai_cards;
+        private HashTable<string, Widget> ai_card_keys = new HashTable<string, Widget>(str_hash, str_equal);
         private bool ai_mode_syncing = false;
         private const string[] AGENT_MODES = { "plan", "ask", "auto", "autopilot" };
         private Button ai_close;
@@ -506,7 +507,15 @@ namespace Singularity {
             if (!visible || !ai_mode) return;
             var card = AgentCards.get_default().build(app, intent, args, result);
             if (card == null) return;
-            ai_cards.append(card);
+            var key = agent_card_key(app, intent, args, result);
+            var previous = ai_card_keys.lookup(key);
+            if (previous != null && previous.get_parent() == ai_cards) {
+                ai_cards.insert_child_after(card, previous);
+                ai_cards.remove(previous);
+            } else {
+                ai_cards.append(card);
+            }
+            ai_card_keys.replace(key, card);
             ai_cards.visible = true;
             ai_scroll.visible = true;
             queue_resize();
@@ -515,7 +524,23 @@ namespace Singularity {
         private void clear_agent_cards() {
             Widget? child;
             while ((child = ai_cards.get_first_child()) != null) ai_cards.remove(child);
+            ai_card_keys.remove_all();
             ai_cards.visible = false;
+        }
+
+        private static string agent_card_key(string app, string intent, string args, string result) {
+            try {
+                var parser = new Json.Parser();
+                parser.load_from_data(result);
+                var root = parser.get_root();
+                if (root != null && root.get_node_type() == Json.NodeType.OBJECT) {
+                    var obj = root.get_object();
+                    if (obj.has_member("id") && obj.get_member("id").get_value_type() == typeof(string))
+                        return app + "\n" + obj.get_string_member("id");
+                }
+            } catch (Error e) {
+            }
+            return app + "\n" + intent + "\n" + args;
         }
 
         private void ask_ai() {
