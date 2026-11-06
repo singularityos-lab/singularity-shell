@@ -6,6 +6,8 @@ namespace Singularity {
         public string id { get { return "settings"; } }
         public string name { get { return "Settings"; } }
 
+        private bool warm_started = false;
+
         public SettingsSearchProvider() {
             Object();
         }
@@ -25,7 +27,11 @@ namespace Singularity {
             }
 
             int count = 0;
-            foreach (var entry in app.settings_entries()) {
+            if (!warm_started) {
+                warm_started = true;
+                app.warm_settings_index.begin();
+            }
+            foreach (var entry in app.cached_settings_entries()) {
                 double score = 0.0;
                 string title = entry.title.down();
                 if (title.has_prefix(q)) score = 70.0;

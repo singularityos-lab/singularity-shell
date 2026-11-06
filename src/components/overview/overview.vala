@@ -158,6 +158,7 @@ namespace Singularity {
             search_entry.hexpand = false;
             search_entry.margin_top = 48;
             search_entry.margin_bottom = 12;
+            search_entry.entry.search_delay = 0;
             search_entry.search_changed.connect(on_search_changed);
             main_box.append(search_entry);
 
@@ -242,69 +243,64 @@ namespace Singularity {
                 }
             });
 
-            search_manager.results_updated.connect(update_search_results);
+            search_rows = new SearchRowCache((result) => {
+                var row = new SearchResultRow(result);
+                row.request_close.connect(() => toggle());
+                return row;
+            });
+        }
+
+        private SearchRowCache search_rows;
+        private SearchSession? search_session = null;
+        private bool headers_ready = false;
+
+        private void run_search(string query) {
+            if (search_session != null) search_session.cancel();
+            search_session = search_manager.start(query);
+            search_session.results_updated.connect(update_search_results);
+        }
+
+        private void stop_search() {
+            if (search_session != null) search_session.cancel();
+            search_session = null;
+            search_rows.clear(search_results_list);
         }
 
         private void update_search_results(List<SearchResult> results) {
-            Widget? child = search_results_list.get_first_child();
-            while (child != null) {
-                search_results_list.remove(child);
-                child = search_results_list.get_first_child();
-            }
-
-            foreach (var res in results) {
-                var row = new SearchResultRow(res);
-                row.request_close.connect(() => toggle());
-                search_results_list.append(row);
-            }
-
-            // Category separator headers between different providers
-            search_results_list.set_header_func((row, before) => {
-                var res_row = row as SearchResultRow;
-                if (res_row == null) return;
-                bool needs_header = false;
-                if (before == null) {
-                    needs_header = true;
-                } else {
+            var selected = search_results_list.get_selected_row();
+            bool keep_top = selected == null || selected.get_index() == 0;
+            search_rows.apply(search_results_list, results);
+            if (!headers_ready) {
+                headers_ready = true;
+                search_results_list.set_header_func((row, before) => {
+                    var res_row = row as SearchResultRow;
+                    if (res_row == null) return;
                     var before_row = before as SearchResultRow;
-                    if (before_row != null &&
-                        before_row.result.provider.id != res_row.result.provider.id) {
-                        needs_header = true;
+                    bool needs_header = before == null ||
+                        (before_row != null && before_row.result.provider.id != res_row.result.provider.id);
+                    if (needs_header) {
+                        var lbl = new Label(res_row.result.provider.name.up());
+                        lbl.add_css_class("search-category-header");
+                        lbl.halign = Align.START;
+                        row.set_header(lbl);
+                    } else {
+                        row.set_header(null);
                     }
-                }
-                if (needs_header) {
-                    var lbl = new Label(res_row.result.provider.name.up());
-                    lbl.add_css_class("search-category-header");
-                    lbl.halign = Align.START;
-                    row.set_header(lbl);
-                } else {
-                    row.set_header(null);
-                }
-            });
-
-            var first = search_results_list.get_row_at_index(0);
-            if (first != null) {
-                search_results_list.select_row(first);
+                });
             }
+            var first = search_results_list.get_row_at_index(0);
+            if (first != null && keep_top) search_results_list.select_row(first);
         }
-
-        private uint _search_debounce = 0;
 
         private void on_search_changed(Singularity.Widgets.SearchEntry entry) {
             string query = entry.text.strip();
-            if (_search_debounce != 0) { GLib.Source.remove(_search_debounce); _search_debounce = 0; }
             if (query == "") {
                 content_stack.visible_child_name = "grid";
+                stop_search();
                 return;
             }
             content_stack.visible_child_name = "search";
-            // Debounce so we don't fire a query (and spin up providers) on
-            // every keystroke.
-            _search_debounce = GLib.Timeout.add(160, () => {
-                _search_debounce = 0;
-                search_manager.query.begin(query);
-                return GLib.Source.REMOVE;
-            });
+            run_search(query);
         }
 
         public void toggle() {

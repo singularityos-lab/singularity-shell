@@ -104,6 +104,22 @@ namespace Singularity {
                 var result = build_result(metas.get_child_value(i), terms, i);
                 if (result != null) results.append(result);
             }
+            foreach (var result in results) {
+                string? image = result.get_data<string>("preview-image");
+                if (image == null) continue;
+                var file = image.has_prefix("/") ? File.new_for_path(image) : File.new_for_uri(image);
+                try {
+                    var texture = yield Singularity.Async.run<Gdk.Texture>((c) => {
+                        return Gdk.Texture.from_file(file);
+                    }, Singularity.Async.Qos.USER, cancellable);
+                    var preview = SearchResultPreview.for_paintable(texture);
+                    preview.large = result.get_data<bool>("preview-large");
+                    result.preview = preview;
+                } catch (Error e) {
+                    if (e is IOError.CANCELLED) throw e;
+                    debug("Search preview %s: %s", image, e.message);
+                }
+            }
             return results;
         }
 
@@ -142,6 +158,13 @@ namespace Singularity {
             bool keeps_open = false;
             if (dict.lookup("keeps-open", "b", out keeps_open)) result.keeps_open = keeps_open;
             result.preview = build_preview(dict);
+            string? image = null;
+            if (result.preview == null && dict.lookup("preview-image", "s", out image)) {
+                bool large = false;
+                dict.lookup("preview-large", "b", out large);
+                result.set_data<string>("preview-image", image);
+                result.set_data<bool>("preview-large", large);
+            }
 
             var actions = dict.lookup_value("actions", new VariantType("a(sss)"));
             if (actions != null) {
@@ -172,15 +195,6 @@ namespace Singularity {
             if (icon_value != null) {
                 var icon = GLib.Icon.deserialize(icon_value);
                 if (icon != null) return SearchResultPreview.for_icon(icon);
-            }
-            string? image = null;
-            if (dict.lookup("preview-image", "s", out image)) {
-                var file = image.has_prefix("/") ? File.new_for_path(image) : File.new_for_uri(image);
-                try {
-                    return SearchResultPreview.for_paintable(Gdk.Texture.from_file(file));
-                } catch (Error e) {
-                    debug("Search preview %s: %s", image, e.message);
-                }
             }
             string? text = null;
             if (dict.lookup("preview-text", "s", out text)) return SearchResultPreview.for_text(text);

@@ -1554,6 +1554,15 @@ window.inactive.shadow.color: %s
         return sidebar.get_settings_view().settings_entries();
     }
 
+    public Gee.List<Singularity.SettingsEntry> cached_settings_entries() {
+        ensure_sidebar();
+        if (settings.get_boolean("settings-in-window")) {
+            ensure_settings_window();
+            return settings_window.get_settings_view().cached_settings_entries();
+        }
+        return sidebar.get_settings_view().cached_settings_entries();
+    }
+
     public void reveal_setting(Singularity.SettingsEntry entry, bool activate) {
         ensure_sidebar();
         if (settings.get_boolean("settings-in-window")) {

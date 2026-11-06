@@ -11,6 +11,7 @@ namespace Singularity {
         private Revealer preview_revealer;
         private Box preview_box;
         private SearchManager search_manager;
+        private SearchSession? search_session = null;
         private Singularity.Animation.TimedAnimation? dialog_animation;
         private bool closing = false;
         private uint close_guard = 0;
@@ -32,7 +33,6 @@ namespace Singularity {
         private Label ai_answer;
         private ScrolledWindow ai_scroll;
         private bool updating_text = false;
-        private uint search_debounce = 0;
         private string active_query = "";
 
         private string[] _history = {};
@@ -76,7 +76,6 @@ namespace Singularity {
             StyleContext.add_provider_for_display(Gdk.Display.get_default(), compact_css,
                 STYLE_PROVIDER_PRIORITY_USER);
             search_manager = SearchManager.get_default();
-            search_manager.results_updated.connect(on_search_results);
 
             _actions = {
                 new PaletteAction("customize", "e", "document-edit-symbolic",
@@ -357,10 +356,8 @@ namespace Singularity {
         }
 
         private void enter_ai_mode(string query) {
-            if (search_debounce != 0) {
-                GLib.Source.remove(search_debounce);
-                search_debounce = 0;
-            }
+            if (search_session != null) search_session.cancel();
+            search_session = null;
             active_query = "";
             ai_mode = true;
             action_prefix.label = "@";
@@ -607,21 +604,15 @@ namespace Singularity {
         }
 
         private void schedule_search(string query) {
-            if (search_debounce != 0) {
-                GLib.Source.remove(search_debounce);
-                search_debounce = 0;
-            }
+            if (search_session != null) search_session.cancel();
+            search_session = null;
             active_query = query;
             if (query == "") {
                 set_results_visible(false);
                 return;
             }
-
-            search_debounce = GLib.Timeout.add(120, () => {
-                search_debounce = 0;
-                search_manager.query.begin(query);
-                return GLib.Source.REMOVE;
-            });
+            search_session = search_manager.start(query);
+            search_session.results_updated.connect(on_search_results);
         }
 
         private void on_search_results(List<SearchResult> results) {
@@ -1176,10 +1167,8 @@ exec dbus-run-session -- %s/bin/labwc -s "$S"
 
         public override void close_dialog() {
             stop_ai();
-            if (search_debounce != 0) {
-                GLib.Source.remove(search_debounce);
-                search_debounce = 0;
-            }
+            if (search_session != null) search_session.cancel();
+            search_session = null;
             set_results_visible(false);
             hide_preview();
             error_label.visible = false;

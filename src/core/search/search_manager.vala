@@ -8,7 +8,9 @@ namespace Singularity {
         private static SearchManager? _instance = null;
         private List<SearchProvider> providers;
         private FileSearchProvider? file_provider = null;
-        private Cancellable? current_cancellable = null;
+        private SearchSession? legacy_session = null;
+        private const uint REMOTE_DELAY_MS = 120;
+        private const uint SCRIPT_DELAY_MS = 60;
 
         public signal void results_updated(List<SearchResult> results);
         public signal void search_started();
@@ -107,26 +109,6 @@ namespace Singularity {
             load_remote_providers();
         }
 
-        private static List<SearchResult> group_by_provider(List<SearchResult> sorted) {
-            var order = new GenericArray<string>();
-            var groups = new HashTable<string, GenericArray<SearchResult>>(str_hash, str_equal);
-            foreach (var r in sorted) {
-                string key = r.provider.id;
-                var group = groups[key];
-                if (group == null) {
-                    group = new GenericArray<SearchResult>();
-                    groups[key] = group;
-                    order.add(key);
-                }
-                group.add(r);
-            }
-            var grouped = new List<SearchResult>();
-            foreach (unowned string key in order.data) {
-                foreach (var r in groups[key].data) grouped.append(r);
-            }
-            return grouped;
-        }
-
         private void load_script_providers() {
             string config_dir = GLib.Path.build_filename(Environment.get_user_config_dir(), "singularity", "search-providers");
             Dir? dir = null;
@@ -146,72 +128,26 @@ namespace Singularity {
             }
         }
 
-        public async void query(string text) {
-            if (current_cancellable != null) {
-                current_cancellable.cancel();
-            }
-            current_cancellable = new Cancellable();
-            var cancellable = current_cancellable;
-            search_started();
-
-            var all_results = new List<SearchResult>();
-            var round = new SearchRound((int)providers.length());
-
-            if (round.finished) {
-                results_updated(all_results);
-                search_finished();
-                return;
-            }
-
-            foreach (var provider in providers) {
-                search_provider_async.begin(provider, text, cancellable, (obj, res) => {
-                    var provider_results = search_provider_async.end(res);
-                    if (cancellable.is_cancelled()) return;
-                    if (provider_results != null) {
-                        foreach (var r in provider_results) {
-                            bool duplicate = false;
-                            if (r.action_id != null) {
-                                foreach (var existing in all_results) {
-                                    if (existing.action_id == r.action_id) {
-                                        duplicate = true;
-                                        // Keep the one with higher score
-                                        if (r.score > existing.score) {
-                                            existing.score = r.score;
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (!duplicate) {
-                                all_results.append(r);
-                            }
-                        }
-
-                        all_results.sort((a, b) => {
-                            if (a.score > b.score) return -1;
-                            if (a.score < b.score) return 1;
-                            return 0;
-                        });
-                        all_results = group_by_provider(all_results);
-                    }
-
-                    if (round.provider_done(provider_results != null))
-                        results_updated(all_results);
-                    if (round.finished) search_finished();
-                });
-            }
+        public SearchSession start(string text) {
+            var session = new SearchSession(text);
+            session.start(providers, start_delay);
+            return session;
         }
 
-        private async List<SearchResult>? search_provider_async(SearchProvider provider, string query, Cancellable cancellable) {
-            try {
-                return yield provider.search(query, cancellable);
-            } catch (Error e) {
-                if (!(e is IOError.CANCELLED)) {
-                    warning("Search provider %s error: %s", provider.name, e.message);
-                }
-                return null;
-            }
+        private static uint start_delay(SearchProvider provider) {
+            if (provider is RemoteSearchProvider) return REMOTE_DELAY_MS;
+            if (provider is ScriptSearchProvider) return SCRIPT_DELAY_MS;
+            return 0;
+        }
+
+        public async void query(string text) {
+            if (legacy_session != null) legacy_session.cancel();
+            var session = new SearchSession(text);
+            legacy_session = session;
+            search_started();
+            session.results_updated.connect((results) => results_updated(results));
+            session.finished.connect(() => search_finished());
+            session.start(providers, start_delay);
         }
     }
 

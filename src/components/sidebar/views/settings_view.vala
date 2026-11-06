@@ -17,6 +17,8 @@ namespace Singularity {
         private Singularity.SidebarPages.AppDetailsPage app_details_page;
         private Gee.HashMap<string, Widget> _page_cache;
         private Gee.ArrayList<SettingsEntry> _search_items = new Gee.ArrayList<SettingsEntry>();
+        private Gee.ArrayList<SettingsEntry> _cached_items = new Gee.ArrayList<SettingsEntry>();
+        private int _cached_index_pages = -1;
         private GLib.Settings _desktop_settings;
         private Widget? _developer_nav_row = null;
         private Widget _keyboard_nav_row;
@@ -332,6 +334,20 @@ namespace Singularity {
         public Gee.List<SettingsEntry> settings_entries() {
             ensure_search_index();
             return _search_items.read_only_view;
+        }
+
+        public Gee.List<SettingsEntry> cached_settings_entries() {
+            if (_page_cache.size != _cached_index_pages) {
+                _search_items.clear();
+                foreach (string page_name in get_searchable_pages()) {
+                    var page = _page_cache[page_name] as SettingsPage;
+                    if (page != null) collect_page_search_items(page_name, page);
+                }
+                _cached_items = new Gee.ArrayList<SettingsEntry>();
+                _cached_items.add_all(_search_items);
+                _cached_index_pages = _page_cache.size;
+            }
+            return _cached_items.read_only_view;
         }
 
         public void reveal_title(string page_name, string title) {

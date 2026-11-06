@@ -81,6 +81,7 @@ namespace Singularity {
             search_entry.margin_start = 12;
             search_entry.margin_end = 12;
             search_entry.hexpand = true;
+            search_entry.entry.search_delay = 0;
             search_entry.search_changed.connect(on_search_changed);
             main_box.append(search_entry);
 
@@ -135,7 +136,11 @@ namespace Singularity {
                 }
             });
 
-            search_manager.results_updated.connect(update_search_results);
+            search_rows = new SearchRowCache((result) => {
+                var row = new SearchResultRow(result);
+                row.request_close.connect(() => toggle());
+                return row;
+            });
 
             var key_controller = new EventControllerKey();
             key_controller.set_propagation_phase(PropagationPhase.CAPTURE);
@@ -238,25 +243,34 @@ namespace Singularity {
             string query = entry.text.strip();
             if (query == "") {
                 content_stack.visible_child_name = "grid";
+                stop_search();
             } else {
                 content_stack.visible_child_name = "search";
-                search_manager.query.begin(query);
+                run_search(query);
             }
         }
 
+        private SearchRowCache search_rows;
+        private SearchSession? search_session = null;
+
+        private void run_search(string query) {
+            if (search_session != null) search_session.cancel();
+            search_session = search_manager.start(query);
+            search_session.results_updated.connect(update_search_results);
+        }
+
+        private void stop_search() {
+            if (search_session != null) search_session.cancel();
+            search_session = null;
+            search_rows.clear(search_results_list);
+        }
+
         private void update_search_results(List<SearchResult> results) {
-            Widget? child = search_results_list.get_first_child();
-            while (child != null) {
-                search_results_list.remove(child);
-                child = search_results_list.get_first_child();
-            }
-            foreach (var res in results) {
-                var row = new SearchResultRow(res);
-                row.request_close.connect(() => toggle());
-                search_results_list.append(row);
-            }
+            var selected = search_results_list.get_selected_row();
+            bool keep_top = selected == null || selected.get_index() == 0;
+            search_rows.apply(search_results_list, results);
             var first = search_results_list.get_row_at_index(0);
-            if (first != null) search_results_list.select_row(first);
+            if (first != null && keep_top) search_results_list.select_row(first);
         }
 
         public void toggle() {
@@ -272,6 +286,7 @@ namespace Singularity {
                     Singularity.Animation.TimedAnimation.Easing.EASE_IN_CUBIC
                 );
                 menu_animation.tick.connect(() => { opacity = menu_animation.value; });
+                stop_search();
                 menu_animation.done.connect(() => {
                     if (_is_open) return;
                     close_layer_window (this);
