@@ -449,6 +449,11 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             ensure_run_dialog();
             run_dialog.toggle_ai();
         });
+        Singularity.SystemMonitor.get_default().shortcuts.agent_voice_triggered.connect(() => {
+            if (!Singularity.AgentConfig.configured()) return;
+            ensure_run_dialog();
+            run_dialog.voice_ai();
+        });
         Singularity.AgentConfirmations.start(this);
         Singularity.ClipboardHistory.get_default().start();
         Singularity.StageManager.get_default().start(this);

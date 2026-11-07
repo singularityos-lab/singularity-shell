@@ -30,6 +30,8 @@ namespace Singularity {
         private bool ai_mode_syncing = false;
         private const string[] AGENT_MODES = { "plan", "ask", "auto", "autopilot" };
         private Button ai_close;
+        private Button ai_voice;
+        private AgentVoice voice;
         private Label ai_answer;
         private ScrolledWindow ai_scroll;
         private bool updating_text = false;
@@ -72,7 +74,8 @@ namespace Singularity {
             var compact_css = new CssProvider();
             compact_css.load_from_string(
                 "window.run-dialog.run-compact { background-color: transparent; }" +
-                ".agent-card { padding: 12px; border-radius: 14px; background-color: alpha(currentColor, 0.06); }");
+                ".agent-card { padding: 12px; border-radius: 14px; background-color: alpha(currentColor, 0.06); }" +
+                "button.agent-voice.live, button.agent-voice.live image { color: @accent_color; }");
             StyleContext.add_provider_for_display(Gdk.Display.get_default(), compact_css,
                 STYLE_PROVIDER_PRIORITY_USER);
             search_manager = SearchManager.get_default();
@@ -132,6 +135,36 @@ namespace Singularity {
             ai_controls.halign = Align.END;
             ai_controls.valign = Align.CENTER;
             ai_controls.margin_end = 6;
+            ai_voice = new Button.from_icon_name("audio-input-microphone-symbolic");
+            ai_voice.add_css_class("flat");
+            ai_voice.add_css_class("circular");
+            ai_voice.add_css_class("agent-voice");
+            ai_voice.tooltip_text = _("Talk to Sinty AI");
+            ai_voice.visible = false;
+            ai_voice.clicked.connect(on_voice_clicked);
+            ai_controls.append(ai_voice);
+            voice = new AgentVoice();
+            voice.notify["preview"].connect(() => {
+                if (!voice.listening) return;
+                updating_text = true;
+                entry.text = voice.preview;
+                entry.set_position(-1);
+                updating_text = false;
+            });
+            voice.notify["listening"].connect(sync_voice);
+            voice.notify["speaking"].connect(sync_voice);
+            voice.notify["active"].connect(sync_voice);
+            voice.heard.connect((text) => {
+                updating_text = true;
+                entry.text = text;
+                updating_text = false;
+                ask_ai();
+            });
+            voice.failed.connect((message) => {
+                error_label.label = message;
+                error_label.visible = true;
+                queue_resize();
+            });
             ai_mode_select = new Singularity.Widgets.ChoiceButton.from_strings({
                 _("Plan"), _("Ask"), _("Auto"), _("Autopilot")
             });
@@ -377,6 +410,7 @@ namespace Singularity {
 
         private void sync_agent_mode() {
             ai_mode_select.visible = ai_mode;
+            ai_voice.visible = ai_mode;
             reserve_ai_space();
             fetch_agent_mode.begin(2);
         }
@@ -430,6 +464,8 @@ namespace Singularity {
         }
 
         private void leave_ai_mode() {
+            voice.end();
+            ai_voice.visible = false;
             stop_ai();
             set_ai_compact(false);
             ai_mode_select.visible = false;
@@ -456,6 +492,53 @@ namespace Singularity {
             var text = entry.get_delegate() as Widget;
             if (text == null) return;
             text.margin_end = ai_mode_select.visible || ai_close.visible ? nat + ai_controls.margin_end + 6 : 0;
+        }
+
+        private void on_voice_clicked() {
+            if (voice.active) {
+                if (voice.mode == AgentVoiceMode.MESSAGE && voice.listening) voice.finish_turn();
+                else voice.end();
+                return;
+            }
+            show_voice_menu();
+        }
+
+        private void show_voice_menu() {
+            var menu = new Singularity.Widgets.ContextMenu(ai_voice);
+            menu.add_item(_("Voice Message"), null, () => start_voice(AgentVoiceMode.MESSAGE));
+            menu.add_item(_("Continuous Conversation"), null, () => start_voice(AgentVoiceMode.CALL));
+            menu.closed.connect(() => Idle.add(() => {
+                menu.unparent();
+                return Source.REMOVE;
+            }));
+            menu.popup();
+        }
+
+        private void start_voice(AgentVoiceMode mode) {
+            if (ai_process != null) return;
+            error_label.visible = false;
+            voice.start(mode);
+        }
+
+        private void sync_voice() {
+            if (voice.listening || voice.speaking) ai_voice.add_css_class("live");
+            else ai_voice.remove_css_class("live");
+            if (!voice.active) {
+                ai_voice.tooltip_text = _("Talk to Sinty AI");
+            } else if (voice.mode == AgentVoiceMode.CALL) {
+                ai_voice.tooltip_text = _("End Conversation");
+            } else {
+                ai_voice.tooltip_text = _("Send Voice Message");
+            }
+            entry.editable = !voice.listening;
+            if (voice.listening) entry.placeholder_text = _("Listening");
+            else if (voice.speaking) entry.placeholder_text = _("Speaking");
+            else if (ai_mode) entry.placeholder_text = _("Ask Sinty AI");
+            if (voice.listening && voice.preview == "") {
+                updating_text = true;
+                entry.text = "";
+                updating_text = false;
+            }
         }
 
         private void stop_ai() {
@@ -579,6 +662,7 @@ namespace Singularity {
             ai_spinner.visible = false;
             entry.sensitive = true;
             entry.grab_focus();
+            if (!ok) voice.end();
             if (ok) {
                 string answer = (out_text ?? "").strip();
                 string markup = AnswerMarkup.to_pango(answer);
@@ -593,6 +677,7 @@ namespace Singularity {
                 updating_text = true;
                 entry.text = "";
                 updating_text = false;
+                if (voice.active) voice.reply.begin(answer);
             } else if (failure.contains("no key for this provider")) {
                 error_label.label = _("No API key saved. Add one in Settings, Sinty AI.");
                 error_label.visible = true;
@@ -1166,6 +1251,7 @@ exec dbus-run-session -- %s/bin/labwc -s "$S"
         }
 
         public override void close_dialog() {
+            voice.end();
             stop_ai();
             if (search_session != null) search_session.cancel();
             search_session = null;
@@ -1218,6 +1304,22 @@ exec dbus-run-session -- %s/bin/labwc -s "$S"
             enter_ai_mode("");
             ai_direct = true;
             entry.grab_focus();
+        }
+
+        public void voice_ai() {
+            if (!AgentConfig.configured()) return;
+            if (!shown()) open_dialog();
+            else if (!ai_mode) leave_action_mode();
+            if (!ai_mode) enter_ai_mode("");
+            ai_direct = true;
+            if (voice.active) {
+                on_voice_clicked();
+                return;
+            }
+            Idle.add(() => {
+                show_voice_menu();
+                return Source.REMOVE;
+            });
         }
 
         public void toggle() {
