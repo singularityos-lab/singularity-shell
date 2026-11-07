@@ -385,6 +385,7 @@ namespace Singularity.SidebarPages {
                 if (mode.preferred) s += " (Preferred)";
                 if (s == val) {
                     selected_monitor.current_mode = mode;
+                    selected_monitor.restore_refresh = 0;
                     update_controls();
                     preview.queue_draw();
                     set_dirty(true);

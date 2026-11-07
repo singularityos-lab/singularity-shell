@@ -218,6 +218,75 @@ namespace Singularity.SidebarPages {
             group.visible = ppm.available;
             ppm.notify["available"].connect(() => group.visible = ppm.available);
             add_group(group);
+            reason_group = group;
+            if (settings.settings_schema.has_key("battery-refresh-rate")) {
+                var refresh_row = new SwitchRow(_("Lower Refresh Rate on Battery"),
+                    _("Built-in screens run at 60 Hz until the computer is plugged in"));
+                settings.bind("battery-refresh-rate", refresh_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+                group.add_row(refresh_row);
+            }
+            connect_reasons.begin();
+        }
+
+        private PreferencesGroup reason_group;
+        private Gee.ArrayList<Widget> reason_rows = new Gee.ArrayList<Widget>();
+        private DBusProxy? power_proxy = null;
+
+        private async void connect_reasons() {
+            try {
+                power_proxy = yield new DBusProxy.for_bus(BusType.SYSTEM, DBusProxyFlags.DO_NOT_AUTO_START,
+                    null, "dev.sinty.Power1", "/dev/sinty/Power1", "dev.sinty.Power1", null);
+                power_proxy.g_properties_changed.connect(() => update_reasons());
+                update_reasons();
+            } catch (Error e) {
+                debug("PowerPage: %s", e.message);
+            }
+        }
+
+        internal static void describe_reason(string id, string a, string b, out string title, out string subtitle) {
+            switch (id) {
+            case "thermal":
+                title = _("Limited by Temperature");
+                subtitle = _("The processor is at %s °C and gets %s%% of its power until it cools down").printf(a, b);
+                return;
+            case "battery":
+                title = _("Saving Energy on Battery");
+                subtitle = _("Balanced prefers efficiency while the computer runs on battery");
+                return;
+            case "hold-power-saver":
+                if (a == "sinty-powerd") {
+                    title = _("Saving Battery");
+                    subtitle = _("The battery is low, so Power Saver stays on until you plug in");
+                } else {
+                    title = _("Power Saver Requested");
+                    subtitle = b != "" ? "%s: %s".printf(a, b) : a;
+                }
+                return;
+            case "hold-performance":
+                title = _("Performance Requested");
+                subtitle = b != "" ? "%s: %s".printf(a, b) : a;
+                return;
+            }
+            title = id;
+            subtitle = a;
+        }
+
+        private void update_reasons() {
+            foreach (var w in reason_rows) reason_group.remove_row(w);
+            reason_rows.clear();
+            var v = power_proxy != null ? power_proxy.get_cached_property("Reasons") : null;
+            if (v == null || !v.is_of_type(new VariantType("aas"))) return;
+            for (size_t i = 0; i < v.n_children(); i++) {
+                var item = v.get_child_value(i);
+                if (item.n_children() < 3) continue;
+                string title, subtitle;
+                describe_reason(item.get_child_value(0).get_string(), item.get_child_value(1).get_string(),
+                    item.get_child_value(2).get_string(), out title, out subtitle);
+                var row = new ActionRow(title, subtitle, "dialog-information-symbolic");
+                row.activatable = false;
+                reason_group.add_row(row);
+                reason_rows.add(row);
+            }
         }
 
         private void build_buttons() {

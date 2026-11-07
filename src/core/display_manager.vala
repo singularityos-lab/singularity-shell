@@ -107,9 +107,15 @@ namespace Singularity {
             public bool enabled;
             public bool vrr_supported { get; set; default = false; }
             public bool vrr_enabled { get; set; default = false; }
+            public int restore_refresh = 0;
             public List<Mode?> modes;
             public Mode? current_mode;
             public void* head_handle;
+
+            public int saved_refresh() {
+                if (current_mode == null) return 0;
+                return restore_refresh > 0 ? restore_refresh : current_mode.refresh;
+            }
 
             public Monitor(void* handle) {
                 this.head_handle = handle;
@@ -300,7 +306,7 @@ namespace Singularity {
             foreach (var m in monitors) {
                 int mw = m.current_mode != null ? m.current_mode.width : 0;
                 int mh = m.current_mode != null ? m.current_mode.height : 0;
-                int mr = m.current_mode != null ? m.current_mode.refresh : 0;
+                int mr = m.current_mode != null ? m.saved_refresh() : 0;
                 xml.append_printf("  <output name=\"%s\">\n", m.name ?? "");
                 xml.append_printf("    <mode width=\"%d\" height=\"%d\" refresh=\"%d\"/>\n", mw, mh, mr);
                 xml.append_printf("    <position x=\"%d\" y=\"%d\"/>\n", m.x, m.y);
@@ -348,7 +354,7 @@ namespace Singularity {
                     if (m.current_mode != null) {
                         builder.set_member_name("mode_w"); builder.add_int_value(m.current_mode.width);
                         builder.set_member_name("mode_h"); builder.add_int_value(m.current_mode.height);
-                        builder.set_member_name("mode_r"); builder.add_int_value(m.current_mode.refresh);
+                        builder.set_member_name("mode_r"); builder.add_int_value(m.saved_refresh());
                     }
                     builder.end_object();
                 }
