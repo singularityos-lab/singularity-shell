@@ -60,6 +60,11 @@ namespace Singularity.SidebarPages {
                 reader_page, "accessibility-screen-reader");
             vision_group.add_row(reader_link);
             update_reader_subtitle();
+            var voice_page = new SpokenVoicePage(view);
+            var voice_link = subpages.link(_("Spoken Voice"), _("Automatic"), "audio-speakers-symbolic",
+                voice_page, "accessibility-voice");
+            voice_page.summary_changed.connect((summary) => voice_link.subtitle = summary);
+            vision_group.add_row(voice_link);
             if (has_key(applications_settings, "screen-reader-enabled"))
                 applications_settings.changed["screen-reader-enabled"].connect(update_reader_subtitle);
             vision_group.add_row(subpages.link(_("Seeing"), _("Contrast, motion, text size, cursor and color filters"),

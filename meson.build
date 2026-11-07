@@ -503,6 +503,7 @@ singularity_core_sources = files(
     'src/components/sidebar/pages/keyboard_page.vala',
     'src/components/sidebar/pages/accessibility_page.vala',
     'src/components/sidebar/pages/screen_reader_page.vala',
+    'src/components/sidebar/pages/spoken_voice_page.vala',
     'src/components/sidebar/pages/apps_page.vala',
     'src/components/sidebar/pages/autostart_page.vala',
     'src/components/sidebar/pages/permission_rows.vala',
