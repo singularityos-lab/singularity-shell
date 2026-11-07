@@ -27,7 +27,8 @@ namespace Singularity {
                 WallpaperRotationState.default_config_dir());
 
             var button = new MenuButton();
-            button.add_css_class("flat");
+            button.has_frame = false;
+            button.get_first_child().add_css_class("system-pill-button");
             button.tooltip_text = _("Wallpaper controls");
             var icon = new Image.from_icon_name("preferences-desktop-wallpaper-symbolic");
             icon.pixel_size = 16;
@@ -435,6 +436,7 @@ namespace Singularity {
             a11y_button = new Button.from_icon_name("preferences-desktop-accessibility-symbolic");
             a11y_button.has_frame = false;
             a11y_button.valign = Align.CENTER;
+            a11y_button.add_css_class("system-pill-button");
             a11y_button.add_css_class("accessibility-button");
             a11y_button.tooltip_text = _("Accessibility");
             a11y_button.clicked.connect(() => a11y_menu());
@@ -814,6 +816,7 @@ namespace Singularity {
             var notif_btn = new Button();
             notif_btn.has_frame = false;
             notif_btn.valign = Align.CENTER;
+            notif_btn.add_css_class("system-pill-button");
             notif_btn.add_css_class("notification-button");
 
             var notif_overlay = new Overlay();
@@ -853,6 +856,8 @@ namespace Singularity {
 
             var clock_btn = new Button();
             clock_btn.has_frame = false;
+            clock_btn.valign = Align.CENTER;
+            clock_btn.add_css_class("system-pill-button");
             clock_btn.add_css_class("clock-button");
             clock_label = new Label("00:00");
             clock_label.add_css_class("clock");
