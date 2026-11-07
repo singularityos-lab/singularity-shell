@@ -437,6 +437,7 @@ singularity_core_sources = files(
     'src/components/panel/recording_indicator.vala',
     'src/components/panel/screen_sharing_indicator.vala',
     'src/components/panel/nearby_indicator.vala',
+    'src/components/panel/device_charging_indicator.vala',
     'src/core/plugin_manager.vala',
     'src/components/dock/dock.vala',
     'src/components/dock/dock_motion_hints.vala',
