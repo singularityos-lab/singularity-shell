@@ -35,6 +35,10 @@ namespace Singularity.SidebarPages {
         private Label _compute_error;
         private DBusProxy? _compute;
         private bool _compute_guard;
+        private PreferencesGroup gpu_group;
+        private SelectionRow gpu_mode;
+        private Label gpu_error;
+        private bool gpu_guard;
 
         public PerformancePage(SettingsView view) {
             base(_("Performance"));
@@ -121,6 +125,8 @@ namespace Singularity.SidebarPages {
             profile_group.visible = ppm.available;
             ppm.notify["available"].connect(() => profile_group.visible = ppm.available);
             add_group(profile_group);
+
+            build_gpu_mode();
 
 
             var background_group = new PreferencesGroup(_("Background Apps"));
@@ -267,6 +273,70 @@ namespace Singularity.SidebarPages {
             var wrapper = new Box(Orientation.VERTICAL, 0);
             wrapper.append(_compute_error);
             add_widget(wrapper);
+        }
+
+        private void build_gpu_mode() {
+            gpu_group = new PreferencesGroup(_("Graphics"));
+            gpu_group.description = _("Hybrid draws the desktop on the integrated GPU and wakes the dedicated one for the apps that ask for it. Dedicated GPU Only connects the screen to the dedicated GPU.");
+            gpu_group.visible = false;
+            var modes = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
+            modes.add(compute_option("hybrid", _("Hybrid"), _("Longer battery life")));
+            modes.add(compute_option("dedicated", _("Dedicated GPU Only"), _("Highest frame rates, shorter battery life")));
+            gpu_mode = new SelectionRow.with_options(_("GPU Mode"), modes, "hybrid");
+            gpu_mode.selected.connect((id) => {
+                if (gpu_guard) return;
+                set_gpu_mode.begin(id);
+            });
+            gpu_group.add_row(gpu_mode);
+            add_group(gpu_group);
+
+            gpu_error = new Label("");
+            gpu_error.add_css_class("error");
+            gpu_error.wrap = true;
+            gpu_error.visible = false;
+            gpu_error.margin_start = 16;
+            gpu_error.margin_end = 16;
+            gpu_error.xalign = 0f;
+            var wrapper = new Box(Orientation.VERTICAL, 0);
+            wrapper.append(gpu_error);
+            add_widget(wrapper);
+
+            refresh_gpu_mode.begin();
+            map.connect(() => refresh_gpu_mode.begin());
+        }
+
+        private async void refresh_gpu_mode() {
+            string mode = "", booted = "";
+            try {
+                var bus = yield Bus.get(BusType.SYSTEM);
+                var reply = yield bus.call("dev.sinty.Power1", "/dev/sinty/Power1", "org.freedesktop.DBus.Properties", "GetAll",
+                    new Variant("(s)", "dev.sinty.Power1"), new VariantType("(a{sv})"), DBusCallFlags.NONE, -1);
+                var props = new VariantDict(reply.get_child_value(0));
+                props.lookup("GpuMux", "s", out mode);
+                props.lookup("GpuMuxBooted", "s", out booted);
+            } catch (Error e) {
+            }
+            gpu_group.visible = mode != "";
+            if (mode == "") return;
+            gpu_guard = true;
+            gpu_mode.current_value = mode;
+            gpu_guard = false;
+            gpu_mode.subtitle = mode != booted ? _("Changes after a restart") : "";
+        }
+
+        private async void set_gpu_mode(string mode) {
+            string? failure = null;
+            try {
+                var bus = yield Bus.get(BusType.SYSTEM);
+                yield bus.call("dev.sinty.Power1", "/dev/sinty/Power1", "dev.sinty.Power1", "SetGpuMux",
+                    new Variant("(s)", mode), null, DBusCallFlags.ALLOW_INTERACTIVE_AUTHORIZATION, -1);
+            } catch (Error e) {
+                DBusError.strip_remote_error(e);
+                failure = e.message;
+            }
+            gpu_error.label = failure ?? "";
+            gpu_error.visible = failure != null;
+            yield refresh_gpu_mode();
         }
 
         private static Singularity.Core.AppSettingOption compute_option(string id, string label, string subtitle) {
