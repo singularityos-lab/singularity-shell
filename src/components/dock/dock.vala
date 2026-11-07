@@ -2252,6 +2252,12 @@ namespace Singularity {
                         AppSystem.launch_app(app_info);
                     }
                 });
+                if (app_info != null && GpuOffload.get_default().available && !GpuOffload.prefers(app_info)) {
+                    menu.add_item(_("Open with Dedicated GPU"), "video-display-symbolic", () => {
+                        announce_launch(app_info, app_id);
+                        AppSystem.launch_app(app_info, null, true);
+                    });
+                }
             } else {
                 menu.add_item("New Window", "window-new-symbolic", () => {
                     if (app_info == null) return;

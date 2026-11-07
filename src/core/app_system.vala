@@ -2172,9 +2172,10 @@ namespace Singularity {
         }
 
         // Centralized app launch - injects MangoHud/GameMode env if enabled
-        public static void launch_app(GLib.AppInfo app_info, GLib.List<GLib.File>? files = null) {
+        public static void launch_app(GLib.AppInfo app_info, GLib.List<GLib.File>? files = null, bool discrete_gpu = false) {
             if (!ParentalEnforcer.get_default().allows(app_info)) return;
             var ctx = (GLib.AppLaunchContext) Gdk.Display.get_default().get_app_launch_context();
+            if (discrete_gpu || GpuOffload.prefers(app_info)) GpuOffload.get_default().apply(ctx);
             var shell_settings = new GLib.Settings("dev.sinty.desktop");
             if (shell_settings.get_boolean("mangohud-auto")) {
                 var dai = app_info as GLib.DesktopAppInfo;
