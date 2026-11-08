@@ -286,6 +286,7 @@ namespace Singularity {
                 case "agent": return "dialog-question-symbolic";
                 case "updates": return "software-update-available-symbolic";
                 case "system": return "computer-symbolic";
+                case "sinty-key": return "drive-removable-media-symbolic";
             }
             return "preferences-system-symbolic";
         }
@@ -294,7 +295,7 @@ namespace Singularity {
             return { "network", NetworkPage.WIFI, NetworkPage.WIRED, NetworkPage.VPN, NetworkPage.DYNAMIC,
                      NetworkPage.HOTSPOT, "sharing", "apps", "autostart", "privacy", "users", "accounts", "displays", "region", "datetime",
                      "desktop", "sound", "notifications", "wellbeing", "bluetooth", "connected-devices", "printers", "keyboard", "tablet", "developer", "accessibility",
-                     "plugins", "power", "performance", "agent", "updates", "system" };
+                     "plugins", "power", "performance", "agent", "updates", "system", "sinty-key" };
         }
 
         private void setup_settings_search() {

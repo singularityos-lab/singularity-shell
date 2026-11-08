@@ -6,6 +6,7 @@ namespace Singularity.SidebarPages {
 
     public class SintyKeyPage : SettingsPage {
         private SettingsView view;
+        private PreferencesGroup running_group;
         private PreferencesGroup drives_group;
         private PreferencesGroup trusted_group;
         private StatusPage empty;
@@ -20,6 +21,14 @@ namespace Singularity.SidebarPages {
             empty.title = _("Insert a Drive");
             empty.description = _("A Sinty Key keeps your files encrypted on a USB drive and opens them with your PIN on any Sinty OS computer.");
             add_widget(empty);
+
+            running_group = new PreferencesGroup(_("This Computer"));
+            bool guest = FileUtils.test("/run/sinty-key/guest", FileTest.EXISTS);
+            running_group.add_row(new ActionRow(_("Running from your Sinty Key"),
+                guest ? _("Open as a guest, nothing is kept on this computer") : _("Open, this computer is remembered"),
+                "drive-removable-media-symbolic"));
+            running_group.visible = guest || FileUtils.test("/run/sinty-key/portable", FileTest.EXISTS);
+            add_group(running_group);
 
             drives_group = new PreferencesGroup(_("Drives"));
             add_group(drives_group);
@@ -53,7 +62,7 @@ namespace Singularity.SidebarPages {
         private async void refresh() {
             drives_group.clear();
             var drives = Client.removable_drives();
-            empty.visible = drives.size == 0;
+            empty.visible = drives.size == 0 && !running_group.visible;
             drives_group.visible = drives.size > 0;
             foreach (string root in drives) {
                 string name = Path.get_basename(root);
