@@ -555,6 +555,22 @@ static void on_fprint_status(const char *text, bool error) {
     render_all();
 }
 
+static bool retry_wait_text(char *out, size_t n) {
+    char path[64];
+    snprintf(path, sizeof path, "/run/sinty-key/wait-%u", (unsigned)getuid());
+    FILE *f = fopen(path, "re");
+    if (!f) return false;
+    long long until = 0;
+    int ok = fscanf(f, "%lld", &until);
+    fclose(f);
+    if (ok != 1) return false;
+    long long left = until - (long long)time(NULL);
+    if (left <= 0) return false;
+    if (left < 120) snprintf(out, n, "Too many attempts. Try again in %lld seconds.", left);
+    else snprintf(out, n, "Too many attempts. Try again in %lld minutes.", (left + 59) / 60);
+    return true;
+}
+
 static void submit_password(void) {
     if (password_len == 0) return;
     password[password_len] = '\0';
@@ -573,8 +589,9 @@ static void submit_password(void) {
         begin_leave();
     } else {
         if (!motion_reduced) shake_start = now_us();
-        snprintf(status_text, sizeof status_text, "%s",
-                 (access("/run/sinty-recoverd.sock", F_OK) == 0) ? "Incorrect PIN" : "Incorrect password");
+        if (!retry_wait_text(status_text, sizeof status_text))
+            snprintf(status_text, sizeof status_text, "%s",
+                     (access("/run/sinty-recoverd.sock", F_OK) == 0) ? "Incorrect PIN" : "Incorrect password");
         status_error = true;
         render_all();
     }
