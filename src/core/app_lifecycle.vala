@@ -128,6 +128,16 @@ namespace Singularity {
                     warning("app-lifecycle: %s", e.message);
                 }
                 active = true;
+                if (!saving) {
+                    foreach (var entry in entries.get_values()) {
+                        if (!entry.frozen_by_us) continue;
+                        AppPause.get_default().resume(entry.app_id);
+                        entry.frozen_by_us = false;
+                        entry.cls = AppState.BACKGROUND_IDLE;
+                        entry.hidden_since = get_monotonic_time();
+                        message("app-lifecycle: %s resumed, no longer saving power", entry.app_id);
+                    }
+                }
                 apply();
             } else {
                 FileUtils.unlink(flag);
