@@ -7,6 +7,7 @@ namespace Singularity.SidebarPages {
     public class SintyKeyPage : SettingsPage {
         private SettingsView view;
         private PreferencesGroup drives_group;
+        private PreferencesGroup trusted_group;
         private StatusPage empty;
         private VolumeMonitor monitor;
 
@@ -22,6 +23,11 @@ namespace Singularity.SidebarPages {
 
             drives_group = new PreferencesGroup(_("Drives"));
             add_group(drives_group);
+            trusted_group = new PreferencesGroup(_("Trusted Devices"),
+                _("Keys this computer remembers. Revoke one you lost: it then opens here only with its recovery code."));
+            trusted_group.visible = false;
+            add_group(trusted_group);
+            refresh_trusted.begin();
 
             monitor = VolumeMonitor.get();
             monitor.mount_added.connect(() => refresh.begin());
@@ -74,6 +80,40 @@ namespace Singularity.SidebarPages {
                     drives_group.add_row(row);
                 }
             }
+        }
+
+        private async void refresh_trusted() {
+            trusted_group.clear();
+            Gee.ArrayList<TrustedDevice> list;
+            try {
+                list = yield Client.get_default().devices();
+            } catch (KeyError e) {
+                trusted_group.visible = false;
+                return;
+            }
+            foreach (var d in list) {
+                string when = d.last_used > 0
+                    ? _("Last used %s").printf(new DateTime.from_unix_local(d.last_used).format(_("%e %B %Y")).strip())
+                    : "";
+                var row = new ActionRow(d.name, when, "drive-removable-media-symbolic");
+                var revoke = row_button(_("Revoke"), false);
+                revoke.add_css_class("destructive-action");
+                string kind = d.kind, id = d.id;
+                revoke.clicked.connect(() => revoke_device.begin(kind, id));
+                row.add_suffix(revoke);
+                trusted_group.add_row(row);
+            }
+            trusted_group.visible = list.size > 0;
+        }
+
+        private async void revoke_device(string kind, string id) {
+            try {
+                yield Client.get_default().revoke(kind, id);
+            } catch (KeyError e) {
+                trusted_group.add_row(new ActionRow(e.message, "", "dialog-warning-symbolic"));
+                return;
+            }
+            yield refresh_trusted();
         }
 
         private void open_key(string root) {

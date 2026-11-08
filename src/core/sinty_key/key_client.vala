@@ -22,6 +22,14 @@ namespace Singularity.SintyKey {
         }
     }
 
+    public class TrustedDevice : Object {
+        public string kind;
+        public string id;
+        public string name;
+        public int64 added;
+        public int64 last_used;
+    }
+
     public errordomain KeyError {
         WRONG_PIN,
         WRONG_CODE,
@@ -76,7 +84,7 @@ namespace Singularity.SintyKey {
             return new KeyError.FAILED(e.message);
         }
 
-        private async Variant call(string method, Variant args, string reply) throws KeyError {
+        private async Variant call(string method, Variant? args, string reply) throws KeyError {
             try {
                 var bus = yield Bus.get(BusType.SYSTEM);
                 return yield bus.call(NAME, PATH, NAME, method, args, new VariantType(reply), DBusCallFlags.NONE, 120000);
@@ -110,6 +118,28 @@ namespace Singularity.SintyKey {
             if (fd < 0) throw new KeyError.FAILED(strerror(errno));
             var v = yield call_fd("Restore", new Variant("(hsss)", 0, code, root, pin), "(s)", fd);
             return v.get_child_value(0).get_string();
+        }
+
+        public async Gee.ArrayList<TrustedDevice> devices() throws KeyError {
+            var v = yield call("Devices", null, "(a(sssxx))");
+            var list = new Gee.ArrayList<TrustedDevice>();
+            var iter = v.get_child_value(0).iterator();
+            string kind, id, name;
+            int64 added, last;
+            while (iter.next("(sssxx)", out kind, out id, out name, out added, out last)) {
+                var d = new TrustedDevice();
+                d.kind = kind;
+                d.id = id;
+                d.name = name;
+                d.added = added;
+                d.last_used = last;
+                list.add(d);
+            }
+            return list;
+        }
+
+        public async void revoke(string kind, string id) throws KeyError {
+            yield call("Revoke", new Variant("(ss)", kind, id), "()");
         }
 
         public async KeyInfo inspect(string root) throws KeyError {
