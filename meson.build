@@ -642,6 +642,7 @@ singularity_core_sources = files(
     'src/core/input_method/fcitx_framework.vala',
     'src/core/input_method/sinty_framework.vala',
     'src/core/sinty_key/key_client.vala',
+    'src/core/sinty_key/key_alerts.vala',
     'src/core/input_method/input_sources.vala',
     'src/core/input_method/ime_popup.vala',
     'src/core/dictation/dictation_text.vala',

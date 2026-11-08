@@ -65,6 +65,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     private Singularity.MediaPlaybackGuard? media_guard = null;
     private Singularity.EventReminders? event_reminders = null;
     private Singularity.AccountAlerts? account_alerts = null;
+    private Singularity.SintyKey.Alerts? key_alerts = null;
     private Singularity.RunDialog? run_dialog = null;
     private Singularity.EmojiPicker? emoji_picker = null;
     private Singularity.ClipboardPopup? clipboard_popup = null;
@@ -228,6 +229,8 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             ensure_online_calendars();
             account_alerts = new Singularity.AccountAlerts();
             account_alerts.open_requested.connect((page) => open_settings_page(page));
+            key_alerts = new Singularity.SintyKey.Alerts();
+            key_alerts.open_requested.connect((page) => open_settings_page(page));
             var updates_scheduler = Singularity.UpdatesScheduler.get_default();
             updates_scheduler.open_requested.connect((page) => open_settings_page(page));
             updates_scheduler.start();
