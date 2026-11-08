@@ -9,12 +9,16 @@ namespace Singularity.SintyKey {
         public signal void open_requested(string page);
 
         public Alerts() {
-            if (!Client.installed()) return;
             var notifications = SystemMonitor.get_default().notifications;
             notifications.action_invoked.connect((id, action) => {
                 if (shown.contains(id) && action == "default") open_requested("system");
             });
             notifications.notification_closed.connect((id, reason) => shown.remove(id));
+            if (FileUtils.test("/run/sinty-key/guest", FileTest.EXISTS)) {
+                post(_("Guest Mode"),
+                    _("This computer does not know your Sinty Key. Your files stay on the Key and nothing is kept on this computer."));
+            }
+            if (!Client.installed()) return;
             connect_bus.begin();
             monitor = VolumeMonitor.get();
             monitor.mount_added.connect((mount) => {
