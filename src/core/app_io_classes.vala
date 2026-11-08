@@ -4,14 +4,12 @@ namespace Singularity {
         private const string NAME = "dev.sinty.Scheduler";
         private const string PATH = "/dev/sinty/Scheduler";
         private const string IFACE = "dev.sinty.Scheduler1";
-        private const uint POLL_SECONDS = 2;
         private const int64 LAUNCH_US = 8 * 1000000LL;
 
         private static AppIoClasses? instance = null;
         private DBusConnection? bus = null;
         private HashTable<string, string> sent = new HashTable<string, string>(str_hash, str_equal);
         private string? focused = null;
-        private uint poll = 0;
         private HashTable<string, int64?> launching = new HashTable<string, int64?>(str_hash, str_equal);
 
         public bool installed { get; private set; default = false; }
@@ -29,6 +27,12 @@ namespace Singularity {
                 focused = app_id;
                 if (enabled) push();
             });
+            AppLifecycle.get_default().changed.connect(() => {
+                if (enabled) push();
+            });
+            AppSystem.get_default().app_opened.connect(() => {
+                if (enabled) push();
+            });
             refresh.begin();
         }
 
@@ -36,6 +40,10 @@ namespace Singularity {
             if (!enabled) return;
             launching.insert(AppPause.scope_name(app_id), get_monotonic_time() + LAUNCH_US);
             push();
+            Timeout.add((uint) (LAUNCH_US / 1000) + 100, () => {
+                if (enabled) push();
+                return Source.REMOVE;
+            });
         }
 
         public async void refresh() {
@@ -57,8 +65,12 @@ namespace Singularity {
             }
             installed = now_installed;
             switched_on = now_enabled;
+            bool was = enabled;
             enabled = now_enabled && AppPause.get_default().available;
-            update_poll();
+            if (enabled && !was) {
+                sent.remove_all();
+                push();
+            }
         }
 
         public async string? switch_scheduler(bool active) {
@@ -89,23 +101,9 @@ namespace Singularity {
             return result;
         }
 
-        private void update_poll() {
-            if (enabled && poll == 0) {
-                sent.remove_all();
-                poll = Timeout.add_seconds(POLL_SECONDS, () => {
-                    push();
-                    return Source.CONTINUE;
-                });
-                push();
-            } else if (!enabled && poll != 0) {
-                Source.remove(poll);
-                poll = 0;
-            }
-        }
-
         private void push() {
             var pause = AppPause.get_default();
-            var background = AppBackground.get_default();
+            var background = AppLifecycle.get_default();
             var wanted = new HashTable<string, string>(str_hash, str_equal);
             wanted.insert(pause.session_path, "interactive");
             string? scope = focused != null ? AppPause.scope_name(focused) : null;

@@ -228,6 +228,25 @@ namespace Singularity {
                 undim();
             }
             blanked = value;
+            set_idle_hint.begin(value);
+        }
+
+        private string? session_path = null;
+
+        private async void set_idle_hint(bool idle) {
+            try {
+                var bus = yield Bus.get(BusType.SYSTEM);
+                if (session_path == null) {
+                    var reply = yield bus.call("org.freedesktop.login1", "/org/freedesktop/login1",
+                        "org.freedesktop.login1.Manager", "GetSessionByPID",
+                        new Variant("(u)", (uint) 0), new VariantType("(o)"), DBusCallFlags.NONE, 2000);
+                    session_path = reply.get_child_value(0).get_string();
+                }
+                yield bus.call("org.freedesktop.login1", session_path, "org.freedesktop.login1.Session",
+                    "SetIdleHint", new Variant("(b)", idle), null, DBusCallFlags.NONE, 2000);
+            } catch (Error e) {
+                debug("IdleManager: idle hint not set: %s", e.message);
+            }
         }
 
         private string? backlight_connector() {

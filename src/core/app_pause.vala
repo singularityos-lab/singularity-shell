@@ -30,8 +30,8 @@ namespace Singularity {
     }
 
     public class AppPause : Object {
-        private const uint SAMPLE_SECONDS = 5;
-        private const int SUSTAINED_SAMPLES = 3;
+        private const uint SAMPLE_SECONDS = 10;
+        private const int SUSTAINED_SAMPLES = 2;
         private const double CPU_PRESSURE = 50.0;
         private const double MEMORY_PRESSURE = 15.0;
         private const int HOT_MILLIDEGREES = 90000;
