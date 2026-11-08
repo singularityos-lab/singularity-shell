@@ -161,6 +161,20 @@ namespace Singularity {
                     PowerActions.get_default().lock_screen();
                     break;
                 case SUSPEND:
+                    string? work = AppLifecycle.get_default().continuous_work();
+                    if (work != null) {
+                        message("IdleManager: suspend postponed, %s", work);
+                        if (postpone != 0) Source.remove(postpone);
+                        postpone = Timeout.add_seconds(300, () => {
+                            postpone = 0;
+                            if (fired.contains(SUSPEND)) {
+                                fired.remove(SUSPEND);
+                                handle_idle(SUSPEND);
+                            }
+                            return Source.REMOVE;
+                        });
+                        break;
+                    }
                     message("IdleManager: suspending");
                     action_taken("suspend");
                     PowerActions.get_default().suspend.begin((obj, res) => {
@@ -176,6 +190,10 @@ namespace Singularity {
 
         private void handle_resume(int id) {
             fired.remove(id);
+            if (postpone != 0) {
+                Source.remove(postpone);
+                postpone = 0;
+            }
             if (id == PROBE) {
                 if (probe_check != 0) {
                     Source.remove(probe_check);
@@ -232,6 +250,7 @@ namespace Singularity {
         }
 
         private string? session_path = null;
+        private uint postpone = 0;
 
         private async void set_idle_hint(bool idle) {
             try {

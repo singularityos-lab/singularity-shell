@@ -78,6 +78,22 @@ namespace Singularity {
             return entry != null ? entry.cls : AppState.FOREGROUND;
         }
 
+        public string? continuous_work() {
+            var pause = AppPause.get_default();
+            foreach (var group in pause.groups()) {
+                if (group.paused) continue;
+                if (pause.uses_media(group.path)) return "%s is playing media".printf(group.app_id);
+                Entry? entry = entries.lookup(group.path);
+                if (entry != null && entry.cls == AppState.BACKGROUND_ACTIVE) return "%s is working in the background".printf(group.app_id);
+            }
+            string load;
+            try {
+                if (FileUtils.get_contents(proc_root + "/loadavg", out load) && double.parse(load.split(" ")[0]) >= 1.5)
+                    return "the processor is busy";
+            } catch (FileError e) {}
+            return null;
+        }
+
         public void start() {
             if (!AppPause.get_default().available) return;
             settings = new GLib.Settings("dev.sinty.desktop");
