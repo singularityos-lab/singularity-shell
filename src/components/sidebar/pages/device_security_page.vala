@@ -25,6 +25,16 @@ namespace Singularity.SidebarPages {
             protection_group.add_row(disk_row);
             add_group(protection_group);
 
+            if (Singularity.SintyKey.Client.installed()) {
+                var key_group = new PreferencesGroup();
+                var key_row = new ActionRow(_("Sinty Key"), _("Your files on a USB drive, opened with your PIN on any Sinty OS computer."), "drive-removable-media-symbolic");
+                key_row.activatable = true;
+                key_row.add_suffix(new Image.from_icon_name("go-next-symbolic"));
+                key_row.activated.connect(() => SintyKeyPage.open(view));
+                key_group.add_row(key_row);
+                add_group(key_group);
+            }
+
             firmware_group = new PreferencesGroup(_("Firmware Security"),
                 _("Checks by fwupd, rated on the Host Security ID scale from 0 to 5."));
             add_group(firmware_group);
