@@ -306,7 +306,7 @@ namespace Singularity.SidebarPages {
             }
             if (info.unlocked) {
                 var row = new ActionRow(SintyKeyPage.state_text(info),
-                    info.mode == "guest" ? _("Changes to this computer are not kept. Your files are saved on the Key.") : _("Your files in the Data folder are available."),
+                    info.mode == "guest" ? _("Your files in the Data folder are available. This computer is not remembered, so the PIN is the only protection here.") : _("Your files in the Data folder are available."),
                     "changes-allow-symbolic");
                 var lock_btn = row_button(_("Lock"), false);
                 lock_btn.clicked.connect(() => lock_key.begin());
