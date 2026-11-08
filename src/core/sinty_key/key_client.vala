@@ -33,6 +33,8 @@ namespace Singularity.SintyKey {
         TAMPERED,
         NOT_ALLOWED,
         NO_TPM,
+        NOT_A_BACKUP,
+        DAMAGED,
         FAILED
     }
 
@@ -67,6 +69,8 @@ namespace Singularity.SintyKey {
                 case "dev.sinty.Key1.Error.NotRemembered": return new KeyError.NOT_REMEMBERED(_("The Key does not remember that computer."));
                 case "dev.sinty.Key1.Error.Tampered": return new KeyError.TAMPERED(_("The Key was changed outside Sinty OS and cannot be trusted."));
                 case "dev.sinty.Key1.Error.NotAllowed": return new KeyError.NOT_ALLOWED(_("Only removable drives can be a Sinty Key."));
+                case "dev.sinty.Key1.Error.NotABackup": return new KeyError.NOT_A_BACKUP(_("This file is not a Sinty Key backup."));
+                case "dev.sinty.Key1.Error.Damaged": return new KeyError.DAMAGED(_("The backup is damaged or was changed."));
                 case "dev.sinty.Key1.Error.NoTpm": return new KeyError.NO_TPM(_("This computer has no security chip to remember the Key."));
             }
             return new KeyError.FAILED(e.message);
@@ -79,6 +83,33 @@ namespace Singularity.SintyKey {
             } catch (Error e) {
                 throw translate(e);
             }
+        }
+
+        private async Variant call_fd(string method, Variant args, string reply, int fd) throws KeyError {
+            try {
+                var fds = new UnixFDList();
+                fds.append(fd);
+                var bus = yield Bus.get(BusType.SYSTEM);
+                UnixFDList out_fds;
+                return yield bus.call_with_unix_fd_list(NAME, PATH, NAME, method, args, new VariantType(reply), DBusCallFlags.NONE, -1, fds, null, out out_fds);
+            } catch (Error e) {
+                throw translate(e);
+            } finally {
+                Posix.close(fd);
+            }
+        }
+
+        public async void backup(string root, string pin, string path) throws KeyError {
+            int fd = Posix.open(path, Posix.O_WRONLY | Posix.O_CREAT | Posix.O_TRUNC | Posix.O_CLOEXEC, 0600);
+            if (fd < 0) throw new KeyError.FAILED(strerror(errno));
+            yield call_fd("Backup", new Variant("(ssh)", root, pin, 0), "()", fd);
+        }
+
+        public async string restore(string path, string code, string root, string pin) throws KeyError {
+            int fd = Posix.open(path, Posix.O_RDONLY | Posix.O_CLOEXEC);
+            if (fd < 0) throw new KeyError.FAILED(strerror(errno));
+            var v = yield call_fd("Restore", new Variant("(hsss)", 0, code, root, pin), "(s)", fd);
+            return v.get_child_value(0).get_string();
         }
 
         public async KeyInfo inspect(string root) throws KeyError {

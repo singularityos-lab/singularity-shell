@@ -65,6 +65,10 @@ namespace Singularity.SidebarPages {
                         var make = new Button.with_label(_("Make a Key…"));
                         make.valign = Align.CENTER;
                         make.clicked.connect(() => open_create(root));
+                        var restore = new Button.with_label(_("Restore…"));
+                        restore.valign = Align.CENTER;
+                        restore.clicked.connect(() => open_restore(root));
+                        row.add_suffix(restore);
                         row.add_suffix(make);
                     }
                     drives_group.add_row(row);
@@ -77,6 +81,13 @@ namespace Singularity.SidebarPages {
             page.back_btn.visible = true;
             page.back_clicked.connect(() => SintyKeyPage.open(view));
             view.open_subpage(page, "sinty-key-detail");
+        }
+
+        private void open_restore(string root) {
+            var page = new SintyKeyRestorePage(view, root);
+            page.back_btn.visible = true;
+            page.back_clicked.connect(() => SintyKeyPage.open(view));
+            view.open_subpage(page, "sinty-key-restore");
         }
 
         private void open_create(string root) {
@@ -156,17 +167,98 @@ namespace Singularity.SidebarPages {
         }
 
         private void show_code(string code) {
-            var group = new PreferencesGroup(_("Recovery Code"),
-                _("Write it down and keep it apart from the Key. It is the only way back in if you forget the PIN or lose the Key."));
-            var row = new ActionRow(code, "", "dialog-password-symbolic");
-            var copy = new Button.from_icon_name("edit-copy-symbolic");
-            copy.add_css_class("flat");
-            copy.valign = Align.CENTER;
-            copy.tooltip_text = _("Copy");
-            copy.clicked.connect(() => get_clipboard().set_text(code));
-            row.add_suffix(copy);
-            group.add_row(row);
-            add_group(group);
+            add_group(code_group(code, this));
+        }
+    }
+
+    internal PreferencesGroup code_group(string code, Widget owner) {
+        var group = new PreferencesGroup(_("Recovery Code"),
+            _("Write it down and keep it apart from the Key. It is the only way back in if you forget the PIN or lose the Key."));
+        var row = new ActionRow(code, "", "dialog-password-symbolic");
+        var copy = new Button.from_icon_name("edit-copy-symbolic");
+        copy.add_css_class("flat");
+        copy.valign = Align.CENTER;
+        copy.tooltip_text = _("Copy");
+        copy.clicked.connect(() => owner.get_clipboard().set_text(code));
+        row.add_suffix(copy);
+        group.add_row(row);
+        return group;
+    }
+
+    public class SintyKeyRestorePage : SettingsPage {
+        private string drive;
+        private string? source = null;
+        private ActionRow file_row;
+        private EntryRow code;
+        private PasswordRow pin;
+        private PasswordRow again;
+        private Button go;
+        private Label status;
+        private PreferencesGroup form;
+
+        public SintyKeyRestorePage(SettingsView view, string drive) {
+            base(_("Restore a Sinty Key"));
+            this.drive = drive;
+            form = new PreferencesGroup(_("Restore from a Backup"),
+                _("The files of the backup go into the Data folder of %s. It becomes a new Key with a new PIN and a new recovery code.").printf(Path.get_basename(drive)));
+            file_row = new ActionRow(_("Backup File"), _("None chosen"), "document-open-symbolic");
+            var choose = row_button(_("Choose…"), false);
+            choose.clicked.connect(() => choose_file.begin());
+            file_row.add_suffix(choose);
+            code = new EntryRow(_("Recovery Code"));
+            code.placeholder_text = "XXXXX-XXXXX-XXXXX-XXXXX-XXXXX";
+            pin = new PasswordRow(_("New PIN"));
+            again = new PasswordRow(_("Repeat New PIN"));
+            go = row_button(_("Restore"), true);
+            again.add_suffix(go);
+            status = status_label();
+            form.add_row(file_row);
+            form.add_row(code);
+            form.add_row(pin);
+            form.add_row(again);
+            form.add_row(status);
+            add_group(form);
+            go.clicked.connect(() => restore.begin());
+            again.entry_activated.connect(() => restore.begin());
+        }
+
+        private async void choose_file() {
+            var dialog = new Gtk.FileDialog();
+            dialog.title = _("Choose a Backup");
+            try {
+                var file = yield SidebarWait.choose_file(this, dialog, get_root() as Gtk.Window);
+                if (file == null || file.get_path() == null) return;
+                source = file.get_path();
+                file_row.subtitle = file.get_basename();
+            } catch (Error e) {
+            }
+        }
+
+        private async void restore() {
+            status.visible = true;
+            if (source == null) {
+                status.label = _("Choose the backup file first.");
+                return;
+            }
+            if (pin.text.length < 4) {
+                status.label = _("The PIN needs at least 4 characters.");
+                return;
+            }
+            if (pin.text != again.text) {
+                status.label = _("The two PINs are different.");
+                return;
+            }
+            go.sensitive = false;
+            status.label = _("Restoring…");
+            try {
+                string fresh = yield Client.get_default().restore(source, code.text, drive, pin.text);
+                pin.text = again.text = code.text = "";
+                form.visible = false;
+                add_group(code_group(fresh, this));
+            } catch (KeyError e) {
+                status.label = e.message;
+                go.sensitive = true;
+            }
         }
     }
 
@@ -177,6 +269,7 @@ namespace Singularity.SidebarPages {
         private PreferencesGroup computers_group;
         private PreferencesGroup pin_group;
         private PreferencesGroup recovery_group;
+        private PreferencesGroup backup_group;
 
         public SintyKeyDetailPage(SettingsView view, string drive) {
             base(Path.get_basename(drive));
@@ -185,12 +278,16 @@ namespace Singularity.SidebarPages {
             computers_group = new PreferencesGroup(_("Remembered Computers"),
                 _("On these computers the Key is also sealed in the security chip, which blocks guessing the PIN and refuses older copies of the Key."));
             pin_group = new PreferencesGroup(_("Change PIN"));
+            backup_group = new PreferencesGroup(_("Backup"),
+                _("The backup is one encrypted file that opens only with the recovery code. Keep it on another drive or online."));
             recovery_group = new PreferencesGroup(_("Forgot the PIN?"),
                 _("Enter the recovery code you wrote down when the Key was made, then choose a new PIN."));
             add_group(state_group);
             add_group(computers_group);
+            add_group(backup_group);
             add_group(pin_group);
             add_group(recovery_group);
+            build_backup();
             build_pin();
             build_recovery();
             refresh.begin();
@@ -292,6 +389,46 @@ namespace Singularity.SidebarPages {
                 return;
             }
             yield refresh();
+        }
+
+        private void build_backup() {
+            var pin = new PasswordRow(_("PIN"));
+            var save = row_button(_("Back Up…"), false);
+            pin.add_suffix(save);
+            var status = status_label();
+            backup_group.add_row(pin);
+            backup_group.add_row(status);
+            save.clicked.connect(() => back_up.begin(pin, status, save));
+        }
+
+        private async void back_up(PasswordRow pin, Label status, Button save) {
+            string secret = pin.text != "" ? pin.text : pin_cache;
+            status.visible = true;
+            if (secret == "") {
+                status.label = _("Enter the PIN of the Key.");
+                return;
+            }
+            var dialog = new Gtk.FileDialog();
+            dialog.title = _("Save Backup");
+            dialog.initial_name = "%s.sintykey".printf(Path.get_basename(drive));
+            File? file = null;
+            try {
+                file = yield dialog.save(get_root() as Gtk.Window, null);
+            } catch (Error e) {
+                status.visible = false;
+                return;
+            }
+            if (file == null || file.get_path() == null) return;
+            save.sensitive = false;
+            status.label = _("Backing up…");
+            try {
+                yield Client.get_default().backup(drive, secret, file.get_path());
+                pin.text = "";
+                status.label = _("Backup saved as %s.").printf(file.get_basename());
+            } catch (KeyError e) {
+                status.label = e.message;
+            }
+            save.sensitive = true;
         }
 
         private void build_pin() {
