@@ -11,7 +11,7 @@ namespace Singularity.SintyKey {
         public Alerts() {
             var notifications = SystemMonitor.get_default().notifications;
             notifications.action_invoked.connect((id, action) => {
-                if (shown.contains(id) && action == "default") open_requested("system");
+                if (shown.contains(id) && action == "default") open_requested("sinty-key");
             });
             notifications.notification_closed.connect((id, reason) => shown.remove(id));
             if (FileUtils.test("/run/sinty-key/guest", FileTest.EXISTS)) {

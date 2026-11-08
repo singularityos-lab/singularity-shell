@@ -584,6 +584,7 @@ namespace Singularity {
             Widget? page = null;
             switch (page_name) {
                 case "network": page = new NetworkPage(this); break;
+                case "sinty-key": page = new Singularity.SidebarPages.SintyKeyPage(this); break;
                 case "sharing": page = new Singularity.SidebarPages.SharingPage(this); break;
                 case "sharing-files": page = new Singularity.SidebarPages.FileSharingPage(this); break;
                 case "sharing-media": page = new Singularity.SidebarPages.MediaSharingPage(this); break;
