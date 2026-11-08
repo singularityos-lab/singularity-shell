@@ -22,7 +22,7 @@ namespace Singularity.InputMethods {
 
         private InputSources() {
             settings = new GLib.Settings("dev.sinty.desktop");
-            frameworks = { new FcitxFramework(), new IBusFramework() };
+            frameworks = { new SintyFramework(), new FcitxFramework(), new IBusFramework() };
             settings.changed["input-method-engines"].connect(() => {
                 if (current != "" && !(current in configured())) activate.begin("");
                 changed();

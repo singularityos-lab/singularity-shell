@@ -47,7 +47,7 @@ namespace Singularity.SidebarPages {
                 var missing = new StatusPage();
                 missing.icon_name = "singularity-input-methods";
                 missing.title = _("No Input Method Framework");
-                missing.description = _("Install Fcitx 5 or IBus together with the engines for your languages, such as Pinyin, Mozc, Anthy or Hangul, then come back here.");
+                missing.description = _("Typing Chinese, Japanese, Korean or Vietnamese needs the Sinty input service, which is not part of this system.");
                 add_widget(missing);
                 return;
             }
@@ -83,8 +83,8 @@ namespace Singularity.SidebarPages {
             options_group.add_row(indicator);
             if (sources.installed_frameworks().length > 1 || sources.settings.get_string("input-method-framework") != "auto") {
                 var options = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
-                string[] ids = { "auto", "fcitx5", "ibus" };
-                string[] names = { _("Automatic"), "Fcitx 5", "IBus" };
+                string[] ids = { "auto", "sinty", "fcitx5", "ibus" };
+                string[] names = { _("Automatic"), "Sinty", "Fcitx 5", "IBus" };
                 for (int i = 0; i < ids.length; i++) {
                     var o = new Singularity.Core.AppSettingOption();
                     o.id = ids[i];
@@ -136,7 +136,7 @@ namespace Singularity.SidebarPages {
                 var info = sources.info_for(id);
                 string title = info != null ? info.label : id;
                 string subtitle = info != null
-                    ? "%s, %s".printf(language_name(info.language), info.framework == "ibus" ? "IBus" : "Fcitx 5")
+                    ? "%s, %s".printf(language_name(info.language), InputMethodsPage.framework_name(info.framework))
                     : _("No longer installed");
                 var row = new ActionRow(title, subtitle);
                 var symbol = new Label(info != null ? info.short_label() : "?");
@@ -161,6 +161,14 @@ namespace Singularity.SidebarPages {
             add_row.activatable = true;
             add_row.activated.connect(open_add);
             engines_group.add_row(add_row);
+        }
+
+        internal static string framework_name(string id) {
+            switch (id) {
+                case "ibus": return "IBus";
+                case "fcitx5": return "Fcitx 5";
+                default: return "Sinty";
+            }
         }
     }
 
@@ -209,7 +217,7 @@ namespace Singularity.SidebarPages {
                 empty.icon_name = "singularity-input-methods";
                 empty.title = query == "" ? _("Everything Is Added") : _("No Input Methods Found");
                 empty.description = query == ""
-                    ? _("Every installed engine is already in your list. Install more engines with your software manager.")
+                    ? _("Every available engine is already in your list.")
                     : _("Try another language or engine name.");
                 groups_box.append(empty);
                 return;
@@ -217,7 +225,7 @@ namespace Singularity.SidebarPages {
             foreach (var entry in by_language.entries) {
                 var group = new PreferencesGroup(entry.key);
                 foreach (var info in entry.value) {
-                    var row = new ActionRow(info.label, info.framework == "ibus" ? "IBus" : "Fcitx 5");
+                    var row = new ActionRow(info.label, InputMethodsPage.framework_name(info.framework));
                     var symbol = new Label(info.short_label());
                     symbol.add_css_class("title-4");
                     symbol.width_chars = 2;
@@ -235,5 +243,6 @@ namespace Singularity.SidebarPages {
                 groups_box.append(group);
             }
         }
+
     }
 }

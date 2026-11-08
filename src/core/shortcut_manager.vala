@@ -662,7 +662,7 @@ namespace Singularity {
             foreach (var s in shortcuts) {
                 string key = accel_to_labwc(s.accelerator);
                 if (key == "") continue;
-                if (s.action_name == "switch_input_method" && settings.get_strv("input-method-engines").length == 0) continue;
+                if (s.action_name == "switch_input_method") continue;
                 if (s.action_name == "toggle_dictation" && !settings.get_boolean("dictation-enabled")) continue;
                 if (s.action_name == "toggle_desktop_reveal") {
                     xml.append_printf("    <keybind key=\"%s\"><action name=\"ToggleShowDesktop\" /></keybind>\n", key);

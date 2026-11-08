@@ -11,6 +11,7 @@ namespace Singularity {
         private const uint KEY_TAB = 0xff09;
         private const uint KEYCODE_BACKSPACE = 14;
         private const uint MOD_BLOCKING = 0x2 | 0x4 | 0x8;
+        private const uint MOD_CONTROL = 0x2;
         private const uint HINT_PRIVATE = 0x40 | 0x80;
 
         private static InputMethodService? instance = null;
@@ -220,7 +221,7 @@ namespace Singularity {
             bool grab = (settings.get_boolean("spell-autocorrect") && spell_context())
                 || (!has_surrounding && spell_context())
                 || (settings.get_boolean("press-hold-accents") && accent_context() && !engine_context())
-                || engine_context() || (capture_escape && active)
+                || engine_context() || switching_context() || (capture_escape && active)
                 || (popup_items.length > 0 && !popup_accents);
             Singularity.ime_set_grab(grab);
         }
@@ -530,7 +531,15 @@ namespace Singularity {
             corrected_to = null;
         }
 
+        private bool switching_context() {
+            return active && settings.get_strv("input-method-engines").length > 0;
+        }
+
         private bool on_key(uint key, uint keysym, string text, bool pressed, uint modifiers) {
+            if (keysym == KEY_SPACE && (modifiers & MOD_BLOCKING) == MOD_CONTROL && switching_context()) {
+                if (pressed) Singularity.InputMethods.InputSources.get_default().cycle();
+                return true;
+            }
             if (capture_escape && keysym == KEY_ESCAPE) {
                 if (pressed) escape_pressed();
                 return true;
