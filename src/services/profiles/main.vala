@@ -49,7 +49,7 @@ namespace Singularity.ProfilesService {
                         if (handle != null) engine.add_area(handle);
                     });
                 },
-                (c, n) => {
+                () => {
                     foreach (var h in engine.areas) {
                         if (h.id == id && h.system_bus) {
                             engine.remove_owner(h.owner, true);

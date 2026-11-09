@@ -172,10 +172,11 @@ namespace Singularity.ProfilesService {
             if (handle == null) throw new DBusError.FAILED("The area %s does not answer", id);
             _engine.add_area(handle);
             if (!_watches.has_key(sender)) {
-                _watches[sender] = Bus.watch_name(BusType.SESSION, sender, BusNameWatcherFlags.NONE, null, (c, name) => {
-                    _engine.remove_owner(name);
-                    Bus.unwatch_name(_watches[name]);
-                    _watches.unset(name);
+                string owner = sender;
+                _watches[owner] = Bus.watch_name(BusType.SESSION, owner, BusNameWatcherFlags.NONE, null, () => {
+                    _engine.remove_owner(owner);
+                    Bus.unwatch_name(_watches[owner]);
+                    _watches.unset(owner);
                 });
             }
         }
