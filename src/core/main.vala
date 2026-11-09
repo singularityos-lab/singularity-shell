@@ -259,6 +259,10 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         );
         Singularity.FocusService.export();
         Singularity.OneTimeCodeService.get_default().export();
+        if (Singularity.SoftwareBrightness.init((data) => Singularity.BrightnessManager.get_default().reset_software(), null)) {
+            Singularity.BrightnessManager.get_default().set_software_backend((connector, fraction) =>
+                Singularity.SoftwareBrightness.set(connector, (uint32) (fraction * 1000.0 + 0.5)));
+        }
         Singularity.ProfileAreas.get_default().start();
         Singularity.NotificationLockService.export(Singularity.SystemMonitor.get_default().notifications);
 

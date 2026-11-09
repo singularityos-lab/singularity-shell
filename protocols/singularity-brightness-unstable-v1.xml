@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="singularity_brightness_unstable_v1">
+  <copyright>
+    Copyright © 2026 Singularity Desktop
+  </copyright>
+
+  <interface name="zsingularity_brightness_manager_v1" version="1">
+    <description summary="dim outputs that have no brightness control">
+      Lets the desktop shell lower the brightness of an output by scaling its
+      gamma ramp, for displays whose backlight cannot be controlled. The ramp
+      is combined with the one set through gamma control, so night light keeps
+      working, and it applies at scanout, so screenshots and recordings are
+      not affected. The compositor never goes below a minimum level, and the
+      value stays in effect after the client disconnects.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager"/>
+    </request>
+
+    <request name="set_brightness">
+      <description summary="set the software brightness of an output">
+        Sets the level in thousandths, where 1000 means no dimming. Values
+        below the compositor minimum are raised to it.
+      </description>
+      <arg name="output" type="object" interface="wl_output"/>
+      <arg name="level" type="uint"/>
+    </request>
+
+    <event name="reset">
+      <description summary="the user restored full brightness">
+        Sent after the user pressed the reset shortcut. Every output is back
+        to full brightness and clients should forget the levels they set.
+      </description>
+    </event>
+  </interface>
+</protocol>

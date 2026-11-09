@@ -268,6 +268,7 @@ namespace Singularity.SidebarPages {
         private DisplayBrightness? shown_brightness = null;
         private ulong shown_brightness_handler = 0;
         private bool syncing_brightness = false;
+        private ActionRow brightness_method_row;
 
         private void build_brightness_ui() {
             brightness_page = make_subpage(_("Brightness"));
@@ -281,6 +282,12 @@ namespace Singularity.SidebarPages {
             brightness_min_scale.value_changed.connect(store_brightness_limits);
             brightness_max_scale.value_changed.connect(store_brightness_limits);
             brightness_page.add_group(brightness_group);
+            var method_group = new PreferencesGroup(_("Control"),
+                _("Press Ctrl+Alt+Super+B anywhere to bring back full brightness."));
+            brightness_method_row = new ActionRow(_("Method"), "");
+            brightness_method_row.activatable = false;
+            method_group.add_row(brightness_method_row);
+            brightness_page.add_group(method_group);
             BrightnessManager.get_default().displays_changed.connect(update_brightness_controls);
         }
 
@@ -323,6 +330,13 @@ namespace Singularity.SidebarPages {
             brightness_scale.set_value(shown_brightness.percent);
             brightness_min_scale.set_value(shown_brightness.min_percent);
             brightness_max_scale.set_value(shown_brightness.max_percent);
+            brightness_method_row.title = shown_brightness.method.to_label();
+            if (shown_brightness.method != BrightnessMethod.SOFTWARE)
+                brightness_method_row.subtitle = _("The display lowers its own light, which saves energy");
+            else if (shown_brightness.emissive)
+                brightness_method_row.subtitle = _("This display makes its own light, so darker pixels save energy");
+            else
+                brightness_method_row.subtitle = _("The backlight stays on, so this does not save energy");
             syncing_brightness = false;
         }
 

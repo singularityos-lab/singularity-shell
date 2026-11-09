@@ -358,6 +358,20 @@ kh_proto_h = custom_target(
   command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@']
 )
 
+sb_proto_xml = 'protocols/singularity-brightness-unstable-v1.xml'
+sb_proto_c = custom_target(
+  'singularity-brightness-unstable-v1-protocol.c',
+  output: 'singularity-brightness-unstable-v1-protocol.c',
+  input: sb_proto_xml,
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@']
+)
+sb_proto_h = custom_target(
+  'singularity-brightness-unstable-v1-client-protocol.h',
+  output: 'singularity-brightness-unstable-v1-client-protocol.h',
+  input: sb_proto_xml,
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@']
+)
+
 snap_proto_xml = 'protocols/singularity-snap-unstable-v1.xml'
 snap_proto_c = custom_target(
   'singularity-snap-unstable-v1-protocol.c',
@@ -558,6 +572,8 @@ singularity_core_sources = files(
     'src/wayland/idle_notify.vapi',
     'src/wayland/key_hold.c',
     'src/wayland/key_hold.vapi',
+    'src/wayland/software_brightness.c',
+    'src/wayland/software_brightness.vapi',
     'src/core/shortcut_cheatsheet_model.vala',
     'src/core/app_accels_reader.vala',
     'src/components/shortcut_cheatsheet/shortcut_cheatsheet.vala',
@@ -693,7 +709,7 @@ subdir('src/lockscreen')
 
 executable('singularity-desktop',
   sources: ['src/core/main.vala'] + singularity_core_sources + [
-    wl_proto_c, wl_proto_h, ws_proto_c, ws_proto_h, sp_proto_c, sp_proto_h, pip_proto_c, pip_proto_h, om_proto_c, om_proto_h, st_proto_c, st_proto_h, sg_proto_c, sg_proto_h, gc_proto_c, gc_proto_h, vk_proto_c, vk_proto_h, dc_proto_c, dc_proto_h, im_proto_c, im_proto_h, idle_proto_c, idle_proto_h, op_proto_c, op_proto_h, mo_proto_c, mo_proto_h, stg_proto_c, stg_proto_h, proc_proto_c, proc_proto_h, kh_proto_c, kh_proto_h, snap_proto_c, snap_proto_h
+    wl_proto_c, wl_proto_h, ws_proto_c, ws_proto_h, sp_proto_c, sp_proto_h, pip_proto_c, pip_proto_h, om_proto_c, om_proto_h, st_proto_c, st_proto_h, sg_proto_c, sg_proto_h, gc_proto_c, gc_proto_h, vk_proto_c, vk_proto_h, dc_proto_c, dc_proto_h, im_proto_c, im_proto_h, idle_proto_c, idle_proto_h, op_proto_c, op_proto_h, mo_proto_c, mo_proto_h, stg_proto_c, stg_proto_h, proc_proto_c, proc_proto_h, kh_proto_c, kh_proto_h, sb_proto_c, sb_proto_h, snap_proto_c, snap_proto_h
   ],
   dependencies: dependencies + [libsingularity_dep, system_dep, gee_dep, json_dep, cc.find_library('m'), cc.find_library('crypt'), dependency('xcb')],
   include_directories: [
