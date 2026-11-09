@@ -2,9 +2,9 @@ namespace Singularity.SintyKey {
 
     public class Alerts : Object {
         private DBusProxy? proxy = null;
-        private Gee.HashSet<string> open = new Gee.HashSet<string>();
+        private Gee.HashMap<string, string> states = new Gee.HashMap<string, string>();
+        private Gee.HashMap<string, string> owners = new Gee.HashMap<string, string>();
         private Gee.HashSet<uint> shown = new Gee.HashSet<uint>();
-        private VolumeMonitor? monitor = null;
 
         public signal void open_requested(string page);
 
@@ -20,11 +20,6 @@ namespace Singularity.SintyKey {
             }
             if (!Client.installed()) return;
             connect_bus.begin();
-            monitor = VolumeMonitor.get();
-            monitor.mount_added.connect((mount) => {
-                var root = mount.get_root().get_path();
-                if (root != null) check_drive.begin(root);
-            });
         }
 
         private async void connect_bus() {
@@ -36,20 +31,37 @@ namespace Singularity.SintyKey {
             }
             take(false);
             proxy.g_properties_changed.connect((changed, invalidated) => take(true));
+            proxy.notify["g-name-owner"].connect(() => take(false));
         }
 
         private void take(bool announce) {
-            var value = proxy.get_cached_property("Unlocked");
-            var now = new Gee.HashSet<string>();
-            if (value != null) {
-                foreach (var s in value.get_strv()) now.add(s);
-            }
-            if (announce) {
-                foreach (var root in open) {
-                    if (!now.contains(root) && !FileUtils.test(root, FileTest.IS_DIR)) removed(root);
+            var value = proxy.get_cached_property("Present");
+            if (value == null || !value.is_of_type(new VariantType("a(ssss)"))) return;
+            var now_states = new Gee.HashMap<string, string>();
+            var now_owners = new Gee.HashMap<string, string>();
+            var me = Environment.get_user_name();
+            var iter = value.iterator();
+            string device, id, owner, state;
+            while (iter.next("(ssss)", out device, out id, out owner, out state)) {
+                now_states[device] = state;
+                now_owners[device] = owner;
+                if (!announce || states[device] == state) continue;
+                if (state == "locked" && !states.has_key(device)) {
+                    post(_("Sinty Key Connected"), _("Unlock it with its PIN to use the data on it."));
+                } else if (state == "copy" && !states.has_key(device)) {
+                    post(_("Older Sinty Key"),
+                        _("This Key is an older copy of one this computer knows. Open it with its recovery code."));
                 }
             }
-            open = now;
+            if (announce) {
+                foreach (var entry in states.entries) {
+                    if (now_states.has_key(entry.key) || entry.value == "locked" || entry.value == "copy") continue;
+                    post(_("Sinty Key Locked"), _("The Sinty Key was removed, so its data is locked again."));
+                    if (owners[entry.key] == me) SessionManager.get_default().lock_screen();
+                }
+            }
+            states = now_states;
+            owners = now_owners;
         }
 
         private void post(string summary, string body) {
@@ -57,22 +69,6 @@ namespace Singularity.SintyKey {
             uint id = SystemMonitor.get_default().notifications.notify(_("Sinty Key"), 0, "drive-removable-media",
                 summary, body, actions, new HashTable<string, Variant>(str_hash, str_equal), -1);
             shown.add(id);
-        }
-
-        private void removed(string root) {
-            post(_("Sinty Key Locked"),
-                _("\"%s\" was removed, so its data is locked again.").printf(Path.get_basename(root)));
-        }
-
-        private async void check_drive(string root) {
-            if (!FileUtils.test(Path.build_filename(root, "Data"), FileTest.IS_DIR)) return;
-            try {
-                var info = yield Client.get_default().inspect(root);
-                if (info.unlocked) return;
-                post(_("Sinty Key Connected"),
-                    _("Unlock \"%s\" with its PIN to use the data on it.").printf(Path.get_basename(root)));
-            } catch (KeyError e) {
-            }
         }
     }
 }
