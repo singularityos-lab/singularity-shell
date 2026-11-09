@@ -148,6 +148,16 @@ namespace Singularity.SidebarPages {
             computer_group.add_row(address_row);
             add_group(computer_group);
 
+            if (Singularity.SintyCore.Client.installed()) {
+                var core_group = new PreferencesGroup();
+                var core_row = new ActionRow(_("Screens"), _("Show this computer's desktop on a TV or monitor paired with it."), "video-display-symbolic");
+                core_row.activatable = true;
+                core_row.add_suffix(chevron());
+                core_row.activated.connect(() => SintyCorePage.open(view));
+                core_group.add_row(core_row);
+                add_group(core_group);
+            }
+
             add_search_action(_("Pair a Phone"), _("Nearby, KDE Connect, GSConnect, phone, pair, Android, iPhone"), () => {});
             add_search_action(_("Received Files Folder"), _("Nearby, downloads, incoming files"), () => choose_folder());
             add_search_action(_("Open Nearby"), _("Nearby, phone, send files, messages, SMS, notifications, ring"), () => NearbyClient.open_app());

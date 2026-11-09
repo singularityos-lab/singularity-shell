@@ -33,7 +33,7 @@ namespace Singularity.SidebarPages {
             drives_group = new PreferencesGroup(_("Drives"));
             add_group(drives_group);
             trusted_group = new PreferencesGroup(_("Trusted Devices"),
-                _("Keys this computer remembers. Revoke one you lost: it then opens here only with its recovery code."));
+                _("Keys, screens and phones this computer trusts. A revoked Key opens here only with its recovery code."));
             trusted_group.visible = false;
             add_group(trusted_group);
             refresh_trusted.begin();
@@ -104,7 +104,7 @@ namespace Singularity.SidebarPages {
                 string when = d.last_used > 0
                     ? _("Last used %s").printf(new DateTime.from_unix_local(d.last_used).format(_("%e %B %Y")).strip())
                     : "";
-                var row = new ActionRow(d.name, when, "drive-removable-media-symbolic");
+                var row = new ActionRow(d.name, when, device_icon(d.kind));
                 var revoke = row_button(_("Revoke"), false);
                 revoke.add_css_class("destructive-action");
                 string kind = d.kind, id = d.id;
@@ -113,6 +113,14 @@ namespace Singularity.SidebarPages {
                 trusted_group.add_row(row);
             }
             trusted_group.visible = list.size > 0;
+        }
+
+        private static string device_icon(string kind) {
+            switch (kind) {
+                case "screen": return "video-display-symbolic";
+                case "phone": return "phone-symbolic";
+            }
+            return "drive-removable-media-symbolic";
         }
 
         private async void revoke_device(string kind, string id) {
