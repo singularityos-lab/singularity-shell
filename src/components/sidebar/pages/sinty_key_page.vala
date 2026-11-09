@@ -427,7 +427,7 @@ namespace Singularity.SidebarPages {
             var dialog = new Gtk.FileDialog();
             dialog.title = _("Choose a Backup");
             try {
-                var file = yield SidebarWait.choose_file(this, dialog, get_root() as Gtk.Window);
+                var file = yield SidebarWait.choose_file(this, dialog, null);
                 if (file == null || file.get_path() == null) return;
                 source = file.get_path();
                 file_row.subtitle = file.get_basename();
@@ -615,7 +615,7 @@ namespace Singularity.SidebarPages {
             dialog.initial_name = "%s.sintykey".printf(Path.get_basename(drive));
             File? file = null;
             try {
-                file = yield SidebarWait.save_file(this, dialog, get_root() as Gtk.Window);
+                file = yield SidebarWait.save_file(this, dialog, null);
             } catch (Error e) {
                 status.visible = false;
                 return;

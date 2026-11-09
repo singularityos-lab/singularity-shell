@@ -296,7 +296,7 @@ namespace Singularity.SidebarPages {
             dialog.initial_name = "%s.sintycore".printf(client.core_name != "" ? client.core_name : "screens");
             File? file = null;
             try {
-                file = yield SidebarWait.save_file(this, dialog, get_root() as Gtk.Window);
+                file = yield SidebarWait.save_file(this, dialog, null);
             } catch (Error e) {
                 return;
             }
@@ -319,7 +319,7 @@ namespace Singularity.SidebarPages {
             var dialog = new Gtk.FileDialog();
             dialog.title = _("Choose a Backup");
             try {
-                var file = yield SidebarWait.choose_file(this, dialog, get_root() as Gtk.Window);
+                var file = yield SidebarWait.choose_file(this, dialog, null);
                 if (file == null || file.get_path() == null) return;
                 source = file.get_path();
                 file_row.subtitle = file.get_basename();
