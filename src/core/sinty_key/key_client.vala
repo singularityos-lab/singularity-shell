@@ -28,6 +28,7 @@ namespace Singularity.SintyKey {
         public uint64 size;
         public string root;
         public bool key;
+        public bool startup;
     }
 
     public class TrustedDevice : Object {
@@ -60,9 +61,25 @@ namespace Singularity.SintyKey {
 
         private static Client? instance = null;
 
+        public signal void progress(string device, uint percent);
+
         public static Client get_default() {
-            if (instance == null) instance = new Client();
+            if (instance == null) {
+                instance = new Client();
+                instance.follow_progress.begin();
+            }
             return instance;
+        }
+
+        private async void follow_progress() {
+            try {
+                var bus = yield Bus.get(BusType.SYSTEM);
+                bus.signal_subscribe(NAME, NAME, "Progress", PATH, null, DBusSignalFlags.NONE, (conn, sender, path, iface, name, args) => {
+                    if (!args.is_of_type(new VariantType("(su)"))) return;
+                    progress(args.get_child_value(0).get_string(), args.get_child_value(1).get_uint32());
+                });
+            } catch (Error e) {
+            }
         }
 
         public static bool installed() {
@@ -204,19 +221,20 @@ namespace Singularity.SintyKey {
         }
 
         public async Gee.ArrayList<KeyDrive> drives() throws KeyError {
-            var v = yield call("Drives", null, "(a(sstsb))");
+            var v = yield call("Drives", null, "(a(sstsbb))");
             var list = new Gee.ArrayList<KeyDrive>();
             var iter = v.get_child_value(0).iterator();
             string device, name, root;
             uint64 size;
-            bool key;
-            while (iter.next("(sstsb)", out device, out name, out size, out root, out key)) {
+            bool key, startup;
+            while (iter.next("(sstsbb)", out device, out name, out size, out root, out key, out startup)) {
                 var d = new KeyDrive();
                 d.device = device;
                 d.name = name;
                 d.size = size;
                 d.root = root;
                 d.key = key;
+                d.startup = startup;
                 list.add(d);
             }
             return list;

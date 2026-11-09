@@ -103,7 +103,9 @@ namespace Singularity.SidebarPages {
                     drives_group.add_row(row);
                     continue;
                 }
-                var row = key_row(d.name, "%s, %s".printf(_("Not a Sinty Key"), size), "drive-removable-media");
+                var row = d.startup
+                    ? key_row(d.name, "%s, %s".printf(_("Startup Key"), size), "sinty-key-startup")
+                    : key_row(d.name, "%s, %s".printf(_("Not a Sinty Key"), size), "drive-removable-media");
                 var make = row_button(_("Make a Key…"), false);
                 var drive = d;
                 make.clicked.connect(() => open_create(drive));
@@ -242,6 +244,8 @@ namespace Singularity.SidebarPages {
         private KeyDrive drive;
         private Button go;
         private Label status;
+        private ActionRow progress_row;
+        private ProgressBar progress_bar;
 
         public SintyKeyBootPage(SettingsView view, KeyDrive drive) {
             base(_("Startup Key"));
@@ -253,10 +257,24 @@ namespace Singularity.SidebarPages {
             go.add_css_class("destructive-action");
             row.add_suffix(go);
             group.add_row(row);
+            progress_row = new ActionRow(_("Copying"), "");
+            progress_bar = new ProgressBar();
+            progress_bar.valign = Align.CENTER;
+            progress_bar.width_request = 120;
+            progress_row.add_suffix(progress_bar);
+            progress_row.visible = false;
+            group.add_row(progress_row);
             status = status_label();
             group.add_row(status);
             add_group(group);
             go.clicked.connect(() => make.begin());
+            ulong id = Client.get_default().progress.connect((device, percent) => {
+                if (device != drive.device) return;
+                progress_row.visible = true;
+                progress_bar.fraction = percent.clamp(0, 100) / 100.0;
+                progress_row.subtitle = "%u%%".printf(percent);
+            });
+            destroy.connect(() => Client.get_default().disconnect(id));
         }
 
         private async void make() {
@@ -264,6 +282,8 @@ namespace Singularity.SidebarPages {
             status.visible = true;
             status.label = _("Copying Sinty OS. This takes a few minutes, keep the drive connected…");
             var ticket = SidebarWait.get_default().begin(this, _("Making a Startup Key"), "drive-removable-media-symbolic");
+            progress_bar.fraction = 0;
+            progress_row.subtitle = "";
             try {
                 yield Client.get_default().make_bootable(drive.device);
                 status.label = _("The Startup Key is ready. Start a computer from it to use Sinty OS.");
@@ -271,6 +291,7 @@ namespace Singularity.SidebarPages {
                 status.label = e.message;
                 go.sensitive = true;
             }
+            progress_row.visible = false;
             ticket.end();
         }
     }
