@@ -197,6 +197,29 @@ namespace Singularity.SidebarPages {
         return status;
     }
 
+    internal uint follow_drive_check(string device, owned ProgressFunc report) {
+        try {
+            var bus = Bus.get_sync(BusType.SYSTEM);
+            return bus.signal_subscribe(DriveHealth.BUS_NAME, DriveHealth.INTERFACE, "Progress", DriveHealth.OBJECT_PATH, null,
+                DBusSignalFlags.NONE, (conn, sender, path, iface, name, args) => {
+                    if (!args.is_of_type(new VariantType("(su)"))) return;
+                    if (args.get_child_value(0).get_string() == device) report(args.get_child_value(1).get_uint32());
+                });
+        } catch (Error e) {
+            return 0;
+        }
+    }
+
+    internal void stop_drive_check(uint id) {
+        if (id == 0) return;
+        try {
+            Bus.get_sync(BusType.SYSTEM).signal_unsubscribe(id);
+        } catch (Error e) {
+        }
+    }
+
+    internal delegate void ProgressFunc(uint percent);
+
     internal Button row_button(string text, bool suggested) {
         var b = new Button.with_label(text);
         b.valign = Align.CENTER;
@@ -223,20 +246,38 @@ namespace Singularity.SidebarPages {
             row.activatable = true;
             row.add_suffix(new Image.from_icon_name("go-next-symbolic"));
             row.activated.connect(() => {
-                SettingsPage page;
-                if (kind == 0) page = new SintyKeyCreatePage(view, drive);
-                else if (kind == 1) page = new SintyKeyBootPage(view, drive);
-                else page = new SintyKeyRestorePage(view, drive);
-                page.back_btn.visible = true;
-                page.back_clicked.connect(() => {
-                    var back = new SintyKeyMakePage(view, drive);
-                    back.back_btn.visible = true;
-                    back.back_clicked.connect(() => SintyKeyPage.open(view));
-                    view.open_subpage(back, "sinty-key-make");
+                DriveHealth.lookup.begin(drive.device, (o, r) => {
+                    var health = DriveHealth.lookup.end(r);
+                    if (health == null || !health.troubled) {
+                        open_kind(view, drive, kind);
+                        return;
+                    }
+                    var app = GLib.Application.get_default() as Gtk.Application;
+                    var dlg = new ConfirmDialog(app, _("Use %s Anyway?").printf(drive.name), health.icon_name(),
+                        "%s\n\n%s".printf(health.explain(), _("A Key on this drive may stop working and take your files with it.")),
+                        _("Use Anyway"), ConfirmDialog.ActionStyle.DESTRUCTIVE);
+                    dlg.response.connect((answer) => {
+                        if (answer == ConfirmDialog.Response.PRIMARY) open_kind(view, drive, kind);
+                    });
+                    dlg.present();
                 });
-                view.open_subpage(page, "sinty-key-make-" + kind.to_string());
             });
             return row;
+        }
+
+        private static void open_kind(SettingsView view, KeyDrive drive, int kind) {
+            SettingsPage page;
+            if (kind == 0) page = new SintyKeyCreatePage(view, drive);
+            else if (kind == 1) page = new SintyKeyBootPage(view, drive);
+            else page = new SintyKeyRestorePage(view, drive);
+            page.back_btn.visible = true;
+            page.back_clicked.connect(() => {
+                var back = new SintyKeyMakePage(view, drive);
+                back.back_btn.visible = true;
+                back.back_clicked.connect(() => SintyKeyPage.open(view));
+                view.open_subpage(back, "sinty-key-make");
+            });
+            view.open_subpage(page, "sinty-key-make-" + kind.to_string());
         }
     }
 
@@ -278,10 +319,11 @@ namespace Singularity.SidebarPages {
             go.clicked.connect(() => make.begin());
             load_archs.begin();
             ulong id = Client.get_default().progress.connect((device, percent) => {
-                if (device != drive.device) return;
-                progress_row.visible = true;
-                progress_bar.fraction = percent.clamp(0, 100) / 100.0;
-                progress_row.subtitle = "%u%%".printf(percent);
+            if (device != drive.device) return;
+            progress_row.visible = true;
+            progress_row.title = _("Copying");
+            progress_bar.fraction = percent.clamp(0, 100) / 100.0;
+            progress_row.subtitle = "%u%%".printf(percent);
             });
             destroy.connect(() => Client.get_default().disconnect(id));
         }
@@ -298,17 +340,17 @@ namespace Singularity.SidebarPages {
 
         private void describe() {
             if (foreign()) {
-                group.description = _("Sinty OS for %s is downloaded and copied to %s, which then starts those computers from USB. Everything on the drive is erased.").printf(arch_label(arch), drive.name);
+            group.description = _("Sinty OS for %s is downloaded and copied to %s, which then starts those computers from USB. Everything on the drive is erased.").printf(arch_label(arch), drive.name);
             } else {
-                group.description = _("Sinty OS from this computer is copied to %s, which then starts any computer that boots from USB. Everything on the drive is erased.").printf(drive.name);
+            group.description = _("Sinty OS from this computer is copied to %s, which then starts any computer that boots from USB. Everything on the drive is erased.").printf(drive.name);
             }
         }
 
         private async void load_archs() {
             try {
-                archs = yield Client.get_default().architectures();
+            archs = yield Client.get_default().architectures();
             } catch (KeyError e) {
-                return;
+            return;
             }
             if (archs.length < 2) return;
             string[] labels = {};
@@ -316,10 +358,10 @@ namespace Singularity.SidebarPages {
             arch = archs[0];
             arch_row = new SelectionRow(_("Starts"), labels, labels[0]);
             arch_row.selected.connect((item) => {
-                for (int i = 0; i < labels.length; i++) {
-                    if (labels[i] == item) arch = archs[i];
-                }
-                describe();
+            for (int i = 0; i < labels.length; i++) {
+                if (labels[i] == item) arch = archs[i];
+            }
+            describe();
             });
             arch_group.add_row(arch_row);
             arch_group.visible = true;
@@ -330,22 +372,29 @@ namespace Singularity.SidebarPages {
             if (arch_row != null) arch_row.sensitive = false;
             status.visible = true;
             status.label = foreign()
-                ? _("Downloading Sinty OS for %s. This takes a while, keep the drive connected…").printf(arch_label(arch))
-                : _("Copying Sinty OS. This takes a few minutes, keep the drive connected…");
+            ? _("Downloading Sinty OS for %s. This takes a while, keep the drive connected…").printf(arch_label(arch))
+            : _("Copying Sinty OS. This takes a few minutes, keep the drive connected…");
             var ticket = SidebarWait.get_default().begin(this, _("Making a Startup Key"), "drive-removable-media-symbolic");
             progress_bar.fraction = 0;
             progress_row.subtitle = "";
+            uint check = follow_drive_check(drive.device, (p) => {
+            progress_row.visible = p < 100;
+            progress_row.title = _("Checking the Drive");
+            progress_bar.fraction = p.clamp(0, 100) / 100.0;
+            progress_row.subtitle = "%u%%".printf(p);
+            });
             try {
-                if (foreign()) {
-                    yield Client.get_default().make_bootable_for(drive.device, arch);
-                } else {
-                    yield Client.get_default().make_bootable(drive.device);
-                }
-                status.label = _("The Startup Key is ready. Start a computer from it to use Sinty OS.");
-            } catch (KeyError e) {
-                status.label = e.message;
-                go.sensitive = true;
+            if (foreign()) {
+                yield Client.get_default().make_bootable_for(drive.device, arch);
+            } else {
+                yield Client.get_default().make_bootable(drive.device);
             }
+            status.label = _("The Startup Key is ready. Start a computer from it to use Sinty OS.");
+            } catch (KeyError e) {
+            status.label = e.message;
+            go.sensitive = true;
+            }
+            stop_drive_check(check);
             if (arch_row != null) arch_row.sensitive = true;
             progress_row.visible = false;
             ticket.end();
@@ -380,15 +429,15 @@ namespace Singularity.SidebarPages {
             status.visible = true;
             status.label = _("Opening…");
             try {
-                string root = yield Client.get_default().open(drive.device, pin.text);
-                pin.text = "";
-                var page = new SintyKeyDetailPage(view, root);
-                page.back_btn.visible = true;
-                page.back_clicked.connect(() => SintyKeyPage.open(view));
-                view.open_subpage(page, "sinty-key-detail");
+            string root = yield Client.get_default().open(drive.device, pin.text);
+            pin.text = "";
+            var page = new SintyKeyDetailPage(view, root);
+            page.back_btn.visible = true;
+            page.back_clicked.connect(() => SintyKeyPage.open(view));
+            view.open_subpage(page, "sinty-key-detail");
             } catch (KeyError e) {
-                status.label = e.message;
-                go.sensitive = true;
+            status.label = e.message;
+            go.sensitive = true;
             }
         }
     }
@@ -431,6 +480,9 @@ namespace Singularity.SidebarPages {
             }
             make.sensitive = false;
             status.label = _("Making the Key…");
+            uint check = follow_drive_check(drive.device, (p) => {
+                status.label = p < 100 ? _("Checking the drive, %u%%…").printf(p) : _("Making the Key…");
+            });
             try {
                 string root = yield Client.get_default().prepare(drive.device);
                 string code = yield Client.get_default().create(root, pin.text);
@@ -442,6 +494,7 @@ namespace Singularity.SidebarPages {
                 status.label = e.message;
                 make.sensitive = true;
             }
+            stop_drive_check(check);
         }
 
         private void show_code(string code) {

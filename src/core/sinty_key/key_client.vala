@@ -52,6 +52,7 @@ namespace Singularity.SintyKey {
         NO_TPM,
         NOT_A_BACKUP,
         DAMAGED,
+        FAKE_DRIVE,
         FAILED
     }
 
@@ -104,6 +105,7 @@ namespace Singularity.SintyKey {
                 case "dev.sinty.Key1.Error.NotAllowed": return new KeyError.NOT_ALLOWED(_("Only removable drives can be a Sinty Key."));
                 case "dev.sinty.Key1.Error.NotABackup": return new KeyError.NOT_A_BACKUP(_("This file is not a Sinty Key backup."));
                 case "dev.sinty.Key1.Error.Damaged": return new KeyError.DAMAGED(_("The backup is damaged or was changed."));
+                case "dev.sinty.Key1.Error.FakeDrive": return new KeyError.FAKE_DRIVE(_("This drive reports more space than it really has and would lose your files. Use another drive."));
                 case "dev.sinty.Key1.Error.NoTpm": return new KeyError.NO_TPM(_("This computer has no security chip to remember the Key."));
             }
             return new KeyError.FAILED(e.message);

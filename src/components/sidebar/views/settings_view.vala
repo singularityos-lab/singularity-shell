@@ -230,7 +230,7 @@ namespace Singularity {
                 case "sound": case "bluetooth": case "printers": case "keyboard": case "tablet": case "developer": case "connected-devices":
                 case "accessibility": case "plugins": case "performance": case "agent": case "system": case "power":
                 case "autostart": case "notifications": case "updates": case "privacy": case "sharing":
-                case "wellbeing": case "sinty-key": case "profiles":
+                case "wellbeing": case "sinty-key": case "profiles": case "storage":
                     return true;
             }
             return false;
@@ -270,6 +270,7 @@ namespace Singularity {
                 case "updates": return "software-update-available-symbolic";
                 case "system": return "computer-symbolic";
                 case "sinty-key": return "drive-removable-media-symbolic";
+                case "storage": return "drive-harddisk-symbolic";
                 case "sinty-core": return "video-display-symbolic";
             }
             return "preferences-system-symbolic";
@@ -279,7 +280,7 @@ namespace Singularity {
             return { "network", NetworkPage.WIFI, NetworkPage.WIRED, NetworkPage.VPN, NetworkPage.DYNAMIC,
                      NetworkPage.HOTSPOT, "sharing", "apps", "autostart", "privacy", "users", "accounts", "displays", "region", "datetime",
                      "desktop", "sound", "notifications", "profiles", "wellbeing", "bluetooth", "connected-devices", "printers", "keyboard", "tablet", "developer", "accessibility",
-                     "plugins", "power", "performance", "agent", "updates", "system", "sinty-key", "sinty-core" };
+                     "plugins", "power", "performance", "agent", "updates", "system", "sinty-key", "sinty-core", "storage" };
         }
 
         private void setup_settings_search() {
@@ -578,6 +579,7 @@ namespace Singularity {
             switch (page_name) {
                 case "network": page = new NetworkPage(this); break;
                 case "sinty-key": page = new Singularity.SidebarPages.SintyKeyPage(this); break;
+                case "storage": page = new Singularity.SidebarPages.StoragePage(this); break;
                 case "sinty-core": page = new Singularity.SidebarPages.SintyCorePage(this); break;
                 case "sharing": page = new Singularity.SidebarPages.SharingPage(this); break;
                 case "sharing-files": page = new Singularity.SidebarPages.FileSharingPage(this); break;
@@ -726,7 +728,7 @@ namespace Singularity {
             string[] pages = { "network", "sharing", "apps", "autostart", "privacy", "users", "accounts", "displays",
                                "region", "datetime", "desktop", "sound", "notifications", "profiles", "wellbeing", "bluetooth",
                                "connected-devices", "printers", "keyboard", "tablet", "accessibility", "plugins",
-                               "power", "performance", "updates", "system" };
+                               "power", "performance", "updates", "storage", "system" };
             if (_desktop_settings.get_boolean("developer-mode")) pages += "developer";
             if (AgentConfig.available()) pages += "agent";
             if (Singularity.SintyKey.Client.installed()) pages += "sinty-key";
@@ -764,6 +766,7 @@ namespace Singularity {
                 case "updates": return _("Updates");
                 case "system": return _("System");
                 case "sinty-key": return _("Sinty Key");
+                case "storage": return _("Storage");
             }
             return page;
         }
