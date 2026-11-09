@@ -707,8 +707,8 @@ namespace Singularity {
             xml.append_printf("    <keybind key=\"A-Tab\"><action name=\"Execute\"><command>%s switch_windows_next</command></action></keybind>\n", dbus_shorts);
             xml.append_printf("    <keybind key=\"A-S-Tab\"><action name=\"Execute\"><command>%s switch_windows_prev</command></action></keybind>\n", dbus_shorts);
             // Super_L/R on release, launcher
-            xml.append_printf("    <keybind key=\"Super_L\" onRelease=\"yes\" overrideInhibition=\"yes\"><action name=\"Execute\"><command>%s toggle_launcher</command></action></keybind>\n", dbus_shorts);
-            xml.append_printf("    <keybind key=\"Super_R\" onRelease=\"yes\" overrideInhibition=\"yes\"><action name=\"Execute\"><command>%s toggle_launcher</command></action></keybind>\n", dbus_shorts);
+            xml.append_printf("    <keybind key=\"Super_L\" onRelease=\"yes\" overrideInhibition=\"yes\"><action name=\"BufferKeys\" timeout=\"800\" /><action name=\"Execute\"><command>%s toggle_launcher</command></action></keybind>\n", dbus_shorts);
+            xml.append_printf("    <keybind key=\"Super_R\" onRelease=\"yes\" overrideInhibition=\"yes\"><action name=\"BufferKeys\" timeout=\"800\" /><action name=\"Execute\"><command>%s toggle_launcher</command></action></keybind>\n", dbus_shorts);
             xml.append("    <!-- Singularity Desktop shortcuts -->\n");
             // Dynamic shortcuts from the shortcut registry
             foreach (var s in shortcuts) {
@@ -720,8 +720,8 @@ namespace Singularity {
                     xml.append_printf("    <keybind key=\"%s\"><action name=\"ToggleShowDesktop\" /></keybind>\n", key);
                     continue;
                 }
-                xml.append_printf("    <keybind key=\"%s\"><action name=\"Execute\"><command>%s %s</command></action></keybind>\n",
-                    key, dbus_shorts, s.action_name);
+                xml.append_printf("    <keybind key=\"%s\">%s<action name=\"Execute\"><command>%s %s</command></action></keybind>\n",
+                    key, s.action_name == "toggle_launcher" ? "<action name=\"BufferKeys\" timeout=\"800\" />" : "", dbus_shorts, s.action_name);
             }
             foreach (var k in custom_keybindings) {
                 string key = accel_to_labwc(k.accelerator);
