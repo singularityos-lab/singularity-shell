@@ -154,6 +154,12 @@ namespace Singularity.SidebarPages {
                 string engine_id = id;
                 row.confirmed.connect(() => sources.remove(engine_id));
                 row.add_suffix(remove);
+                if (info != null && info.framework == "sinty") {
+                    row.add_suffix(NotificationSettingsPage.chevron());
+                    row.activatable = true;
+                    var engine_info = info;
+                    row.activated.connect(() => InputMethodOptionsPage.open(view, engine_info));
+                }
                 engines_group.add_row(row);
             }
             var add_row = new ActionRow(_("Add Input Method"),
@@ -220,6 +226,7 @@ namespace Singularity.SidebarPages {
                     ? _("Every available engine is already in your list.")
                     : _("Try another language or engine name.");
                 groups_box.append(empty);
+                own_table(view, query);
                 return;
             }
             foreach (var entry in by_language.entries) {
@@ -242,6 +249,19 @@ namespace Singularity.SidebarPages {
                 }
                 groups_box.append(group);
             }
+            own_table(view, query);
+        }
+
+        private void own_table(SettingsView view, string query) {
+            if (query != "" || sources.framework_for("sinty") == null) return;
+            var own = new PreferencesGroup(_("Your Own Table"));
+            var row = new ActionRow(_("Import a Table"),
+                _("Wubi, Cangjie or any table you made, also from Rime and fcitx"), "document-open-symbolic");
+            row.add_suffix(NotificationSettingsPage.chevron());
+            row.activatable = true;
+            row.activated.connect(() => view.open_subpage(new AddInputTablePage(view), "add-input-table"));
+            own.add_row(row);
+            groups_box.append(own);
         }
 
     }

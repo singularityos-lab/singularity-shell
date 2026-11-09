@@ -18,6 +18,10 @@ namespace Singularity.InputMethods {
             return false;
         }
 
+        public void forget() {
+            cached = null;
+        }
+
         public override EngineInfo[] engines() {
             if (cached != null) return cached;
             EngineInfo[] result = {};

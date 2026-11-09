@@ -77,6 +77,14 @@ namespace Singularity.InputMethods {
             settings.set_strv("input-method-engines", list);
         }
 
+        public void reload() {
+            foreach (var framework in frameworks) {
+                var sinty = framework as SintyFramework;
+                if (sinty != null) sinty.forget();
+            }
+            changed();
+        }
+
         public void remove(string id) {
             string[] list = {};
             foreach (string item in configured()) {
