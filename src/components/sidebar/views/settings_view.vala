@@ -496,6 +496,13 @@ namespace Singularity {
             }
         }
 
+        private static bool hidden_entry(SettingsEntry item) {
+            for (Widget? w = item.widget; w != null && !(w is SettingsPage); w = w.get_parent()) {
+                if (!w.visible) return true;
+            }
+            return false;
+        }
+
         private void update_search_results() {
             string query = search_entry.text.strip().down();
             clear_search_results();
@@ -507,7 +514,7 @@ namespace Singularity {
             var seen = new Gee.HashSet<string>();
             var matches = new Gee.ArrayList<SettingsEntry>();
             foreach (var item in _search_items) {
-                if (search_matches(item, query)) matches.add(item);
+                if (!hidden_entry(item) && search_matches(item, query)) matches.add(item);
             }
             var ranked = new Gee.ArrayList<SettingsEntry>();
             for (int rank = 0; rank < 4; rank++) {
