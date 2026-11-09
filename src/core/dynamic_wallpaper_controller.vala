@@ -210,18 +210,17 @@ namespace Singularity {
             string from = state.from;
             string to = state.to;
             double progress = state.progress;
-            new Thread<void>("dynamic-wallpaper-blend", () => {
+            Async.dispatch(this, Async.Qos.USER, (c) => {
                 bool ok = render_blend(from, to, progress, w, h, target);
-                Idle.add(() => {
+                return () => {
                     if (pending_target == target) pending_target = "";
-                    if (serial != render_serial) return Source.REMOVE;
+                    if (serial != render_serial) return;
                     if (ok) {
                         write_uri(File.new_for_path(target).get_uri());
                     } else {
                         write_uri(File.new_for_path(progress >= 0.5 ? to : from).get_uri());
                     }
-                    return Source.REMOVE;
-                });
+                };
             });
         }
 

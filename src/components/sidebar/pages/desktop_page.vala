@@ -2117,7 +2117,7 @@ namespace Singularity {
                 }
             } catch (Error e) {}
             if (candidates.is_empty) return;
-            new GLib.Thread<void>("wallpaper-preview", () => {
+            Async.dispatch(this, Async.Qos.INTERACTIVE, (c) => {
                 Gdk.Pixbuf? pb = null;
                 foreach (string path in candidates) {
                     try {
@@ -2125,11 +2125,10 @@ namespace Singularity {
                         break;
                     } catch (Error e) {}
                 }
-                GLib.Idle.add(() => {
+                return () => {
                     if (pb != null && preview_widget != null)
                         preview_widget.set_image(Gdk.Texture.for_pixbuf(pb));
-                    return GLib.Source.REMOVE;
-                });
+                };
             });
         }
 
@@ -2151,16 +2150,15 @@ namespace Singularity {
             }
 
             string accent_path = path;
-            new GLib.Thread<void>("wallpaper-accent", () => {
+            Async.dispatch(this, Async.Qos.USER, (c) => {
                 string hex = Singularity.Style.StyleManager.get_default().extract_primary_color(accent_path);
-                GLib.Idle.add(() => {
+                return () => {
                     if (gen == wallpaper_accent_generation) {
                         cached_wallpaper_accent = hex;
                         if (wallpaper_swatch != null) wallpaper_swatch.queue_draw();
                         queue_draw();
                     }
-                    return GLib.Source.REMOVE;
-                });
+                };
             });
         }
 
@@ -2391,16 +2389,15 @@ namespace Singularity {
 
             var collection_dirs = new ArrayList<string>();
             foreach (var collection in wallpaper_collections) collection_dirs.add(collection.dir);
-            new GLib.Thread<void>("wallpaper-scan", () => {
+            Async.dispatch(this, Async.Qos.UTILITY, (c) => {
                 var candidates = WallpaperGallery.scan(scan_dir, collection_dirs.to_array(), recent);
 
-                GLib.Idle.add(() => {
-                    if (gen != wallpaper_grid_generation) return GLib.Source.REMOVE;
+                return () => {
+                    if (gen != wallpaper_grid_generation) return;
                     debug("Wallpaper gallery: source=%s root=%s images=%d",
                           selected_id, scan_dir ?? "(none)", candidates.size);
                     append_wallpaper_candidates(candidates, gen, 0);
-                    return GLib.Source.REMOVE;
-                });
+                };
             });
         }
 
@@ -3085,7 +3082,7 @@ namespace Singularity {
         }
 
         private void load_thumbnail_async() {
-            new GLib.Thread<void>("wallpaper-thumb", () => {
+            Async.dispatch(this, Async.Qos.UTILITY, (c) => {
                 Gdk.Pixbuf? pb = null;
                 thumb_mutex.lock();
                 while (active_thumb_loads >= 3) {
@@ -3103,11 +3100,10 @@ namespace Singularity {
                 thumb_cond.signal();
                 thumb_mutex.unlock();
 
-                GLib.Idle.add(() => {
+                return () => {
                     if (pb != null)
                         picture.set_paintable(Gdk.Texture.for_pixbuf(pb));
-                    return GLib.Source.REMOVE;
-                });
+                };
             });
         }
 
@@ -3116,7 +3112,7 @@ namespace Singularity {
         // Loader exceptions are swallowed silently (matching the local-file
         // loader's behaviour) and the placeholder stays visible.
         private void load_remote_thumbnail_async() {
-            new GLib.Thread<void>("wallpaper-thumb-remote", () => {
+            Async.dispatch(this, Async.Qos.UTILITY, (c) => {
                 Gdk.Pixbuf? pb = null;
                 thumb_mutex.lock();
                 while (active_thumb_loads >= 3) {
@@ -3136,11 +3132,10 @@ namespace Singularity {
                 thumb_cond.signal();
                 thumb_mutex.unlock();
 
-                GLib.Idle.add(() => {
+                return () => {
                     if (pb != null)
                         picture.set_paintable(Gdk.Texture.for_pixbuf(pb));
-                    return GLib.Source.REMOVE;
-                });
+                };
             });
         }
     }

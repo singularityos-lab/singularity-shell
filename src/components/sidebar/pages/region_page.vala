@@ -27,13 +27,12 @@ namespace Singularity.SidebarPages {
 
         private void load_locales() {
 
-            new Thread<void>("load-locales", () => {
+            Async.dispatch(this, Async.Qos.USER, (c) => {
                 var locales = manager.get_available_locales();
                 locales.sort(string.collate);
-                Idle.add(() => {
+                return () => {
                     all_locales = (owned) locales;
-                    return false;
-                });
+                };
             });
         }
 

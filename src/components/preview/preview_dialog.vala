@@ -401,7 +401,7 @@ namespace Singularity {
 
             bool animated = mime == "image/gif" || mime == "image/webp";
             var target = file;
-            new Thread<void>("preview-image", () => {
+            Async.dispatch(this, Async.Qos.INTERACTIVE, (c) => {
                 Gdk.Texture? texture = null;
                 Gdk.PixbufAnimation? animation = null;
                 try {
@@ -417,8 +417,8 @@ namespace Singularity {
                 } catch (Error e) {
                     texture = null;
                 }
-                Idle.add(() => {
-                    if (gen != generation) return Source.REMOVE;
+                return () => {
+                    if (gen != generation) return;
                     if (animation != null) {
                         viewer.set_animation(animation);
                     } else if (texture != null) {
@@ -427,12 +427,11 @@ namespace Singularity {
                         session.toggle.visible = true;
                     } else {
                         show_generic();
-                        return Source.REMOVE;
+                        return;
                     }
                     if (width <= 0) fit_stage(viewer.image_width, viewer.image_height);
                     fit_button.visible = viewer.image_width > stage_w || viewer.image_height > stage_h;
-                    return Source.REMOVE;
-                });
+                };
             });
         }
 
@@ -509,7 +508,7 @@ namespace Singularity {
 
             var target = file;
             var cancel = cancellable;
-            new Thread<void>("preview-pdf", () => {
+            Async.dispatch(this, Async.Qos.INTERACTIVE, (c) => {
                 Poppler.Document? document = null;
                 try {
                     document = new Poppler.Document.from_gfile(target, null, cancel);
@@ -526,11 +525,11 @@ namespace Singularity {
                 } catch (Error e) {
                     identity = null;
                 }
-                Idle.add(() => {
-                    if (gen != generation) return Source.REMOVE;
+                return () => {
+                    if (gen != generation) return;
                     if (document == null || document.get_n_pages() < 1) {
                         show_generic();
-                        return Source.REMOVE;
+                        return;
                     }
                     pdf_document = document;
                     pdf_identity = identity;
@@ -539,8 +538,7 @@ namespace Singularity {
                     fit_stage(pw * 1.5, ph * 1.5);
                     pager.visible = document.get_n_pages() > 1;
                     show_pdf_page(0);
-                    return Source.REMOVE;
-                });
+                };
             });
         }
 
@@ -762,18 +760,17 @@ namespace Singularity {
                 } catch (Error e) { }
             });
 
-            new Thread<void>("preview-folder", () => {
+            Async.dispatch(this, Async.Qos.INTERACTIVE, (c) => {
                 int64 total = 0;
                 int direct = 0;
                 bool capped = false;
                 scan_folder(target, cancel, ref total, ref direct, ref capped, true);
-                Idle.add(() => {
-                    if (gen != generation) return Source.REMOVE;
+                return () => {
+                    if (gen != generation) return;
                     count.label = ngettext("%d item", "%d items", direct).printf(direct);
                     size.label = capped ? _("More than %s").printf(format_size(total)) : format_size(total);
                     facts_label.label = "%s, %s".printf(count.label, size.label);
-                    return Source.REMOVE;
-                });
+                };
             });
         }
 

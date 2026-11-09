@@ -1057,7 +1057,6 @@ namespace Singularity {
             new GLib.HashTable<string, Gdk.Texture>(str_hash, str_equal);
         private static GLib.HashTable<string, GLib.GenericArray<Gtk.Image>> _icon_waiters =
             new GLib.HashTable<string, GLib.GenericArray<Gtk.Image>>(str_hash, str_equal);
-        private static GLib.ThreadPool<IconJob>? _icon_pool = null;
 
         private void load_app_icon(Gtk.Image img, GLib.Icon? icon) {
             var theme = IconTheme.get_for_display(Gdk.Display.get_default());
@@ -1095,21 +1094,14 @@ namespace Singularity {
                 waiting.add(img);
                 return;
             }
-            try {
-                if (_icon_pool == null)
-                    _icon_pool = new GLib.ThreadPool<IconJob>.with_owned_data(rasterize_icon, 4, false);
-                waiting = new GLib.GenericArray<Gtk.Image>();
-                waiting.add(img);
-                _icon_waiters.insert(key, waiting);
-                var job = new IconJob();
-                job.key = key;
-                job.file = file;
-                job.px = icon_size * scale;
-                _icon_pool.add((owned) job);
-            } catch (ThreadError e) {
-                _icon_waiters.remove(key);
-                apply_icon_fallback(img);
-            }
+            waiting = new GLib.GenericArray<Gtk.Image>();
+            waiting.add(img);
+            _icon_waiters.insert(key, waiting);
+            var job = new IconJob();
+            job.key = key;
+            job.file = file;
+            job.px = icon_size * scale;
+            Async.dispatch(null, Async.Qos.INTERACTIVE, (c) => rasterize_icon(job));
         }
 
         private int icon_scale() {
@@ -1124,7 +1116,7 @@ namespace Singularity {
             return scale;
         }
 
-        private static void rasterize_icon(owned IconJob job) {
+        private static Async.Apply rasterize_icon(IconJob job) {
             Gdk.Texture? texture = null;
             try {
                 var path = job.file.get_path();
@@ -1138,10 +1130,9 @@ namespace Singularity {
                 texture = null;
             }
             string key = job.key;
-            GLib.Idle.add(() => {
+            return () => {
                 deliver_icon(key, texture);
-                return GLib.Source.REMOVE;
-            });
+            };
         }
 
         private static void deliver_icon(string key, Gdk.Texture? texture) {

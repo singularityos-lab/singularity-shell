@@ -103,14 +103,13 @@ namespace Singularity {
         public void rotate_async() {
             // Snapshot before entering the worker to avoid a concurrent property read.
             string? current = current_uri;
-            new Thread<void>("wallpaper-rotate", () => {
+            Async.dispatch(this, Async.Qos.USER, (c) => {
                 string? uri = choose_next_for(current);
-                if (uri == null) return;
-                Idle.add(() => {
+                if (uri == null) return null;
+                return () => {
                     current_uri = uri;
                     wallpaper_selected(uri);
-                    return Source.REMOVE;
-                });
+                };
             });
         }
 

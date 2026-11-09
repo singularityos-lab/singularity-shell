@@ -227,11 +227,11 @@ namespace Singularity {
                 int target_h = 0;
                 get_display_target_size(out target_w, out target_h);
 
-                new Thread<void>("wallpaper-load", () => {
+                Async.dispatch(this, Async.Qos.USER, (c) => {
                     _mutex.lock();
                     if (serial != _load_serial) {
                         _mutex.unlock();
-                        return;
+                        return null;
                     }
                     _mutex.unlock();
 
@@ -261,13 +261,13 @@ namespace Singularity {
                     _mutex.lock();
                     bool stale = (serial != _load_serial);
                     _mutex.unlock();
-                    if (stale) return;
+                    if (stale) return null;
 
-                    Idle.add(() => {
+                    return () => {
                         _mutex.lock();
                         bool still_valid = (serial == _load_serial);
                         _mutex.unlock();
-                        if (!still_valid) return false;
+                        if (!still_valid) return;
 
                         if (pb_display != null) display_texture = Texture.for_pixbuf(pb_display);
                         if (pb_medium != null) { medium_texture = Texture.for_pixbuf(pb_medium); _display_pixbuf = pb_medium.copy(); }
@@ -275,8 +275,7 @@ namespace Singularity {
                         message("Wallpaper loaded: %s", load_path);
                         wallpaper_changed();
                         wallpaper_path_changed(load_path);
-                        return false;
-                    });
+                    };
                 });
             }
         }

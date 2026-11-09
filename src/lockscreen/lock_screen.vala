@@ -217,13 +217,13 @@ namespace Singularity.LockScreen {
             _status_label.label = "";
             _status_label.visible = false;
 
-            new Thread<void>("pam-auth", () => {
+            Async.dispatch(this, Async.Qos.USER, (c) => {
                 string username = GLib.Environment.get_user_name();
                 int result = Singularity.Runtime.is_sinty_os()
                     ? verify_via_daemon(password)
                     : Singularity.Pam.authenticate(username, password);
 
-                Idle.add(() => {
+                return () => {
                     _authenticating = false;
                     _password_entry.sensitive = true;
 
@@ -242,8 +242,7 @@ namespace Singularity.LockScreen {
                         });
                         _password_entry.grab_focus();
                     }
-                    return false;
-                });
+                };
             });
         }
 

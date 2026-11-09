@@ -1022,7 +1022,7 @@ wallpaper_rotator_test = executable('wallpaper-rotator-test',
             'src/core/wallpaper_rotation_state.vala', 'src/core/wallpaper_rotator.vala',
             'tests/wallpaper_rotator_test.vala'],
   dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0'),
-                 dependency('gdk-pixbuf-2.0'), gee_dep, json_dep, cc.find_library('m')],
+                 dependency('gdk-pixbuf-2.0'), gee_dep, json_dep, cc.find_library('m'), libsingularity_dep],
 )
 test('wallpaper-rotator', wallpaper_rotator_test,
   depends: wallpaper_test_schema,

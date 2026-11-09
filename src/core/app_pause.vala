@@ -315,13 +315,13 @@ namespace Singularity {
             uint64 memory = read_number(path + "/memory.current");
             if (memory > 0 && FileUtils.test(cgroup_root + path + "/memory.reclaim", FileTest.EXISTS)) {
                 string target = cgroup_root + path + "/memory.reclaim";
-                new Thread<bool>("app-pause-reclaim", () => {
+                Async.dispatch(this, Async.Qos.USER, (c) => {
                     int fd = Posix.open(target, Posix.O_WRONLY | Posix.O_CLOEXEC);
-                    if (fd < 0) return false;
+                    if (fd < 0) return null;
                     string amount = memory.to_string();
                     Posix.write(fd, amount, amount.length);
                     Posix.close(fd);
-                    return true;
+                    return null;
                 });
             }
             return true;

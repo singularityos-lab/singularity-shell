@@ -142,7 +142,7 @@ namespace Singularity {
             string captured_bus = bus_name.dup ();
             owned MenuReadyCallback captured_cb = (owned) callback;
 
-            new GLib.Thread<void> ("gtk-actions-menu", () => {
+            Async.dispatch(null, Async.Qos.USER, (c) => {
                 GLib.Menu? menu = null;
                 try {
                     menu = build_sync (captured_bus);
@@ -150,10 +150,9 @@ namespace Singularity {
                     // Not a GTK4/GLib app or no accessible actions - fine, returns null
                 }
                 var result = menu;
-                GLib.Idle.add (() => {
+                return () => {
                     captured_cb (result);
-                    return GLib.Source.REMOVE;
-                });
+                };
             });
         }
 

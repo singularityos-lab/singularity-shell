@@ -408,13 +408,13 @@ namespace Singularity {
             if (amount < 16 * 1024 * 1024) return;
             string target = cgroup_root + path + "/memory.reclaim";
             if (!FileUtils.test(target, FileTest.EXISTS)) return;
-            new Thread<bool>("background-reclaim", () => {
+            Async.dispatch(this, Async.Qos.USER, (c) => {
                 int fd = Posix.open(target, Posix.O_WRONLY | Posix.O_CLOEXEC);
-                if (fd < 0) return false;
+                if (fd < 0) return null;
                 string value = amount.to_string();
                 Posix.write(fd, value, value.length);
                 Posix.close(fd);
-                return true;
+                return null;
             });
         }
 

@@ -125,7 +125,7 @@ namespace Singularity {
             importing = true;
             import_row.subtitle = _("Importing…");
             import_row.remove_css_class("error");
-            new Thread<void>("dynamic-wallpaper-import", () => {
+            Async.dispatch(null, Async.Qos.USER, (c) => {
                 string manifest = "";
                 string failure = "";
                 try {
@@ -133,18 +133,17 @@ namespace Singularity {
                 } catch (Error e) {
                     failure = e.message;
                 }
-                Idle.add(() => {
+                return () => {
                     importing = false;
                     if (failure != "") {
                         import_row.subtitle = _("Could not import: %s").printf(failure);
                         import_row.add_css_class("error");
-                        return Source.REMOVE;
+                        return;
                     }
                     import_row.subtitle = import_hint();
                     page.show_collection("dynamic-imports");
                     settings.set_string(DynamicWallpaperController.PICTURE_KEY, File.new_for_path(manifest).get_uri());
-                    return Source.REMOVE;
-                });
+                };
             });
         }
     }
