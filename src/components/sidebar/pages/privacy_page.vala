@@ -123,6 +123,9 @@ namespace Singularity.SidebarPages {
             add_category_rows(files, { "files" });
             add_group(files);
 
+            add_group(new OneTimeCodesGroup());
+            add_search_action(_("One-Time Codes"), _("Codes from messages in text fields"), () => view.navigate_to("privacy"));
+
             add_group(new CrashReportsGroup());
             add_search_action(_("Crash Reports"), _("What happens when an app quits unexpectedly"), () => view.navigate_to("privacy"));
 

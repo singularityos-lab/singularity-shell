@@ -679,6 +679,7 @@ singularity_core_sources = files(
     'src/core/crash/crash_reporter.vala',
     'src/components/crash/crash_details_window.vala',
     'src/components/sidebar/pages/crash_reports_group.vala',
+    'src/components/sidebar/pages/one_time_codes_group.vala',
     'src/wayland/xwl_icon.c',
     'src/core/snap/snap_layout_model.vala',
     'src/core/snap/snap_controller.vala',
