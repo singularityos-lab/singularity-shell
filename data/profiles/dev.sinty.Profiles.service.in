@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=dev.sinty.Profiles
+Exec=@LIBEXECDIR@/singularity-profiles

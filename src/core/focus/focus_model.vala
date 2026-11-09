@@ -99,6 +99,9 @@ namespace Singularity {
         public bool allow_time_sensitive { get; set; default = true; }
         public bool while_presenting { get; set; default = false; }
         public bool while_fullscreen { get; set; default = false; }
+        public bool allow_repeated_calls { get; set; default = true; }
+        public bool show_badges { get; set; default = true; }
+        public bool mute_sounds { get; set; default = false; }
         public Gee.ArrayList<string> allowed_apps { get; private set; default = new Gee.ArrayList<string>(); }
         public Gee.ArrayList<FocusPerson> allowed_people { get; private set; default = new Gee.ArrayList<FocusPerson>(); }
         public Gee.ArrayList<FocusSchedule> schedules { get; private set; default = new Gee.ArrayList<FocusSchedule>(); }
@@ -141,6 +144,9 @@ namespace Singularity {
             b.set_member_name("allow-time-sensitive"); b.add_boolean_value(allow_time_sensitive);
             b.set_member_name("while-presenting"); b.add_boolean_value(while_presenting);
             b.set_member_name("while-fullscreen"); b.add_boolean_value(while_fullscreen);
+            b.set_member_name("allow-repeated-calls"); b.add_boolean_value(allow_repeated_calls);
+            b.set_member_name("show-badges"); b.add_boolean_value(show_badges);
+            b.set_member_name("mute-sounds"); b.add_boolean_value(mute_sounds);
             b.set_member_name("apps");
             b.begin_array();
             foreach (string a in allowed_apps) b.add_string_value(a);
@@ -176,6 +182,9 @@ namespace Singularity {
             if (o.has_member("allow-time-sensitive")) mode.allow_time_sensitive = o.get_boolean_member("allow-time-sensitive");
             if (o.has_member("while-presenting")) mode.while_presenting = o.get_boolean_member("while-presenting");
             if (o.has_member("while-fullscreen")) mode.while_fullscreen = o.get_boolean_member("while-fullscreen");
+            if (o.has_member("allow-repeated-calls")) mode.allow_repeated_calls = o.get_boolean_member("allow-repeated-calls");
+            if (o.has_member("show-badges")) mode.show_badges = o.get_boolean_member("show-badges");
+            if (o.has_member("mute-sounds")) mode.mute_sounds = o.get_boolean_member("mute-sounds");
             if (o.has_member("apps")) {
                 o.get_array_member("apps").foreach_element((a, i, n) => {
                     if (n.get_value_type() == typeof(string)) mode.allowed_apps.add(n.get_string());
@@ -208,7 +217,8 @@ namespace Singularity {
         MANUAL,
         SCHEDULE,
         PRESENTING,
-        FULLSCREEN;
+        FULLSCREEN,
+        PROFILE;
 
         public string to_id() {
             switch (this) {
@@ -216,6 +226,7 @@ namespace Singularity {
                 case SCHEDULE: return "schedule";
                 case PRESENTING: return "presenting";
                 case FULLSCREEN: return "fullscreen";
+                case PROFILE: return "profile";
                 default: return "";
             }
         }

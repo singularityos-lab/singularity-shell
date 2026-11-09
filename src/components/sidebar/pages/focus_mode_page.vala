@@ -3,6 +3,8 @@ using Singularity.Widgets;
 
 namespace Singularity.SidebarPages {
 
+    public delegate void FocusEditAction();
+
     public class FocusModePage : SettingsPage {
         private SettingsView view;
         private FocusMode mode;
@@ -313,11 +315,19 @@ namespace Singularity.SidebarPages {
         private Singularity.Widgets.SearchEntry search;
         private Gee.ArrayList<FocusPerson> people = new Gee.ArrayList<FocusPerson>();
 
-        public FocusPeoplePage(SettingsView view, FocusMode mode) {
+        private FocusEditAction? _saved = null;
+
+        public FocusPeoplePage(SettingsView view, FocusMode mode, owned FocusEditAction? back = null, owned FocusEditAction? saved = null) {
             base(_("Add People"));
             this.mode = mode;
+            _saved = (owned) saved;
             back_btn.visible = true;
-            back_clicked.connect(() => view.open_subpage(new FocusModePage(view, mode), "focus-mode"));
+            if (back != null) {
+                FocusEditAction go_back = (owned) back;
+                back_clicked.connect(() => go_back());
+            } else {
+                back_clicked.connect(() => view.open_subpage(new FocusModePage(view, mode), "focus-mode"));
+            }
 
             search = new Singularity.Widgets.SearchEntry();
             search.placeholder_text = _("Search Contacts");
@@ -331,6 +341,11 @@ namespace Singularity.SidebarPages {
                 people = FocusContacts.load.end(res);
                 fill();
             });
+        }
+
+        private void commit() {
+            if (_saved != null) _saved();
+            else FocusManager.get_default().save_modes();
         }
 
         private bool chosen(FocusPerson p) {
@@ -362,7 +377,7 @@ namespace Singularity.SidebarPages {
                             }
                         }
                     }
-                    FocusManager.get_default().save_modes();
+                    commit();
                 });
                 row.add_suffix(check);
                 row.activatable = true;
@@ -384,11 +399,19 @@ namespace Singularity.SidebarPages {
         private PreferencesGroup list;
         private Singularity.Widgets.SearchEntry search;
 
-        public FocusAppsPage(SettingsView view, FocusMode mode) {
+        private FocusEditAction? _saved = null;
+
+        public FocusAppsPage(SettingsView view, FocusMode mode, owned FocusEditAction? back = null, owned FocusEditAction? saved = null) {
             base(_("Add Apps"));
             this.mode = mode;
+            _saved = (owned) saved;
             back_btn.visible = true;
-            back_clicked.connect(() => view.open_subpage(new FocusModePage(view, mode), "focus-mode"));
+            if (back != null) {
+                FocusEditAction go_back = (owned) back;
+                back_clicked.connect(() => go_back());
+            } else {
+                back_clicked.connect(() => view.open_subpage(new FocusModePage(view, mode), "focus-mode"));
+            }
             search = new Singularity.Widgets.SearchEntry();
             search.placeholder_text = _("Search Apps");
             search.margin_top = 12;
@@ -397,6 +420,11 @@ namespace Singularity.SidebarPages {
             list = new PreferencesGroup(_("Apps"));
             add_group(list);
             fill();
+        }
+
+        private void commit() {
+            if (_saved != null) _saved();
+            else FocusManager.get_default().save_modes();
         }
 
         private void fill() {
@@ -430,7 +458,7 @@ namespace Singularity.SidebarPages {
                 check.toggled.connect(() => {
                     if (check.active && !mode.allows_app(k)) mode.allowed_apps.add(k);
                     else if (!check.active) mode.allowed_apps.remove(k);
-                    FocusManager.get_default().save_modes();
+                    commit();
                 });
                 row.add_suffix(check);
                 row.activatable = true;

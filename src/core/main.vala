@@ -258,6 +258,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             () => { warning("Lost name org.freedesktop.Notifications"); }
         );
         Singularity.FocusService.export();
+        Singularity.ProfileAreas.get_default().start();
         Singularity.NotificationLockService.export(Singularity.SystemMonitor.get_default().notifications);
 
         // Fan notifications out to plugins so they can react (e.g. Telegram

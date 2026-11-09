@@ -230,7 +230,7 @@ namespace Singularity {
                 case "sound": case "bluetooth": case "printers": case "keyboard": case "tablet": case "developer": case "connected-devices":
                 case "accessibility": case "plugins": case "performance": case "agent": case "system": case "power":
                 case "autostart": case "notifications": case "updates": case "privacy": case "sharing":
-                case "wellbeing": case "sinty-key":
+                case "wellbeing": case "sinty-key": case "profiles":
                     return true;
             }
             return false;
@@ -253,6 +253,7 @@ namespace Singularity {
                 case "sound": return "audio-volume-high-symbolic";
                 case "notifications": return "preferences-system-notifications-symbolic";
                 case "wellbeing": return "preferences-system-time-symbolic";
+                case "profiles": return "focus-custom-symbolic";
                 case "bluetooth": return "bluetooth-active-symbolic";
                 case "connected-devices": return "phone-symbolic";
                 case "printers": return "printer-symbolic";
@@ -277,7 +278,7 @@ namespace Singularity {
         private string[] get_searchable_pages() {
             return { "network", NetworkPage.WIFI, NetworkPage.WIRED, NetworkPage.VPN, NetworkPage.DYNAMIC,
                      NetworkPage.HOTSPOT, "sharing", "apps", "autostart", "privacy", "users", "accounts", "displays", "region", "datetime",
-                     "desktop", "sound", "notifications", "wellbeing", "bluetooth", "connected-devices", "printers", "keyboard", "tablet", "developer", "accessibility",
+                     "desktop", "sound", "notifications", "profiles", "wellbeing", "bluetooth", "connected-devices", "printers", "keyboard", "tablet", "developer", "accessibility",
                      "plugins", "power", "performance", "agent", "updates", "system", "sinty-key", "sinty-core" };
         }
 
@@ -594,6 +595,7 @@ namespace Singularity {
                 case "sound": page = new SoundPage(this); break;
                 case "notifications": page = new Singularity.SidebarPages.NotificationSettingsPage(this); break;
                 case "wellbeing": page = new Singularity.SidebarPages.WellbeingPage(this); break;
+                case "profiles": page = new Singularity.SidebarPages.ProfilesPage(this); break;
                 case "bluetooth": page = new Singularity.SidebarPages.BluetoothPage(this); break;
                 case "connected-devices": page = new Singularity.SidebarPages.ConnectedDevicesPage(this); break;
                 case "printers": page = new Singularity.SidebarPages.PrintersPage(this); break;
@@ -722,7 +724,7 @@ namespace Singularity {
         // Show or hide the Developer nav row to match the developer-mode toggle.
         private string[] nav_pages() {
             string[] pages = { "network", "sharing", "apps", "autostart", "privacy", "users", "accounts", "displays",
-                               "region", "datetime", "desktop", "sound", "notifications", "wellbeing", "bluetooth",
+                               "region", "datetime", "desktop", "sound", "notifications", "profiles", "wellbeing", "bluetooth",
                                "connected-devices", "printers", "keyboard", "tablet", "accessibility", "plugins",
                                "power", "performance", "updates", "system" };
             if (_desktop_settings.get_boolean("developer-mode")) pages += "developer";
@@ -747,6 +749,7 @@ namespace Singularity {
                 case "sound": return _("Sound");
                 case "notifications": return _("Notifications");
                 case "wellbeing": return _("Wellbeing");
+                case "profiles": return _("Profiles");
                 case "bluetooth": return _("Bluetooth");
                 case "connected-devices": return _("Connected Devices");
                 case "printers": return _("Printers");

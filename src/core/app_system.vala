@@ -147,6 +147,27 @@ namespace Singularity {
             return -1;
         }
 
+        public int workspace_index_of(Window win) {
+            var ws = workspace_of(win);
+            return ws != null ? index_in_group(ws) : -1;
+        }
+
+        public string? output_of(Window win) {
+            int x, y, w, h, maximized, fullscreen;
+            string? connector;
+            if (!Singularity.wayland_get_window_geometry(win.handle, out x, out y, out w, out h,
+                    out maximized, out fullscreen, out connector)) return null;
+            return connector;
+        }
+
+        public void place_window_on(Window win, string? connector, int workspace_index) {
+            if (connector != null && connector != "") move_window_to_connector(win, connector, true);
+            if (workspace_index < 0) return;
+            var monitor = monitor_for_connector(connector);
+            var ws = get_workspaces_for_monitor(monitor).nth_data(workspace_index);
+            if (ws != null) move_window_to_workspace(win, ws);
+        }
+
         private Workspace? workspace_of(Window win) {
             foreach (var ws in workspaces) {
                 if (ws.windows.find(win) != null) return ws;
@@ -611,8 +632,8 @@ namespace Singularity {
             place_window(win, ws);
         }
 
-        private void move_window_to_connector(Window win, string? connector) {
-            if (connector == null || !workspaces_per_monitor()) return;
+        private void move_window_to_connector(Window win, string? connector, bool always = false) {
+            if (connector == null || (!always && !workspaces_per_monitor())) return;
             int x, y, w, h, maximized, fullscreen;
             string? current;
             if (!Singularity.wayland_get_window_geometry(win.handle, out x, out y, out w, out h,

@@ -240,6 +240,14 @@ namespace Singularity {
 
             add_css_class("dock-window");
 
+            _badges_shown = FocusManager.get_default().show_badges;
+            FocusManager.get_default().changed.connect(() => {
+                bool shown = FocusManager.get_default().show_badges;
+                if (shown == _badges_shown) return;
+                _badges_shown = shown;
+                force_rebuild();
+            });
+
             _sig_background_effect = _settings.changed["background-effect"].connect(
                 update_background_effect);
             _sig_blur_strength = _settings.changed["blur-strength"].connect(
@@ -1338,6 +1346,8 @@ namespace Singularity {
             }
         }
 
+        private bool _badges_shown = true;
+
         private void schedule_refresh() {
             if (_refresh_timeout_id != 0) GLib.Source.remove(_refresh_timeout_id);
             _refresh_timeout_id = GLib.Timeout.add(150, () => {
@@ -1485,6 +1495,7 @@ namespace Singularity {
             // bottom-centre of the icon. Used by launcher-entry-dock for
             // unread counts so they don't take horizontal pill space.
             foreach (var ov in icon_overlays) {
+                ov.visible = _badges_shown;
                 ov.halign = Align.CENTER;
                 ov.valign = Align.END;
                 ov.can_target = false;

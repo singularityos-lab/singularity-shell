@@ -150,6 +150,22 @@ namespace Singularity {
             return !FocusManager.get_default().state.active;
         }
 
+        private Gee.HashMap<string, int64?> _recent_calls = new Gee.HashMap<string, int64?>();
+
+        private bool note_call(string caller) {
+            int64 now = get_monotonic_time() / 1000000;
+            var stale = new Gee.ArrayList<string>();
+            foreach (var e in _recent_calls.entries) {
+                if (now - e.value > REPEATED_CALL_WINDOW) stale.add(e.key);
+            }
+            foreach (string k in stale) _recent_calls.unset(k);
+            bool repeated = _recent_calls.has_key(caller);
+            _recent_calls[caller] = now;
+            return repeated;
+        }
+
+        private const int64 REPEATED_CALL_WINDOW = 180;
+
         private static string? hint_string(HashTable<string, Variant> hints, string key) {
             var v = hints.lookup(key);
             if (v != null && v.is_of_type(VariantType.VARIANT)) v = v.get_variant();
@@ -200,6 +216,10 @@ namespace Singularity {
             facts.urgency = urgency_level;
             facts.suppress_sound = hint_bool(hints, "suppress-sound");
             facts.transient = hint_bool(hints, "transient");
+            facts.muted = FocusManager.get_default().mute_sounds;
+            if (NotificationRules.is_call(hint_string(hints, "category"))) {
+                facts.repeated_call = note_call(key + "\n" + summary);
+            }
             var focus = FocusManager.get_default().state;
             var decision = NotificationRules.decide(policy, focus.mode, facts);
             _decisions[id] = decision;

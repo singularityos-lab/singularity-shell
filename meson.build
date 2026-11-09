@@ -473,9 +473,12 @@ singularity_core_sources = files(
     'src/core/notifications/notification_lock_service.vala',
     'src/core/focus/focus_model.vala',
     'src/core/focus/focus_manager.vala',
+    'src/core/profiles/profile_areas.vala',
+    'src/core/profiles/profile_apps_area.vala',
     'src/core/focus/focus_contacts.vala',
     'src/components/sidebar/pages/notification_settings_page.vala',
     'src/components/sidebar/pages/focus_mode_page.vala',
+    'src/components/sidebar/pages/profiles_page.vala',
     'src/components/sidebar/views/focus_quick_tile.vala',
     'src/core/stage/stage_model.vala',
     'src/core/stage/stage_manager.vala',
@@ -839,6 +842,35 @@ search_round_test = executable('search-round-test',
   dependencies: [dependency('gobject-2.0')],
 )
 test('search-round', search_round_test)
+
+profiles_service_sources = files(
+  'src/services/profiles/area_handle.vala',
+  'src/services/profiles/engine.vala',
+  'src/services/profiles/focus_migration.vala',
+  'src/services/profiles/service.vala',
+)
+
+executable('singularity-profiles',
+  sources: profiles_service_sources + ['src/services/profiles/main.vala'],
+  dependencies: [dependency('gio-2.0'), dependency('gio-unix-2.0'), gee_dep, json_dep, libsingularity_dep],
+  install: true,
+  install_dir: get_option('libexecdir'),
+)
+
+profiles_conf = configuration_data()
+profiles_conf.set('LIBEXECDIR', get_option('prefix') / get_option('libexecdir'))
+configure_file(
+  input: 'data/profiles/dev.sinty.Profiles.service.in',
+  output: 'dev.sinty.Profiles.service',
+  configuration: profiles_conf,
+  install_dir: get_option('datadir') / 'dbus-1' / 'services',
+)
+
+profiles_engine_test = executable('profiles-engine-test',
+  sources: profiles_service_sources + ['tests/profiles_engine_test.vala'],
+  dependencies: [dependency('gio-2.0'), dependency('gio-unix-2.0'), gee_dep, json_dep, libsingularity_dep],
+)
+test('profiles-engine', profiles_engine_test, env: ['TMPDIR=' + meson.current_build_dir()])
 
 fan_control_deps = [dependency('gio-2.0'), dependency('gio-unix-2.0'), gee_dep, system_dep]
 

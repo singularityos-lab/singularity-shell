@@ -128,6 +128,12 @@ namespace Singularity {
             register_shortcut("Switch Input Method", "Switch between the keyboard layout and input methods", "<Control>space", "switch_input_method");
             load_custom_shortcuts();
             load_custom_keybindings();
+            var profiles = Singularity.Profiles.Client.get_default();
+            profiles.profiles_changed.connect(() => refresh_profile_keys.begin());
+            profiles.status_changed.connect(() => {
+                if (!_profile_keys_loaded) refresh_profile_keys.begin();
+            });
+            refresh_profile_keys.begin();
             settings.changed["custom-keybindings"].connect(() => {
                 load_custom_keybindings();
                 write_labwc_rc_xml();
@@ -453,6 +459,52 @@ namespace Singularity {
                 yes_no(focus_mode == "sloppy" || focus_mode == "mouse"));
         }
 
+        private Gee.TreeMap<string, string> _profile_keys = new Gee.TreeMap<string, string>();
+        private bool _profile_keys_loaded = false;
+
+        private static bool safe_profile_id(string id) {
+            if (id == "") return false;
+            for (int i = 0; i < id.length; i++) {
+                char c = id[i];
+                if (!(c.isalnum() || c == '-' || c == '_')) return false;
+            }
+            return true;
+        }
+
+        private async void refresh_profile_keys() {
+            var client = Singularity.Profiles.Client.get_default();
+            if (!client.available) return;
+            Singularity.Profiles.ProfileSet set;
+            try {
+                set = yield client.load();
+            } catch (Error e) {
+                return;
+            }
+            _profile_keys_loaded = true;
+            var next = new Gee.TreeMap<string, string>();
+            foreach (var p in set.profiles) {
+                if (p.shortcut.strip() != "" && safe_profile_id(p.id)) next[p.id] = p.shortcut.strip();
+            }
+            bool same = next.size == _profile_keys.size;
+            if (same) {
+                foreach (var e in next.entries) {
+                    if (!_profile_keys.has_key(e.key) || _profile_keys[e.key] != e.value) {
+                        same = false;
+                        break;
+                    }
+                }
+            }
+            if (same) return;
+            _profile_keys = next;
+            write_labwc_rc_xml();
+        }
+
+        private void toggle_profile(string id) {
+            var client = Singularity.Profiles.Client.get_default();
+            if (client.active_profile == id) client.deactivate.begin();
+            else client.activate.begin(id, "shortcut");
+        }
+
         public void write_labwc_rc_xml() {
             // Pin the session bus we actually own the name on: the session runs
             // under dbus-run-session (ephemeral address), not a fixed /run/user path.
@@ -676,6 +728,12 @@ namespace Singularity {
                 if (key == "") continue;
                 xml.append_printf("    <keybind key=\"%s\"><action name=\"Execute\"><command>%s custom:%s</command></action></keybind>\n",
                     key, dbus_shorts, k.id);
+            }
+            foreach (var pk in _profile_keys.entries) {
+                string key = accel_to_labwc(pk.value);
+                if (key == "" || xml.str.contains("key=\"%s\"".printf(key))) continue;
+                xml.append_printf("    <keybind key=\"%s\"><action name=\"Execute\"><command>%s profile:%s</command></action></keybind>\n",
+                    key, dbus_shorts, pk.key);
             }
             if (settings.settings_schema.has_key("portal-global-shortcuts")) {
                 var portal_iter = settings.get_value("portal-global-shortcuts").iterator();
@@ -980,6 +1038,10 @@ namespace Singularity {
         public void execute_action(string action_name) {
             if (action_name.has_prefix("custom:")) {
                 run_custom_keybinding(action_name.substring(7));
+                return;
+            }
+            if (action_name.has_prefix("profile:")) {
+                toggle_profile(action_name.substring(8));
                 return;
             }
             if (action_name.has_prefix("portal:")) {

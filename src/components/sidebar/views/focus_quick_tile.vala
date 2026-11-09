@@ -19,7 +19,7 @@ namespace Singularity {
                 tile.active = false;
                 tile.title = mode != null ? FocusManager.display_name(mode) : _("Focus");
                 tile.icon_name = mode != null ? mode.icon_name : "notifications-disabled-symbolic";
-                tile.subtitle = _("Off");
+                tile.subtitle = focus.profile_name != "" ? focus.profile_name : _("Off");
             }
         }
 
@@ -54,7 +54,7 @@ namespace Singularity {
             chevron.pixel_size = 12;
             nav_btn.set_child(chevron);
             nav_btn.valign = Align.FILL;
-            nav_btn.tooltip_text = _("Choose a Focus mode");
+            nav_btn.tooltip_text = _("Choose Focus or a profile");
             nav_btn.clicked.connect(() => show_detail());
             wrapper.append(nav_btn);
             var long_press = new GestureLongPress();
@@ -70,10 +70,13 @@ namespace Singularity {
 
         public static Widget detail(owned FocusTileAction open_settings) {
             var box = new Box(Orientation.VERTICAL, 0);
-            var modes_group = new PreferencesGroup(_("Modes"), _("Only the people and apps you allow can reach you."));
+            var modes_group = new PreferencesGroup(_("Focus"), _("Only the people and apps you allow can reach you."));
             var durations = new PreferencesGroup(_("Duration"));
+            var profiles_group = new PreferencesGroup(_("Profiles"), _("A profile changes the settings you chose for it."));
             box.append(modes_group);
             box.append(durations);
+            box.append(profiles_group);
+            profiles_group.margin_top = 12;
             durations.margin_top = 12;
             var focus = FocusManager.get_default();
 
@@ -105,7 +108,9 @@ namespace Singularity {
             fill = () => {
                 modes_group.clear();
                 var state = focus.state;
-                foreach (var mode in focus.modes.modes) {
+                var dnd = focus.modes.find(FocusMode.DO_NOT_DISTURB);
+                if (dnd != null) {
+                    var mode = dnd;
                     bool on = state.active && state.mode.id == mode.id;
                     var row = new ActionRow(FocusManager.display_name(mode),
                         on ? FocusManager.reason_label(state.reason) : _("Off"), mode.icon_name);
@@ -127,7 +132,47 @@ namespace Singularity {
             ulong h = focus.changed.connect(() => fill());
             box.destroy.connect(() => focus.disconnect(h));
 
-            var settings_btn = new Button.with_label(_("Focus Settings"));
+            var client = Singularity.Profiles.Client.get_default();
+            FocusTileAction fill_profiles = () => {};
+            fill_profiles = () => {
+                client.load.begin((o, res) => {
+                    Singularity.Profiles.ProfileSet set;
+                    try {
+                        set = client.load.end(res);
+                    } catch (Error e) {
+                        profiles_group.clear();
+                        profiles_group.add_row(new ActionRow(_("Profiles Are Not Running"), e.message, "dialog-warning-symbolic"));
+                        return;
+                    }
+                    profiles_group.clear();
+                    foreach (var p in set.profiles) {
+                        bool on = client.active_profile == p.id;
+                        var row = new ActionRow(Singularity.Profiles.display_name(p),
+                            on ? (client.detail != "" ? client.detail : _("On")) : _("Off"), p.icon_name);
+                        row.activatable = true;
+                        if (on) {
+                            var check = new Image.from_icon_name("object-select-symbolic");
+                            check.valign = Align.CENTER;
+                            row.add_suffix(check);
+                        }
+                        string id = p.id;
+                        row.activated.connect(() => {
+                            if (on) client.deactivate.begin();
+                            else client.activate.begin(id, "menu");
+                        });
+                        profiles_group.add_row(row);
+                    }
+                });
+            };
+            fill_profiles();
+            ulong h2 = client.status_changed.connect(() => fill_profiles());
+            ulong h3 = client.profiles_changed.connect(() => fill_profiles());
+            box.destroy.connect(() => {
+                client.disconnect(h2);
+                client.disconnect(h3);
+            });
+
+            var settings_btn = new Button.with_label(_("Profiles and Focus Settings"));
             settings_btn.halign = Align.CENTER;
             settings_btn.margin_top = 16;
             settings_btn.margin_bottom = 8;

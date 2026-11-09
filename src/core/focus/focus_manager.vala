@@ -10,6 +10,21 @@ namespace Singularity {
         public bool presenting { get { return _presenters.size > 0; } }
         public bool fullscreen { get; private set; default = false; }
         public int64 until { get; private set; default = 0; }
+        public string profile_name { get; private set; default = ""; }
+
+        public bool show_badges {
+            get {
+                if (state.active) return state.mode.show_badges;
+                return _profile == null || _profile.show_badges;
+            }
+        }
+
+        public bool mute_sounds {
+            get {
+                if (state.active) return state.mode.mute_sounds;
+                return _profile != null && _profile.mute_sounds;
+            }
+        }
 
         public signal void changed();
         public signal void modes_changed();
@@ -21,14 +36,18 @@ namespace Singularity {
         private Gee.HashMap<string, uint> _watches = new Gee.HashMap<string, uint>();
         private uint _next_cookie = 1;
         private uint _tick_id = 0;
-        private string _suppressed = "";
         private FileMonitor? _monitor = null;
         private bool _saving = false;
+        private FocusMode? _profile = null;
+        private bool _profile_silences = false;
+        private string _profile_json = "null";
 
         public static FocusManager get_default() {
             if (_instance == null) _instance = new FocusManager();
             return _instance;
         }
+
+        public const string PROFILE_MODE = "profile";
 
         public static string default_path() {
             return Path.build_filename(Environment.get_user_config_dir(), "singularity", "focus-modes.json");
@@ -61,7 +80,51 @@ namespace Singularity {
             } catch (Error e) {
             }
             schedule_tick();
+            var profiles = Singularity.Profiles.Client.get_default();
+            profiles.status_changed.connect(() => refresh_profile_name.begin());
             evaluate();
+        }
+
+        private async void refresh_profile_name() {
+            var client = Singularity.Profiles.Client.get_default();
+            string name = "";
+            if (client.active_profile != "") {
+                try {
+                    var set = yield client.load();
+                    var p = set.find(client.active_profile);
+                    if (p != null) name = Singularity.Profiles.display_name(p);
+                } catch (Error e) {
+                    debug("focus: profiles unavailable: %s", e.message);
+                }
+            }
+            profile_name = name;
+            if (_profile != null) _profile.name = name != "" ? name : _("Profile");
+            changed();
+        }
+
+        public string profile_rules_json() {
+            return _profile_json;
+        }
+
+        public void apply_profile_rules(string json) {
+            var node = Singularity.Profiles.parse_value(json);
+            if (node.get_node_type() != Json.NodeType.OBJECT) {
+                _profile = null;
+                _profile_silences = false;
+                _profile_json = "null";
+            } else {
+                var o = node.get_object();
+                o.set_string_member("id", PROFILE_MODE);
+                o.set_string_member("name", profile_name != "" ? profile_name : _("Profile"));
+                if (!o.has_member("icon")) o.set_string_member("icon", "notifications-disabled-symbolic");
+                _profile = FocusMode.from_json(o);
+                _profile_silences = !o.has_member("silence") || o.get_boolean_member("silence");
+                o.remove_member("id");
+                o.remove_member("name");
+                _profile_json = Singularity.Profiles.to_text(node, false);
+            }
+            evaluate();
+            changed();
         }
 
         private void load_modes() {
@@ -125,6 +188,7 @@ namespace Singularity {
                 case FocusReason.SCHEDULE: return _("On a schedule");
                 case FocusReason.PRESENTING: return _("While presenting or sharing the screen");
                 case FocusReason.FULLSCREEN: return _("While a full-screen app or game runs");
+                case FocusReason.PROFILE: return _("Set by a profile");
                 case FocusReason.MANUAL: return _("On");
                 default: return _("Off");
             }
@@ -136,7 +200,6 @@ namespace Singularity {
 
         public void activate(string id, uint minutes = 0) {
             if (modes.find(id) == null) return;
-            _suppressed = "";
             if (_notif != null) {
                 _notif.set_string("focus-mode", id);
                 _notif.set_int64("focus-until", minutes > 0 ? get_real_time() / 1000000 + minutes * 60 : 0);
@@ -146,7 +209,11 @@ namespace Singularity {
         }
 
         public void deactivate() {
-            if (state.active && state.reason != FocusReason.MANUAL) _suppressed = state.mode.id;
+            if (state.active && state.reason == FocusReason.PROFILE) {
+                var client = Singularity.Profiles.Client.get_default();
+                if (client.available) client.deactivate.begin();
+                return;
+            }
             _desktop.set_boolean("do-not-disturb", false);
             if (_notif != null) _notif.set_int64("focus-until", 0);
             evaluate();
@@ -220,14 +287,11 @@ namespace Singularity {
                 manual = manual_mode_id;
                 if (modes.find(manual) == null) manual = FocusMode.DO_NOT_DISTURB;
             }
-            var raw = modes.evaluate(manual, new DateTime.now_local(), presenting, fullscreen);
-            FocusState next = raw;
-            if (_suppressed != "") {
-                if (raw.active && raw.reason != FocusReason.MANUAL && raw.mode.id == _suppressed) {
-                    next = new FocusState(null, FocusReason.NONE);
-                } else if (!raw.active || raw.mode.id != _suppressed) {
-                    _suppressed = "";
-                }
+            FocusState next = modes.evaluate(manual, new DateTime.now_local(), false, false);
+            if (next.reason != FocusReason.MANUAL) {
+                next = _profile != null && _profile_silences
+                    ? new FocusState(_profile, FocusReason.PROFILE)
+                    : new FocusState(null, FocusReason.NONE);
             }
             int64 new_until = next.reason == FocusReason.MANUAL ? end : 0;
             string old_id = state.active ? state.mode.id : "";

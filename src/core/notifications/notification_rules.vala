@@ -28,6 +28,8 @@ namespace Singularity {
         public uint8 urgency { get; set; default = 1; }
         public bool suppress_sound { get; set; default = false; }
         public bool transient { get; set; default = false; }
+        public bool repeated_call { get; set; default = false; }
+        public bool muted { get; set; default = false; }
     }
 
     public class NotificationDecision : Object {
@@ -45,6 +47,7 @@ namespace Singularity {
             if (facts.urgency >= 2) return true;
             if (focus.allows_app(facts.app_key)) return true;
             if (focus.allows_sender(facts.summary, facts.body)) return true;
+            if (facts.repeated_call && focus.allow_repeated_calls) return true;
             return policy.time_sensitive && focus.allow_time_sensitive;
         }
 
@@ -60,9 +63,15 @@ namespace Singularity {
             }
             d.silenced = !breaks_through(focus, policy, facts);
             d.banner = !d.silenced && (policy.banners || facts.urgency >= 2);
-            d.sound = !d.silenced && policy.sounds && !facts.suppress_sound;
+            d.sound = !d.silenced && policy.sounds && !facts.suppress_sound && !facts.muted;
             d.store = !facts.transient || d.silenced;
             return d;
+        }
+
+        public static bool is_call(string? category) {
+            if (category == null) return false;
+            string c = category.down();
+            return c == "call" || c.has_prefix("call.") || c.has_suffix(".call") || c.contains("call.incoming");
         }
 
         public static string app_key_for(string app_name, string? desktop_entry) {

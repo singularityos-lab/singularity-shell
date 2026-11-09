@@ -145,6 +145,23 @@ private void test_decide_transient() {
     assert(d.store && d.silenced);
 }
 
+private void test_profile_rules() {
+    var policy = new AppNotificationPolicy();
+    var mode = new FocusMode("profile", "Game", "x");
+    var call = facts("phone", "Anna");
+    call.repeated_call = true;
+    assert(!NotificationRules.decide(policy, mode, call).silenced);
+    mode.allow_repeated_calls = false;
+    assert(NotificationRules.decide(policy, mode, call).silenced);
+    var f = facts("chat");
+    f.muted = true;
+    var d = NotificationRules.decide(policy, null, f);
+    assert(d.banner && !d.sound);
+    assert(NotificationRules.is_call("call.incoming") && NotificationRules.is_call("x-gnome.call") && !NotificationRules.is_call("im.received"));
+    var back = FocusMode.from_json(mode.to_json().get_object());
+    assert(!back.allow_repeated_calls && back.show_badges && !back.mute_sounds);
+}
+
 private void test_app_key() {
     assert(NotificationRules.app_key_for("Telegram Desktop", null) == "telegram-desktop");
     assert(NotificationRules.app_key_for("x", "dev.sinty.Calendar.desktop") == "dev-sinty-calendar");
@@ -223,6 +240,7 @@ public static int main(string[] args) {
     Test.add_func("/rules/focus-exceptions", test_decide_focus_exceptions);
     Test.add_func("/rules/transient", test_decide_transient);
     Test.add_func("/rules/app-key", test_app_key);
+    Test.add_func("/rules/profile", test_profile_rules);
     Test.add_func("/history/roundtrip", test_history_roundtrip);
     Test.add_func("/history/prune", test_history_prune);
     Test.add_func("/history/file", test_history_file);

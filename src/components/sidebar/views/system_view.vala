@@ -424,7 +424,7 @@ namespace Singularity {
                         add_quick_tile("audio", audio_mute_wrapper, audio_tile);
                         add_quick_tile("power-profile", ppm_wrapper, ppm_tile, () => ppm.available);
                         add_quick_tile("do-not-disturb", FocusQuickTile.wrap(dnd_tile,
-                            () => open_detail_page(_("Focus"), FocusQuickTile.detail(() => open_settings_page("notifications")))), dnd_tile);
+                            () => open_detail_page(_("Focus"), FocusQuickTile.detail(() => open_settings_page("profiles")))), dnd_tile);
                         add_quick_tile("vpn", make_tile_with_nav(vpn_tile, NetworkPage.VPN), vpn_tile);
                         add_quick_tile("tiling", tiling_wrapper, tile_tile,
                             () => settings.get_boolean("preview-features-enabled"));

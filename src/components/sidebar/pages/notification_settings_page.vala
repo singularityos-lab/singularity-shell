@@ -55,6 +55,7 @@ namespace Singularity.SidebarPages {
             rebuild_apps();
 
             foreach (var mode in focus.modes.modes) {
+                if (mode.id != FocusMode.DO_NOT_DISTURB) continue;
                 string id = mode.id;
                 add_search_action(FocusManager.display_name(mode), _("Focus mode"), () => open_mode(id));
             }
@@ -99,6 +100,7 @@ namespace Singularity.SidebarPages {
         private void rebuild_focus() {
             focus_group.clear();
             foreach (var mode in FocusManager.get_default().modes.modes) {
+                if (mode.id != FocusMode.DO_NOT_DISTURB) continue;
                 var row = new ActionRow(FocusManager.display_name(mode), mode_summary(mode), mode.icon_name);
                 row.activatable = true;
                 var state = FocusManager.get_default().state;
@@ -113,14 +115,12 @@ namespace Singularity.SidebarPages {
                 row.activated.connect(() => open_mode(id));
                 focus_group.add_row(row);
             }
-            var add_row = new ActionRow(_("Add Focus Mode…"), _("A mode with its own name, people and apps"), "list-add-symbolic");
-            add_row.activatable = true;
-            add_row.add_suffix(chevron());
-            add_row.activated.connect(() => {
-                var mode = FocusManager.get_default().add_mode(_("Custom"), "focus-custom-symbolic");
-                open_mode(mode.id);
-            });
-            focus_group.add_row(add_row);
+            var profiles_row = new ActionRow(_("Profiles"),
+                _("Work, Evening, Game, Presentation, Sleep and your own, each with who can disturb you"), "focus-custom-symbolic");
+            profiles_row.activatable = true;
+            profiles_row.add_suffix(chevron());
+            profiles_row.activated.connect(() => view.navigate_to("profiles"));
+            focus_group.add_row(profiles_row);
         }
 
         private void open_mode(string id) {
