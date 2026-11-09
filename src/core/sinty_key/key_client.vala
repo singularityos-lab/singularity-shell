@@ -249,6 +249,15 @@ namespace Singularity.SintyKey {
             yield call("MakeBootable", new Variant("(s)", device), "()", int.MAX);
         }
 
+        public async string[] architectures() throws KeyError {
+            var v = yield call("Architectures", null, "(as)");
+            return v.get_child_value(0).get_strv();
+        }
+
+        public async void make_bootable_for(string device, string arch) throws KeyError {
+            yield call("MakeBootableFor", new Variant("(ss)", device, arch), "()", int.MAX);
+        }
+
         public async string open(string device, string pin) throws KeyError {
             var v = yield call("Open", new Variant("(ss)", device, pin), "(ss)");
             return v.get_child_value(0).get_string();

@@ -246,12 +246,20 @@ namespace Singularity.SidebarPages {
         private Label status;
         private ActionRow progress_row;
         private ProgressBar progress_bar;
+        private PreferencesGroup group;
+        private PreferencesGroup arch_group;
+        private SelectionRow arch_row;
+        private string[] archs = {};
+        private string arch = "";
 
         public SintyKeyBootPage(SettingsView view, KeyDrive drive) {
             base(_("Startup Key"));
             this.drive = drive;
-            var group = new PreferencesGroup(_("Copy Sinty OS"),
-                _("Sinty OS from this computer is copied to %s, which then starts any computer that boots from USB. Everything on the drive is erased.").printf(drive.name));
+            arch_group = new PreferencesGroup(_("Computer"));
+            arch_group.visible = false;
+            add_group(arch_group);
+            group = new PreferencesGroup(_("Copy Sinty OS"), "");
+            describe();
             var row = key_row(drive.name, format_size(drive.size), "sinty-key-startup");
             go = row_button(_("Erase and Copy"), true);
             go.add_css_class("destructive-action");
@@ -268,6 +276,7 @@ namespace Singularity.SidebarPages {
             group.add_row(status);
             add_group(group);
             go.clicked.connect(() => make.begin());
+            load_archs.begin();
             ulong id = Client.get_default().progress.connect((device, percent) => {
                 if (device != drive.device) return;
                 progress_row.visible = true;
@@ -277,20 +286,67 @@ namespace Singularity.SidebarPages {
             destroy.connect(() => Client.get_default().disconnect(id));
         }
 
+        private static string arch_label(string a) {
+            if (a == "aarch64") return _("ARM Computers");
+            if (a == "x86_64") return _("Intel and AMD Computers");
+            return a;
+        }
+
+        private bool foreign() {
+            return archs.length > 0 && arch != "" && arch != archs[0];
+        }
+
+        private void describe() {
+            if (foreign()) {
+                group.description = _("Sinty OS for %s is downloaded and copied to %s, which then starts those computers from USB. Everything on the drive is erased.").printf(arch_label(arch), drive.name);
+            } else {
+                group.description = _("Sinty OS from this computer is copied to %s, which then starts any computer that boots from USB. Everything on the drive is erased.").printf(drive.name);
+            }
+        }
+
+        private async void load_archs() {
+            try {
+                archs = yield Client.get_default().architectures();
+            } catch (KeyError e) {
+                return;
+            }
+            if (archs.length < 2) return;
+            string[] labels = {};
+            foreach (var a in archs) labels += arch_label(a);
+            arch = archs[0];
+            arch_row = new SelectionRow(_("Starts"), labels, labels[0]);
+            arch_row.selected.connect((item) => {
+                for (int i = 0; i < labels.length; i++) {
+                    if (labels[i] == item) arch = archs[i];
+                }
+                describe();
+            });
+            arch_group.add_row(arch_row);
+            arch_group.visible = true;
+        }
+
         private async void make() {
             go.sensitive = false;
+            if (arch_row != null) arch_row.sensitive = false;
             status.visible = true;
-            status.label = _("Copying Sinty OS. This takes a few minutes, keep the drive connected…");
+            status.label = foreign()
+                ? _("Downloading Sinty OS for %s. This takes a while, keep the drive connected…").printf(arch_label(arch))
+                : _("Copying Sinty OS. This takes a few minutes, keep the drive connected…");
             var ticket = SidebarWait.get_default().begin(this, _("Making a Startup Key"), "drive-removable-media-symbolic");
             progress_bar.fraction = 0;
             progress_row.subtitle = "";
             try {
-                yield Client.get_default().make_bootable(drive.device);
+                if (foreign()) {
+                    yield Client.get_default().make_bootable_for(drive.device, arch);
+                } else {
+                    yield Client.get_default().make_bootable(drive.device);
+                }
                 status.label = _("The Startup Key is ready. Start a computer from it to use Sinty OS.");
             } catch (KeyError e) {
                 status.label = e.message;
                 go.sensitive = true;
             }
+            if (arch_row != null) arch_row.sensitive = true;
             progress_row.visible = false;
             ticket.end();
         }
