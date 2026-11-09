@@ -66,6 +66,10 @@ namespace Singularity {
             if (data != null && ClipboardModel.is_text_mime(mime)) {
                 var sb = new StringBuilder.sized(data.get_size() + 1);
                 sb.append_len((string) data.get_data(), (ssize_t) data.get_size());
+                if (sb.str.validate() && OneTimeCodeService.get_default().holds(sb.str)) {
+                    skipped_sensitive++;
+                    return;
+                }
                 if (sb.str.validate() && sb.str.strip() != "") text_copied(sb.str);
             }
             if (!enabled || data == null) return;
@@ -91,6 +95,10 @@ namespace Singularity {
             clipboard.read_text_async.begin(null, (obj, res) => {
                 try {
                     string? text = clipboard.read_text_async.end(res);
+                    if (text != null && OneTimeCodeService.get_default().holds(text)) {
+                        skipped_sensitive++;
+                        return;
+                    }
                     if (text != null && text.strip() != "") text_copied(text);
                     if (text != null && text != "" && enabled) model.add("text/plain;charset=utf-8", new Bytes(text.data), get_real_time());
                 } catch (Error e) {

@@ -258,6 +258,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             () => { warning("Lost name org.freedesktop.Notifications"); }
         );
         Singularity.FocusService.export();
+        Singularity.OneTimeCodeService.get_default().export();
         Singularity.ProfileAreas.get_default().start();
         Singularity.NotificationLockService.export(Singularity.SystemMonitor.get_default().notifications);
 
@@ -267,7 +268,8 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         _nm.new_notification.connect(
             (id, app_name, summary, body, icon, actions) => {
                 Singularity.PluginManager.get_default().get_context()
-                    .emit_notification(id, app_name, summary, body, icon);
+                    .emit_notification(id, app_name, summary,
+                        Singularity.OneTimeCodeService.get_default().safe_text(id, body), icon);
             });
         Singularity.PluginManager.get_default().get_context()
             .notification_dismiss_requested.connect((id) => {

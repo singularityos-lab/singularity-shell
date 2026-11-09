@@ -6,7 +6,8 @@ namespace Singularity {
         public uint id { get; construct; }
         public string app_name { get; construct; }
         public string summary { get; construct; }
-        public string body { get; construct; }
+        public string body { get; set; }
+        public string[] secrets { get; set; default = {}; }
         public string icon { get; construct; }
         public string[] actions { get; construct; }
         public int64 timestamp { get; construct; }
@@ -19,6 +20,14 @@ namespace Singularity {
         public string grouping { get; set; default = AppNotificationPolicy.GROUP_BY_APP; }
         public string reply_placeholder { get; set; default = ""; }
         public string reply_submit { get; set; default = ""; }
+
+        public string masked_body() {
+            string text = body;
+            foreach (string s in secrets) {
+                if (s != "") text = text.replace(s, string.nfill(s.replace(" ", "").replace("-", "").length, '*').replace("*", "•"));
+            }
+            return text;
+        }
 
         public Notification(uint id, string app_name, string summary, string body, string icon, string[] actions) {
             Object(
@@ -106,7 +115,7 @@ namespace Singularity {
                 b.set_member_name("app-key"); b.add_string_value(n.app_key);
                 b.set_member_name("desktop-entry"); b.add_string_value(n.desktop_entry);
                 b.set_member_name("summary"); b.add_string_value(n.summary);
-                b.set_member_name("body"); b.add_string_value(n.body);
+                b.set_member_name("body"); b.add_string_value(n.masked_body());
                 b.set_member_name("icon"); b.add_string_value(n.icon);
                 b.set_member_name("timestamp"); b.add_int_value(n.timestamp);
                 b.set_member_name("silenced"); b.add_boolean_value(n.silenced);

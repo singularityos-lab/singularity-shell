@@ -1,6 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
   <schema id="dev.sinty.desktop.notifications" path="/dev/sinty/desktop/notifications/">
+    <key name="one-time-codes" type="b">
+      <default>true</default>
+      <summary>One-time codes</summary>
+      <description>Recognise one-time codes in notifications and offer them in text fields. Codes stay in memory for ten minutes or until used, and never reach the clipboard, the notification history on disk or the logs.</description>
+    </key>
+    <key name="one-time-code-sources" type="as">
+      <default>['messages', 'mail', 'phone', 'apps']</default>
+      <summary>Where codes come from</summary>
+      <description>Sources read for one-time codes: messages, mail, phone (notifications of a phone connected with Nearby) and apps (apps whose desktop file sets X-Sinty-One-Time-Codes=true).</description>
+    </key>
+    <key name="one-time-code-delete-used" type="b">
+      <default>false</default>
+      <summary>Delete used codes</summary>
+      <description>After a code is filled in, dismiss its notification and ask the app that received it to delete the message.</description>
+    </key>
     <key name="history-retention-days" type="i">
       <default>7</default>
       <summary>History retention</summary>

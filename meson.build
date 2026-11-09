@@ -466,6 +466,7 @@ singularity_core_sources = files(
     'src/components/notifications/notification_center.vala',
     'src/components/notifications/swipe_dismiss.vala',
     'src/core/notification_manager.vala',
+    'src/core/one_time_code_service.vala',
     'src/core/notifications/notification_rules.vala',
     'src/core/notifications/notification_history.vala',
     'src/core/notifications/app_notification_settings.vala',
@@ -1074,6 +1075,19 @@ test('notification-focus', notification_focus_test)
 
 install_data('data/notifications/dev.sinty.desktop.notifications.gschema.xml',
   install_dir: get_option('datadir') / 'glib-2.0' / 'schemas')
+
+otp_schema_dir = custom_target('otp-test-schemas',
+  input: 'data/notifications/dev.sinty.desktop.notifications.gschema.xml',
+  output: 'otp-schemas.stamp',
+  command: ['sh', '-c', 'mkdir -p "$1" && glib-compile-schemas --strict --targetdir="$1" "$2" && touch "$3"', 'sh',
+            meson.current_build_dir() / 'otp-schemas', meson.current_source_dir() / 'data/notifications', '@OUTPUT@'],
+)
+one_time_code_service_test = executable('one-time-code-service-test',
+  sources: ['src/core/one_time_code_service.vala', 'tests/one_time_code_service_test.vala', otp_schema_dir],
+  dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), dependency('gio-unix-2.0'), gee_dep, libsingularity_dep],
+)
+test('one-time-code-service', one_time_code_service_test,
+  env: ['GSETTINGS_SCHEMA_DIR=' + meson.current_build_dir() / 'otp-schemas', 'GSETTINGS_BACKEND=memory'])
 
 clipboard_model_test = executable('clipboard-model-test',
   sources: ['src/core/clipboard/clipboard_model.vala', 'tests/clipboard_model_test.vala'],

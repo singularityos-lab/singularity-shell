@@ -44,6 +44,17 @@ namespace Singularity {
                 if (prune_history()) schedule_save();
                 return Source.CONTINUE;
             });
+            OneTimeCodeService.get_default().released.connect((nid, match) => {
+                foreach (var n in history) {
+                    if (n.id != nid) continue;
+                    n.body = match.mask(n.body);
+                    n.secrets = {};
+                    history_changed();
+                    schedule_save();
+                    break;
+                }
+            });
+            OneTimeCodeService.get_default().close_requested.connect((nid) => close_notification(nid));
         }
 
         private int retention_days() {
@@ -227,9 +238,12 @@ namespace Singularity {
             debug("notify: %u app=%s store=%s banner=%s sound=%s silenced=%s", id, key,
                 decision.store.to_string(), decision.banner.to_string(), decision.sound.to_string(), decision.silenced.to_string());
 
+            var code = OneTimeCodeService.get_default().offer(id, key, desktop_entry ?? "", summary, body, hints);
+
             if (!decision.store && !decision.banner) return id;
 
             var notif = new Notification(id, app_name, summary, body, effective_icon, actions);
+            if (code != null) notif.secrets = { code.token, code.code };
             notif.app_key = key;
             notif.desktop_entry = desktop_entry ?? "";
             notif.silenced = decision.silenced;
