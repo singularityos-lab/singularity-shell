@@ -107,7 +107,8 @@ namespace Singularity {
             string? source = source_of(app_key, desktop_entry);
             if (source == null || !(source in settings.get_strv("one-time-code-sources"))) return null;
             if (is_spam(hints)) return null;
-            var match = OneTimeCodes.find(summary, body, null);
+            string text = hint_text(hints, "x-sinty-message-text");
+            var match = OneTimeCodes.find(summary, text != "" ? text : body, null);
             if (match == null) return null;
 
             foreach (var old in held) {

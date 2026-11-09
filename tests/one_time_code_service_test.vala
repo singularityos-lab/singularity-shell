@@ -41,6 +41,16 @@ static void test_offer_and_use() {
     assert(!found);
 }
 
+static void test_message_text() {
+    var svc = OneTimeCodeService.get_default();
+    svc.clear();
+    var h = hints("42");
+    h.insert("x-sinty-message-text", new Variant.string("Bank Y\nYour verification code is 615243"));
+    var m = svc.offer(400, "", "dev.sinty.lettere", "Bank Y", "Sign-in attempt", h);
+    assert(m != null && m.code == "615243");
+    svc.clear();
+}
+
 static void test_limit() {
     var svc = OneTimeCodeService.get_default();
     svc.clear();
@@ -117,6 +127,7 @@ int main(string[] args) {
     Test.add_func("/one-time-code-service/sources", test_sources);
     Test.add_func("/one-time-code-service/offer-and-use", test_offer_and_use);
     Test.add_func("/one-time-code-service/limit", test_limit);
+    Test.add_func("/one-time-code-service/message-text", test_message_text);
     Test.add_func("/one-time-code-service/disabled", test_disabled);
     Test.add_func("/one-time-code-service/dbus", test_dbus);
     return Test.run();
