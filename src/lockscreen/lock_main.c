@@ -428,6 +428,17 @@ static void frame_done(void *data, struct wl_callback *cb, uint32_t time) {
 }
 static const struct wl_callback_listener frame_listener = { .done = frame_done };
 
+static bool secret_is_pin(void) {
+    char tier[32] = {0};
+    FILE *f = fopen("/run/sinty-key/tier", "re");
+    if (f) {
+        bool tpm = fgets(tier, sizeof tier, f) && strncmp(tier, "tpm", 3) == 0;
+        fclose(f);
+        return tpm;
+    }
+    return access("/dev/tpmrm0", F_OK) == 0 || access("/dev/tpm0", F_OK) == 0;
+}
+
 static void render_output(struct lock_output *o) {
     if (o->frame_cb) return;
     cairo_t *cr;
@@ -453,7 +464,7 @@ static void render_output(struct lock_output *o) {
     st.status_error = status_error;
     /* On Sinty OS the unlock field takes a PIN, not a password (the recoverd
      * broker socket is the tell that we authenticate via the PIN daemon). */
-    st.auth_label = (access("/run/sinty-recoverd.sock", F_OK) == 0) ? "PIN" : NULL;
+    st.auth_label = (access("/run/sinty-recoverd.sock", F_OK) == 0) ? (secret_is_pin() ? "PIN" : "Passphrase") : NULL;
     bool animating = apply_motion(&st);
 
     double card_x, card_y, card_w, card_h;
@@ -591,7 +602,8 @@ static void submit_password(void) {
         if (!motion_reduced) shake_start = now_us();
         if (!retry_wait_text(status_text, sizeof status_text))
             snprintf(status_text, sizeof status_text, "%s",
-                     (access("/run/sinty-recoverd.sock", F_OK) == 0) ? "Incorrect PIN" : "Incorrect password");
+                     (access("/run/sinty-recoverd.sock", F_OK) != 0) ? "Incorrect password"
+                     : secret_is_pin() ? "Incorrect PIN" : "Incorrect passphrase");
         status_error = true;
         render_all();
     }
