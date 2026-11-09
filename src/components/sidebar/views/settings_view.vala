@@ -20,8 +20,8 @@ namespace Singularity {
         private Gee.ArrayList<SettingsEntry> _cached_items = new Gee.ArrayList<SettingsEntry>();
         private int _cached_index_pages = -1;
         private GLib.Settings _desktop_settings;
-        private Widget? _developer_nav_row = null;
-        private Widget _keyboard_nav_row;
+        private Grid quick_grid;
+        private Box nav_list;
         public signal void back_to_system();
         private Gee.ArrayList<string> history = new Gee.ArrayList<string>();
         private int history_index = -1;
@@ -89,36 +89,18 @@ namespace Singularity {
 
             setup_settings_search();
 
-            nav_box.append(create_settings_row(_("Network"), "network-wireless-symbolic", "network"));
-            nav_box.append(create_settings_row(_("Sharing"), "folder-remote-symbolic", "sharing"));
-            nav_box.append(create_settings_row(_("Apps"), "view-app-grid-symbolic", "apps"));
-            nav_box.append(create_settings_row(_("Autostart"), "system-run-symbolic", "autostart"));
-            nav_box.append(create_settings_row(_("Privacy"), "preferences-system-privacy-symbolic", "privacy"));
-            nav_box.append(create_settings_row(_("Users"), "system-users-symbolic", "users"));
-            nav_box.append(create_settings_row(_("Online Accounts"), "avatar-default-symbolic", "accounts"));
-            nav_box.append(create_settings_row(_("Displays"), "video-display-symbolic", "displays"));
-            nav_box.append(create_settings_row(_("Region & Language"), "preferences-desktop-locale-symbolic", "region"));
-            nav_box.append(create_settings_row(_("Date & Time"), "preferences-system-time-symbolic", "datetime"));
-            nav_box.append(create_settings_row(_("Desktop"), "preferences-desktop-wallpaper-symbolic", "desktop"));
-            nav_box.append(create_settings_row(_("Sound"), "audio-volume-high-symbolic", "sound"));
-            nav_box.append(create_settings_row(_("Notifications"), "preferences-system-notifications-symbolic", "notifications"));
-            nav_box.append(create_settings_row(_("Wellbeing"), "preferences-system-time-symbolic", "wellbeing"));
-            nav_box.append(create_settings_row(_("Bluetooth"), "bluetooth-active-symbolic", "bluetooth"));
-            nav_box.append(create_settings_row(_("Connected Devices"), "phone-symbolic", "connected-devices"));
-            nav_box.append(create_settings_row(_("Printers"), "printer-symbolic", "printers"));
-            _keyboard_nav_row = create_settings_row(_("Keyboard"), "input-keyboard-symbolic", "keyboard");
-            nav_box.append(_keyboard_nav_row);
-            nav_box.append(create_settings_row(_("Graphics Tablet"), "input-tablet-symbolic", "tablet"));
-            // Developer page is hidden until enabled from System (Android-style).
-            update_developer_nav_row();
-            _desktop_settings.changed["developer-mode"].connect(update_developer_nav_row);
-            nav_box.append(create_settings_row(_("Accessibility"), "preferences-desktop-accessibility-symbolic", "accessibility"));
-            nav_box.append(create_settings_row(_("Plugins"), "emblem-system-symbolic", "plugins"));
-            nav_box.append(create_settings_row(_("Power"), "battery-full-charged-symbolic", "power"));
-            nav_box.append(create_settings_row(_("Performance"), "power-profile-performance-symbolic", "performance"));
-            if (AgentConfig.available()) nav_box.append(create_settings_row(_("Sinty AI"), "dialog-question-symbolic", "agent"));
-            nav_box.append(create_settings_row(_("Updates"), "software-update-available-symbolic", "updates"));
-            nav_box.append(create_settings_row(_("System"), "computer-symbolic", "system"));
+            quick_grid = new Grid();
+            quick_grid.column_homogeneous = true;
+            quick_grid.row_spacing = 8;
+            quick_grid.column_spacing = 8;
+            quick_grid.margin_bottom = 8;
+            quick_grid.add_css_class("quick-settings-grid");
+            nav_box.append(quick_grid);
+            nav_list = new Box(Orientation.VERTICAL, 8);
+            nav_box.append(nav_list);
+            rebuild_nav();
+            _desktop_settings.changed["developer-mode"].connect(rebuild_nav);
+            _desktop_settings.changed["settings-page-usage"].connect(rebuild_quick);
 
             if (split_mode) {
                             nav_scroller = new ScrolledWindow();
@@ -248,7 +230,7 @@ namespace Singularity {
                 case "sound": case "bluetooth": case "printers": case "keyboard": case "tablet": case "developer": case "connected-devices":
                 case "accessibility": case "plugins": case "performance": case "agent": case "system": case "power":
                 case "autostart": case "notifications": case "updates": case "privacy": case "sharing":
-                case "wellbeing":
+                case "wellbeing": case "sinty-key":
                     return true;
             }
             return false;
@@ -287,6 +269,7 @@ namespace Singularity {
                 case "updates": return "software-update-available-symbolic";
                 case "system": return "computer-symbolic";
                 case "sinty-key": return "drive-removable-media-symbolic";
+                case "sinty-core": return "video-display-symbolic";
             }
             return "preferences-system-symbolic";
         }
@@ -295,7 +278,7 @@ namespace Singularity {
             return { "network", NetworkPage.WIFI, NetworkPage.WIRED, NetworkPage.VPN, NetworkPage.DYNAMIC,
                      NetworkPage.HOTSPOT, "sharing", "apps", "autostart", "privacy", "users", "accounts", "displays", "region", "datetime",
                      "desktop", "sound", "notifications", "wellbeing", "bluetooth", "connected-devices", "printers", "keyboard", "tablet", "developer", "accessibility",
-                     "plugins", "power", "performance", "agent", "updates", "system", "sinty-key" };
+                     "plugins", "power", "performance", "agent", "updates", "system", "sinty-key", "sinty-core" };
         }
 
         private void setup_settings_search() {
@@ -507,6 +490,7 @@ namespace Singularity {
             string query = search_entry.text.strip().down();
             clear_search_results();
             search_results_box.visible = query != "";
+            quick_grid.visible = query == "";
             if (query == "") return;
 
             ensure_search_index();
@@ -736,15 +720,106 @@ namespace Singularity {
         }
 
         // Show or hide the Developer nav row to match the developer-mode toggle.
-        private void update_developer_nav_row() {
-            bool on = _desktop_settings.get_boolean("developer-mode");
-            if (on && _developer_nav_row == null) {
-                _developer_nav_row = create_settings_row(_("Developer"), "applications-engineering-symbolic", "developer");
-                nav_box.insert_child_after(_developer_nav_row, _keyboard_nav_row);
-            } else if (!on && _developer_nav_row != null) {
-                nav_box.remove(_developer_nav_row);
-                _developer_nav_row = null;
+        private string[] nav_pages() {
+            string[] pages = { "network", "sharing", "apps", "autostart", "privacy", "users", "accounts", "displays",
+                               "region", "datetime", "desktop", "sound", "notifications", "wellbeing", "bluetooth",
+                               "connected-devices", "printers", "keyboard", "tablet", "accessibility", "plugins",
+                               "power", "performance", "updates", "system" };
+            if (_desktop_settings.get_boolean("developer-mode")) pages += "developer";
+            if (AgentConfig.available()) pages += "agent";
+            if (Singularity.SintyKey.Client.installed()) pages += "sinty-key";
+            return pages;
+        }
+
+        private string nav_title(string page) {
+            switch (page) {
+                case "network": return _("Network");
+                case "sharing": return _("Sharing");
+                case "apps": return _("Apps");
+                case "autostart": return _("Autostart");
+                case "privacy": return _("Privacy");
+                case "users": return _("Users");
+                case "accounts": return _("Online Accounts");
+                case "displays": return _("Displays");
+                case "region": return _("Region & Language");
+                case "datetime": return _("Date & Time");
+                case "desktop": return _("Desktop");
+                case "sound": return _("Sound");
+                case "notifications": return _("Notifications");
+                case "wellbeing": return _("Wellbeing");
+                case "bluetooth": return _("Bluetooth");
+                case "connected-devices": return _("Connected Devices");
+                case "printers": return _("Printers");
+                case "keyboard": return _("Keyboard");
+                case "tablet": return _("Graphics Tablet");
+                case "developer": return _("Developer");
+                case "accessibility": return _("Accessibility");
+                case "plugins": return _("Plugins");
+                case "power": return _("Power");
+                case "performance": return _("Performance");
+                case "agent": return _("Sinty AI");
+                case "updates": return _("Updates");
+                case "system": return _("System");
+                case "sinty-key": return _("Sinty Key");
             }
+            return page;
+        }
+
+        private void rebuild_nav() {
+            var pages = new Gee.ArrayList<string>.wrap(nav_pages());
+            pages.sort((a, b) => strcmp(nav_title(a).collate_key(), nav_title(b).collate_key()));
+            for (Widget? c = nav_list.get_first_child(); c != null; c = nav_list.get_first_child()) nav_list.remove(c);
+            foreach (string page in pages) nav_list.append(create_settings_row(nav_title(page), get_page_icon(page), page));
+            rebuild_quick();
+        }
+
+        private void rebuild_quick() {
+            for (Widget? c = quick_grid.get_first_child(); c != null; c = quick_grid.get_first_child()) quick_grid.remove(c);
+            var usage = _desktop_settings.get_value("settings-page-usage");
+            var counts = new Gee.HashMap<string, int>();
+            var available = new Gee.HashSet<string>();
+            foreach (string page in nav_pages()) available.add(page);
+            var iter = usage.iterator();
+            string name;
+            int count;
+            while (iter.next("{si}", out name, out count)) {
+                if (available.contains(name)) counts[name] = count;
+            }
+            var ranked = new Gee.ArrayList<string>();
+            ranked.add_all(counts.keys);
+            ranked.sort((a, b) => counts[b] != counts[a] ? counts[b] - counts[a] : strcmp(a, b));
+            foreach (string page in new string[] { "network", "sound", "displays", "power" }) {
+                if (!ranked.contains(page) && available.contains(page)) ranked.add(page);
+            }
+            for (int i = 0; i < 4 && i < ranked.size; i++) {
+                string page = ranked[i];
+                var tile = new Singularity.Widgets.QuickSettingTile(nav_title(page), get_page_icon(page));
+                tile.auto_toggle = false;
+                tile.hexpand = true;
+                tile.clicked.connect(() => {
+                    navigate_to(page);
+                    count_use(page);
+                });
+                quick_grid.attach(tile, i % 2, i / 2);
+            }
+        }
+
+        private void count_use(string page) {
+            if (!is_top_level_page(page)) return;
+            var builder = new VariantBuilder(new VariantType("a{si}"));
+            var iter = _desktop_settings.get_value("settings-page-usage").iterator();
+            string name;
+            int count;
+            bool found = false;
+            while (iter.next("{si}", out name, out count)) {
+                if (name == page) {
+                    count++;
+                    found = true;
+                }
+                builder.add("{si}", name, count);
+            }
+            if (!found) builder.add("{si}", page, 1);
+            _desktop_settings.set_value("settings-page-usage", builder.end());
         }
 
         private Widget create_settings_row(string label, string icon_name, string target_page) {
@@ -764,6 +839,7 @@ namespace Singularity {
             var gesture = new GestureClick();
             gesture.released.connect(() => {
                 navigate_to(target_page);
+                count_use(target_page);
             });
             row.add_controller(gesture);
             return row;

@@ -83,6 +83,19 @@ namespace Singularity {
             }
         }
 
+        public static async File save_file (Widget anchor, Gtk.FileDialog dialog, Gtk.Window? parent) throws Error {
+            var cancellable = new Cancellable ();
+            var ticket = get_default ().begin (anchor, _("Waiting for Files"), "folder-symbolic", () => cancellable.cancel ());
+            try {
+                var file = yield dialog.save (parent, cancellable);
+                ticket.end ();
+                return file;
+            } catch (Error e) {
+                ticket.end ();
+                throw e;
+            }
+        }
+
         public void cancel (SidebarWaitTicket? ticket = null) {
             var t = ticket ?? current;
             if (t == null || !t.active) return;

@@ -17,16 +17,16 @@ namespace Singularity.SidebarPages {
             this.view = view;
 
             empty = new StatusPage();
-            empty.icon_name = "drive-removable-media-symbolic";
+            empty.icon_name = "sinty-key";
             empty.title = _("Insert a Drive");
             empty.description = _("A Sinty Key keeps your files encrypted on a USB drive and opens them with your PIN on any Sinty OS computer.");
             add_widget(empty);
 
             running_group = new PreferencesGroup(_("This Computer"));
             bool guest = FileUtils.test("/run/sinty-key/guest", FileTest.EXISTS);
-            running_group.add_row(new ActionRow(_("Running from your Sinty Key"),
+            running_group.add_row(key_row(_("Running from your Sinty Key"),
                 guest ? _("Open as a guest, nothing is kept on this computer") : _("Open, this computer is remembered"),
-                "drive-removable-media-symbolic"));
+                guest ? "sinty-key-guest" : "sinty-key-open"));
             running_group.visible = guest || FileUtils.test("/run/sinty-key/portable", FileTest.EXISTS);
             add_group(running_group);
 
@@ -41,6 +41,8 @@ namespace Singularity.SidebarPages {
             monitor = VolumeMonitor.get();
             monitor.mount_added.connect(() => refresh.begin());
             monitor.mount_removed.connect(() => refresh.begin());
+            monitor.drive_connected.connect(() => refresh.begin());
+            monitor.drive_disconnected.connect(() => refresh.begin());
             refresh.begin();
         }
 
@@ -49,6 +51,14 @@ namespace Singularity.SidebarPages {
             page.back_btn.visible = true;
             page.back_clicked.connect(() => view.navigate_to("system"));
             view.open_subpage(page, "sinty-key");
+        }
+
+        public static string state_icon(KeyInfo info) {
+            switch (info.mode) {
+                case "trusted": return "sinty-key-open";
+                case "guest": return "sinty-key-guest";
+            }
+            return "sinty-key-locked";
         }
 
         public static string state_text(KeyInfo info) {
@@ -60,34 +70,45 @@ namespace Singularity.SidebarPages {
         }
 
         private async void refresh() {
+            Gee.ArrayList<KeyDrive> drives;
+            try {
+                drives = yield Client.get_default().drives();
+            } catch (KeyError e) {
+                drives = new Gee.ArrayList<KeyDrive>();
+            }
             drives_group.clear();
-            var drives = Client.removable_drives();
             empty.visible = drives.size == 0 && !running_group.visible;
             drives_group.visible = drives.size > 0;
-            foreach (string root in drives) {
-                string name = Path.get_basename(root);
-                try {
-                    var info = yield Client.get_default().inspect(root);
-                    var row = new ActionRow(name, state_text(info), info.unlocked ? "changes-allow-symbolic" : "changes-prevent-symbolic");
-                    row.activatable = true;
-                    row.add_suffix(new Image.from_icon_name("go-next-symbolic"));
-                    row.activated.connect(() => open_key(root));
-                    drives_group.add_row(row);
-                } catch (KeyError e) {
-                    bool blank = e.code == KeyError.NOT_A_KEY;
-                    var row = new ActionRow(name, blank ? _("Not a Sinty Key") : e.message, "drive-removable-media-symbolic");
-                    if (blank) {
-                        var make = new Button.with_label(_("Make a Key…"));
-                        make.valign = Align.CENTER;
-                        make.clicked.connect(() => open_create(root));
-                        var restore = new Button.with_label(_("Restore…"));
-                        restore.valign = Align.CENTER;
-                        restore.clicked.connect(() => open_restore(root));
-                        row.add_suffix(restore);
-                        row.add_suffix(make);
+            foreach (var d in drives) {
+                string size = format_size(d.size);
+                if (d.key && d.root != "") {
+                    string root = d.root;
+                    try {
+                        var info = yield Client.get_default().inspect(root);
+                        var row = key_row(d.name, "%s, %s".printf(state_text(info), size), state_icon(info));
+                        row.activatable = true;
+                        row.add_suffix(new Image.from_icon_name("go-next-symbolic"));
+                        row.activated.connect(() => open_key(root));
+                        drives_group.add_row(row);
+                        continue;
+                    } catch (KeyError e) {
                     }
-                    drives_group.add_row(row);
                 }
+                if (d.key) {
+                    var row = key_row(d.name, "%s, %s".printf(_("Locked"), size), "sinty-key-locked");
+                    var unlock = row_button(_("Open…"), true);
+                    var drive = d;
+                    unlock.clicked.connect(() => open_unlock(drive));
+                    row.add_suffix(unlock);
+                    drives_group.add_row(row);
+                    continue;
+                }
+                var row = key_row(d.name, "%s, %s".printf(_("Not a Sinty Key"), size), "drive-removable-media");
+                var make = row_button(_("Make a Key…"), false);
+                var drive = d;
+                make.clicked.connect(() => open_create(drive));
+                row.add_suffix(make);
+                drives_group.add_row(row);
             }
         }
 
@@ -140,19 +161,27 @@ namespace Singularity.SidebarPages {
             view.open_subpage(page, "sinty-key-detail");
         }
 
-        private void open_restore(string root) {
-            var page = new SintyKeyRestorePage(view, root);
+        private void open_unlock(KeyDrive drive) {
+            var page = new SintyKeyOpenPage(view, drive);
             page.back_btn.visible = true;
             page.back_clicked.connect(() => SintyKeyPage.open(view));
-            view.open_subpage(page, "sinty-key-restore");
+            view.open_subpage(page, "sinty-key-open");
         }
 
-        private void open_create(string root) {
-            var page = new SintyKeyCreatePage(view, root);
+        private void open_create(KeyDrive drive) {
+            var page = new SintyKeyMakePage(view, drive);
             page.back_btn.visible = true;
             page.back_clicked.connect(() => SintyKeyPage.open(view));
-            view.open_subpage(page, "sinty-key-create");
+            view.open_subpage(page, "sinty-key-make");
         }
+    }
+
+    internal ActionRow key_row(string title, string? subtitle, string icon) {
+        var row = new ActionRow(title, subtitle);
+        var image = new Image.from_icon_name(icon);
+        image.pixel_size = 32;
+        row.add_prefix(image);
+        return row;
     }
 
     internal Label status_label() {
@@ -173,19 +202,133 @@ namespace Singularity.SidebarPages {
         return b;
     }
 
+    public class SintyKeyMakePage : SettingsPage {
+        public SintyKeyMakePage(SettingsView view, KeyDrive drive) {
+            base(_("Make a Sinty Key"));
+            var group = new PreferencesGroup(_("Choose a Kind of Key"),
+                _("Everything on %s is erased.").printf(drive.name));
+            group.add_row(choice(view, drive, _("Key for Your Files"),
+                _("Your files encrypted with a PIN, opened on any Sinty OS computer"), "sinty-key-new", 0));
+            group.add_row(choice(view, drive, _("Startup Key"),
+                _("Sinty OS from this computer, started on any computer from the drive"), "sinty-key-startup", 1));
+            group.add_row(choice(view, drive, _("Restore a Key"),
+                _("From a backup file and its recovery code"), "sinty-key-restore", 2));
+            add_group(group);
+        }
+
+        private ActionRow choice(SettingsView view, KeyDrive drive, string title, string subtitle, string icon, int kind) {
+            var row = key_row(title, subtitle, icon);
+            row.activatable = true;
+            row.add_suffix(new Image.from_icon_name("go-next-symbolic"));
+            row.activated.connect(() => {
+                SettingsPage page;
+                if (kind == 0) page = new SintyKeyCreatePage(view, drive);
+                else if (kind == 1) page = new SintyKeyBootPage(view, drive);
+                else page = new SintyKeyRestorePage(view, drive);
+                page.back_btn.visible = true;
+                page.back_clicked.connect(() => {
+                    var back = new SintyKeyMakePage(view, drive);
+                    back.back_btn.visible = true;
+                    back.back_clicked.connect(() => SintyKeyPage.open(view));
+                    view.open_subpage(back, "sinty-key-make");
+                });
+                view.open_subpage(page, "sinty-key-make-" + kind.to_string());
+            });
+            return row;
+        }
+    }
+
+    public class SintyKeyBootPage : SettingsPage {
+        private KeyDrive drive;
+        private Button go;
+        private Label status;
+
+        public SintyKeyBootPage(SettingsView view, KeyDrive drive) {
+            base(_("Startup Key"));
+            this.drive = drive;
+            var group = new PreferencesGroup(_("Copy Sinty OS"),
+                _("Sinty OS from this computer is copied to %s, which then starts any computer that boots from USB. Everything on the drive is erased.").printf(drive.name));
+            var row = key_row(drive.name, format_size(drive.size), "sinty-key-startup");
+            go = row_button(_("Erase and Copy"), true);
+            go.add_css_class("destructive-action");
+            row.add_suffix(go);
+            group.add_row(row);
+            status = status_label();
+            group.add_row(status);
+            add_group(group);
+            go.clicked.connect(() => make.begin());
+        }
+
+        private async void make() {
+            go.sensitive = false;
+            status.visible = true;
+            status.label = _("Copying Sinty OS. This takes a few minutes, keep the drive connected…");
+            var ticket = SidebarWait.get_default().begin(this, _("Making a Startup Key"), "drive-removable-media-symbolic");
+            try {
+                yield Client.get_default().make_bootable(drive.device);
+                status.label = _("The Startup Key is ready. Start a computer from it to use Sinty OS.");
+            } catch (KeyError e) {
+                status.label = e.message;
+                go.sensitive = true;
+            }
+            ticket.end();
+        }
+    }
+
+    public class SintyKeyOpenPage : SettingsPage {
+        private SettingsView view;
+        private KeyDrive drive;
+        private PasswordRow pin;
+        private Label status;
+        private Button go;
+
+        public SintyKeyOpenPage(SettingsView view, KeyDrive drive) {
+            base(_("Open the Sinty Key"));
+            this.view = view;
+            this.drive = drive;
+            var group = new PreferencesGroup(drive.name);
+            pin = new PasswordRow(_("PIN"));
+            go = row_button(_("Open"), true);
+            pin.add_suffix(go);
+            status = status_label();
+            group.add_row(pin);
+            group.add_row(status);
+            add_group(group);
+            go.clicked.connect(() => unlock.begin());
+            pin.entry_activated.connect(() => unlock.begin());
+        }
+
+        private async void unlock() {
+            go.sensitive = false;
+            status.visible = true;
+            status.label = _("Opening…");
+            try {
+                string root = yield Client.get_default().open(drive.device, pin.text);
+                pin.text = "";
+                var page = new SintyKeyDetailPage(view, root);
+                page.back_btn.visible = true;
+                page.back_clicked.connect(() => SintyKeyPage.open(view));
+                view.open_subpage(page, "sinty-key-detail");
+            } catch (KeyError e) {
+                status.label = e.message;
+                go.sensitive = true;
+            }
+        }
+    }
+
     public class SintyKeyCreatePage : SettingsPage {
-        private string drive;
+        private KeyDrive drive;
         private PasswordRow pin;
         private PasswordRow again;
         private Button make;
         private Label status;
         private PreferencesGroup form;
 
-        public SintyKeyCreatePage(SettingsView view, string drive) {
-            base(_("Make a Sinty Key"));
+        public SintyKeyCreatePage(SettingsView view, KeyDrive drive) {
+            base(_("Key for Your Files"));
             this.drive = drive;
             form = new PreferencesGroup(_("Choose a PIN"),
-                _("Files you put in the Data folder of %s are encrypted. Files already on the drive stay as they are.").printf(Path.get_basename(drive)));
+                _("Everything on %s is erased. Files you put in its Data folder are encrypted.").printf(drive.name));
             pin = new PasswordRow(_("PIN"));
             again = new PasswordRow(_("Repeat PIN"));
             make = row_button(_("Make Key"), true);
@@ -212,7 +355,8 @@ namespace Singularity.SidebarPages {
             make.sensitive = false;
             status.label = _("Making the Key…");
             try {
-                string code = yield Client.get_default().create(drive, pin.text);
+                string root = yield Client.get_default().prepare(drive.device);
+                string code = yield Client.get_default().create(root, pin.text);
                 pin.text = "";
                 again.text = "";
                 form.visible = false;
@@ -243,7 +387,7 @@ namespace Singularity.SidebarPages {
     }
 
     public class SintyKeyRestorePage : SettingsPage {
-        private string drive;
+        private KeyDrive drive;
         private string? source = null;
         private ActionRow file_row;
         private EntryRow code;
@@ -253,11 +397,11 @@ namespace Singularity.SidebarPages {
         private Label status;
         private PreferencesGroup form;
 
-        public SintyKeyRestorePage(SettingsView view, string drive) {
+        public SintyKeyRestorePage(SettingsView view, KeyDrive drive) {
             base(_("Restore a Sinty Key"));
             this.drive = drive;
             form = new PreferencesGroup(_("Restore from a Backup"),
-                _("The files of the backup go into the Data folder of %s. It becomes a new Key with a new PIN and a new recovery code.").printf(Path.get_basename(drive)));
+                _("Everything on %s is erased, then the files of the backup go into its Data folder. It becomes a new Key with a new PIN and a new recovery code.").printf(drive.name));
             file_row = new ActionRow(_("Backup File"), _("None chosen"), "document-open-symbolic");
             var choose = row_button(_("Choose…"), false);
             choose.clicked.connect(() => choose_file.begin());
@@ -308,7 +452,8 @@ namespace Singularity.SidebarPages {
             go.sensitive = false;
             status.label = _("Restoring…");
             try {
-                string fresh = yield Client.get_default().restore(source, code.text, drive, pin.text);
+                string root = yield Client.get_default().prepare(drive.device);
+                string fresh = yield Client.get_default().restore(source, code.text, root, pin.text);
                 pin.text = again.text = code.text = "";
                 form.visible = false;
                 add_group(code_group(fresh, this));
@@ -362,9 +507,9 @@ namespace Singularity.SidebarPages {
                 return;
             }
             if (info.unlocked) {
-                var row = new ActionRow(SintyKeyPage.state_text(info),
+                var row = key_row(SintyKeyPage.state_text(info),
                     info.mode == "guest" ? _("Your files in the Data folder are available. This computer is not remembered, so the PIN is the only protection here.") : _("Your files in the Data folder are available."),
-                    "changes-allow-symbolic");
+                    info.mode == "guest" ? "sinty-key-guest" : "sinty-key-open");
                 var lock_btn = row_button(_("Lock"), false);
                 lock_btn.clicked.connect(() => lock_key.begin());
                 row.add_suffix(lock_btn);
@@ -470,7 +615,7 @@ namespace Singularity.SidebarPages {
             dialog.initial_name = "%s.sintykey".printf(Path.get_basename(drive));
             File? file = null;
             try {
-                file = yield dialog.save(get_root() as Gtk.Window, null);
+                file = yield SidebarWait.save_file(this, dialog, get_root() as Gtk.Window);
             } catch (Error e) {
                 status.visible = false;
                 return;

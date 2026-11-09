@@ -296,7 +296,7 @@ namespace Singularity.SidebarPages {
             dialog.initial_name = "%s.sintycore".printf(client.core_name != "" ? client.core_name : "screens");
             File? file = null;
             try {
-                file = yield dialog.save(get_root() as Gtk.Window, null);
+                file = yield SidebarWait.save_file(this, dialog, get_root() as Gtk.Window);
             } catch (Error e) {
                 return;
             }

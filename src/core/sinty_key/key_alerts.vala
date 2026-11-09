@@ -16,7 +16,7 @@ namespace Singularity.SintyKey {
             notifications.notification_closed.connect((id, reason) => shown.remove(id));
             if (FileUtils.test("/run/sinty-key/guest", FileTest.EXISTS)) {
                 post(_("Guest Mode"),
-                    _("This computer does not know your Sinty Key. Your files stay on the Key and nothing is kept on this computer."));
+                    _("This computer does not know your Sinty Key. Your files stay on the Key and nothing is kept on this computer."), "sinty-key-guest");
             }
             if (!Client.installed()) return;
             connect_bus.begin();
@@ -47,16 +47,16 @@ namespace Singularity.SintyKey {
                 now_owners[device] = owner;
                 if (!announce || states[device] == state) continue;
                 if (state == "locked" && !states.has_key(device)) {
-                    post(_("Sinty Key Connected"), _("Unlock it with its PIN to use the data on it."));
+                    post(_("Sinty Key Connected"), _("Unlock it with its PIN to use the data on it."), "sinty-key-locked");
                 } else if (state == "copy" && !states.has_key(device)) {
                     post(_("Older Sinty Key"),
-                        _("This Key is an older copy of one this computer knows. Open it with its recovery code."));
+                        _("This Key is an older copy of one this computer knows. Open it with its recovery code."), "sinty-key-copy");
                 }
             }
             if (announce) {
                 foreach (var entry in states.entries) {
                     if (now_states.has_key(entry.key) || entry.value == "locked" || entry.value == "copy") continue;
-                    post(_("Sinty Key Locked"), _("The Sinty Key was removed, so its data is locked again."));
+                    post(_("Sinty Key Locked"), _("The Sinty Key was removed, so its data is locked again."), "sinty-key-locked");
                     if (owners[entry.key] == me) SessionManager.get_default().lock_screen();
                 }
             }
@@ -64,9 +64,9 @@ namespace Singularity.SintyKey {
             owners = now_owners;
         }
 
-        private void post(string summary, string body) {
+        private void post(string summary, string body, string icon = "sinty-key") {
             string[] actions = { "default", _("Open Settings") };
-            uint id = SystemMonitor.get_default().notifications.notify(_("Sinty Key"), 0, "drive-removable-media",
+            uint id = SystemMonitor.get_default().notifications.notify(_("Sinty Key"), 0, icon,
                 summary, body, actions, new HashTable<string, Variant>(str_hash, str_equal), -1);
             shown.add(id);
         }

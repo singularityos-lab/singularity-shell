@@ -22,6 +22,14 @@ namespace Singularity.SintyKey {
         }
     }
 
+    public class KeyDrive : Object {
+        public string device;
+        public string name;
+        public uint64 size;
+        public string root;
+        public bool key;
+    }
+
     public class TrustedDevice : Object {
         public string kind;
         public string id;
@@ -84,10 +92,10 @@ namespace Singularity.SintyKey {
             return new KeyError.FAILED(e.message);
         }
 
-        private async Variant call(string method, Variant? args, string reply) throws KeyError {
+        private async Variant call(string method, Variant? args, string reply, int timeout = 120000) throws KeyError {
             try {
                 var bus = yield Bus.get(BusType.SYSTEM);
-                return yield bus.call(NAME, PATH, NAME, method, args, new VariantType(reply), DBusCallFlags.NONE, 120000);
+                return yield bus.call(NAME, PATH, NAME, method, args, new VariantType(reply), DBusCallFlags.NONE, timeout);
             } catch (Error e) {
                 throw translate(e);
             }
@@ -193,6 +201,39 @@ namespace Singularity.SintyKey {
 
         public async void recover(string root, string code, string pin) throws KeyError {
             yield call("Recover", new Variant("(sss)", root, code, pin), "()");
+        }
+
+        public async Gee.ArrayList<KeyDrive> drives() throws KeyError {
+            var v = yield call("Drives", null, "(a(sstsb))");
+            var list = new Gee.ArrayList<KeyDrive>();
+            var iter = v.get_child_value(0).iterator();
+            string device, name, root;
+            uint64 size;
+            bool key;
+            while (iter.next("(sstsb)", out device, out name, out size, out root, out key)) {
+                var d = new KeyDrive();
+                d.device = device;
+                d.name = name;
+                d.size = size;
+                d.root = root;
+                d.key = key;
+                list.add(d);
+            }
+            return list;
+        }
+
+        public async string prepare(string device) throws KeyError {
+            var v = yield call("Prepare", new Variant("(s)", device), "(s)", 600000);
+            return v.get_child_value(0).get_string();
+        }
+
+        public async void make_bootable(string device) throws KeyError {
+            yield call("MakeBootable", new Variant("(s)", device), "()", int.MAX);
+        }
+
+        public async string open(string device, string pin) throws KeyError {
+            var v = yield call("Open", new Variant("(ss)", device, pin), "(ss)");
+            return v.get_child_value(0).get_string();
         }
 
         public static Gee.ArrayList<string> removable_drives() {
