@@ -10,6 +10,7 @@ namespace Singularity {
         public string message;
         public uint notification;
         public int64 expires;
+        public int64 received;
         public OneTimeCodes.Match match;
     }
 
@@ -23,6 +24,7 @@ namespace Singularity {
         private GLib.Settings? settings;
         private uint next_id = 1;
         private uint expiry_source = 0;
+        private int64 presented_at = 0;
 
         public signal void changed();
 
@@ -124,6 +126,7 @@ namespace Singularity {
             entry.message = hint_text(hints, "x-sinty-message-id");
             entry.notification = notification;
             entry.expires = get_real_time() / 1000000 + LIFETIME;
+            entry.received = get_monotonic_time();
             entry.match = match;
             held.insert(0, entry);
             while (held.size > 5) release(held[held.size - 1], false);
@@ -198,6 +201,25 @@ namespace Singularity {
         }
 
         [DBus (visible = false)]
+        public HeldCode? newest() {
+            drop_expired();
+            return held.size > 0 ? held[0] : null;
+        }
+
+        [DBus (visible = false)]
+        public bool presented_recently() {
+            return presented_at != 0 && get_monotonic_time() - presented_at < 2000000;
+        }
+
+        [DBus (visible = false)]
+        public void use_held(HeldCode h) {
+            if (!(h in held)) return;
+            release(h, true);
+            arm_expiry();
+            changed();
+        }
+
+        [DBus (visible = false)]
         public void clear() {
             while (held.size > 0) release(held[0], false);
             arm_expiry();
@@ -226,6 +248,10 @@ namespace Singularity {
                     return;
                 }
             }
+        }
+
+        public void present() throws Error {
+            presented_at = get_monotonic_time();
         }
 
         public void forget(uint id) throws Error {

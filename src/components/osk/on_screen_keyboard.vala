@@ -110,8 +110,18 @@ namespace Singularity {
                 suggestion_bar.remove(child);
                 child = next;
             }
-            if (!settings.get_boolean("spell-suggestions")) return;
             var ime = InputMethodService.get_default();
+            var code = ime.code_for_field();
+            if (code != null) {
+                var use = new Button.with_label(InputMethodService.code_label(code));
+                use.add_css_class("osk-suggestion");
+                use.add_css_class("osk-code");
+                use.focus_on_click = false;
+                use.can_focus = false;
+                use.clicked.connect(() => ime.insert_code());
+                suggestion_bar.append(use);
+            }
+            if (!settings.get_boolean("spell-suggestions")) return;
             if (word != "") {
                 var keep = new Button.with_label("\u201c%s\u201d".printf(word));
                 keep.add_css_class("osk-suggestion");

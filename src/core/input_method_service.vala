@@ -48,6 +48,8 @@ namespace Singularity {
         private string engine_preedit = "";
         private Queue<PendingKey?> key_queue = new Queue<PendingKey?>();
         private bool draining = false;
+        private HeldCode? chip_code = null;
+        private uint dismissed_code = 0;
         private Singularity.InputMethods.InputEngine? bound_engine = null;
 
         private struct PendingKey {
@@ -83,6 +85,7 @@ namespace Singularity {
             foreach (string key in new string[] { "spell-check-all-apps", "input-method-engines", "dictation-enabled" }) {
                 settings.changed[key].connect(sync_environment);
             }
+            OneTimeCodeService.get_default().changed.connect(schedule_suggestions);
             var sources = Singularity.InputMethods.InputSources.get_default();
             sources.engine_ready.connect(bind_engine);
             sources.changed.connect(() => {
@@ -340,6 +343,7 @@ namespace Singularity {
             if (is_active && !was_active) {
                 has_surrounding = false;
                 typed_word = "";
+                dismissed_code = 0;
             }
             if (is_active && text != "" && !has_surrounding) has_surrounding = true;
             active = is_active;
@@ -441,11 +445,46 @@ namespace Singularity {
             });
         }
 
+        public HeldCode? code_for_field() {
+            if (!active) return null;
+            var code = OneTimeCodeService.get_default().newest();
+            if (code == null || code.id == dismissed_code) return null;
+            if (purpose == 2 || purpose == 3 || purpose == 9) return code;
+            if (purpose <= 1 && surrounding.strip() == "" && get_monotonic_time() - code.received < 180 * 1000000) return code;
+            return null;
+        }
+
+        public static string code_label(HeldCode code) {
+            if (code.domain != "") return _("Code %s from %s, for %s").printf(code.code, code.service, code.domain);
+            return code.service != "" ? _("Code %s from %s").printf(code.code, code.service) : _("Code %s").printf(code.code);
+        }
+
+        public bool insert_code() {
+            var code = chip_code ?? code_for_field();
+            if (code == null || !commit_text(code.code)) return false;
+            chip_code = null;
+            close_popup();
+            OneTimeCodeService.get_default().use_held(code);
+            typed_word = "";
+            suggestions_changed("", {});
+            update_grab();
+            return true;
+        }
+
         private void refresh_suggestions() {
             if (popup_accents || dictating || engine_candidates != null) return;
             current_word = active ? word_before_cursor() : "";
             string[] items = corrections(current_word);
             suggestions_changed(items.length > 0 ? current_word : "", items);
+            var code = code_for_field();
+            if (code != null && purpose != 0 && purpose != 1 && !own_client()
+                    && !settings.get_boolean("screen-keyboard-enabled")
+                    && !OneTimeCodeService.get_default().presented_recently()) {
+                show_popup({ code_label(code) }, false, 0);
+                chip_code = code;
+                update_grab();
+                return;
+            }
             bool floating = settings.get_boolean("spell-suggestions")
                 && !settings.get_boolean("screen-keyboard-enabled");
             if (floating && items.length > 0) {
@@ -457,6 +496,10 @@ namespace Singularity {
         }
 
         public void apply_suggestion(string suggestion) {
+            if (chip_code != null) {
+                insert_code();
+                return;
+            }
             string word = word_before_cursor();
             if (!active || word == "") return;
             if (has_surrounding) {
@@ -474,6 +517,12 @@ namespace Singularity {
         }
 
         public void keep_word() {
+            if (chip_code != null) {
+                dismissed_code = chip_code.id;
+                close_popup();
+                update_grab();
+                return;
+            }
             string word = word_before_cursor();
             if (word != "") rejected.add(word.down());
             close_popup();
@@ -556,6 +605,10 @@ namespace Singularity {
             if (hold_key != 0 && key != hold_key) cancel_hold();
 
             bool plain = (modifiers & MOD_BLOCKING) == 0;
+            if (plain && chip_code != null && (keysym == KEY_RETURN || keysym == KEY_KP_ENTER)) {
+                insert_code();
+                return true;
+            }
             if (plain && keysym == KEY_TAB && !popup_accents && popup_items.length > 0) {
                 apply_suggestion(popup_items[popup_selected >= 0 ? popup_selected : 0]);
                 return true;
@@ -654,6 +707,7 @@ namespace Singularity {
         }
 
         private void close_popup() {
+            chip_code = null;
             bool shown = popup_items.length > 0;
             popup_items = {};
             popup_accents = false;
