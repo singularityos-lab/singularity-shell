@@ -11,6 +11,8 @@ namespace Singularity.SintyCore {
         NOT_PAIRING,
         NO_LINK,
         NOT_SUPPORTED,
+        WRONG_CODE,
+        NOT_A_BACKUP,
         FAILED
     }
 
@@ -31,6 +33,7 @@ namespace Singularity.SintyCore {
         public string usb_mode { get; private set; default = "off"; }
         public string form { get; private set; default = ""; }
         public string core_name { get; private set; default = ""; }
+        public string identity { get; private set; default = ""; }
 
         public signal void changed();
         public signal void pairing_request(string screen);
@@ -65,6 +68,8 @@ namespace Singularity.SintyCore {
                 case "dev.sinty.Core1.Error.NotPairing": return new CoreError.NOT_PAIRING(_("No screen is waiting for a code."));
                 case "dev.sinty.Core1.Error.NoLink": return new CoreError.NO_LINK(_("There is no network, cable or Wi-Fi Direct connection for a screen."));
                 case "dev.sinty.Core1.Error.NotSupported": return new CoreError.NOT_SUPPORTED(_("This computer cannot do this."));
+                case "dev.sinty.Core1.Error.WrongCode": return new CoreError.WRONG_CODE(_("The recovery code is not correct."));
+                case "dev.sinty.Core1.Error.NotABackup": return new CoreError.NOT_A_BACKUP(_("This file is not a backup of a computer's screens."));
             }
             return new CoreError.FAILED(e.message);
         }
@@ -112,6 +117,7 @@ namespace Singularity.SintyCore {
             usb_mode = lookup_string(props, "UsbMode");
             form = lookup_string(props, "Form");
             core_name = lookup_string(props, "Name");
+            identity = lookup_string(props, "Identity");
             screens.clear();
             var list = props.lookup_value("Screens", new VariantType("a(ssb)"));
             if (list != null) {
@@ -146,6 +152,33 @@ namespace Singularity.SintyCore {
             } catch (Error e) {
                 throw translate(e);
             }
+        }
+
+        private async Variant call_fd(string method, Variant args, string reply, int fd) throws CoreError {
+            try {
+                var fds = new UnixFDList();
+                fds.append(fd);
+                var conn = yield Bus.get(BusType.SYSTEM);
+                UnixFDList out_fds;
+                return yield conn.call_with_unix_fd_list(NAME, PATH, NAME, method, args, new VariantType(reply), DBusCallFlags.NONE, 60000, fds, null, out out_fds);
+            } catch (Error e) {
+                throw translate(e);
+            } finally {
+                Posix.close(fd);
+            }
+        }
+
+        public async string backup(string path) throws CoreError {
+            int fd = Posix.open(path, Posix.O_WRONLY | Posix.O_CREAT | Posix.O_TRUNC | Posix.O_CLOEXEC, 0600);
+            if (fd < 0) throw new CoreError.FAILED(strerror(errno));
+            var v = yield call_fd("Backup", new Variant("(h)", 0), "(s)", fd);
+            return v.get_child_value(0).get_string();
+        }
+
+        public async void restore(string path, string code) throws CoreError {
+            int fd = Posix.open(path, Posix.O_RDONLY | Posix.O_CLOEXEC);
+            if (fd < 0) throw new CoreError.FAILED(strerror(errno));
+            yield call_fd("Restore", new Variant("(hs)", 0, code), "()", fd);
         }
 
         public async string start_pairing() throws CoreError {

@@ -19,6 +19,18 @@ namespace Singularity.SidebarPages {
         private SelectionRow form_row;
         private SelectionRow usb_row;
         private ActionRow phone_row;
+        private ActionRow key_row;
+        private PreferencesGroup backup_group;
+        private ActionRow lost_row;
+        private Label backup_status;
+        private PreferencesGroup code_group;
+        private ActionRow code_value;
+        private PreferencesGroup restore_group;
+        private ActionRow file_row;
+        private EntryRow recovery_row;
+        private Label restore_status;
+        private Button restore_button;
+        private string? source = null;
         private bool syncing = false;
         private ulong changed_id = 0;
         private ulong request_id = 0;
@@ -75,9 +87,57 @@ namespace Singularity.SidebarPages {
             device_group.add_row(usb_row);
             phone_row = new ActionRow(_("Phone"), "", "phone-symbolic");
             device_group.add_row(phone_row);
+            key_row = new ActionRow(_("Screen Key"), "", "channel-secure-symbolic");
+            device_group.add_row(key_row);
             add_group(device_group);
 
+            backup_group = new PreferencesGroup(_("Backup"),
+                _("One encrypted file with the screen key of this computer and the paired screens. It opens only with the recovery code shown when it is saved."));
+            lost_row = new ActionRow(_("The screen key was lost"),
+                _("The security chip no longer opens it, so paired screens cannot connect. Restore a backup or pair them again."), "dialog-warning-symbolic");
+            backup_group.add_row(lost_row);
+            var save_row = new ActionRow(_("Back Up Screens"), _("Save the backup on another drive or online"), "document-save-symbolic");
+            var save = row_button(_("Back Up…"), false);
+            save.clicked.connect(() => back_up.begin(save));
+            save_row.add_suffix(save);
+            backup_group.add_row(save_row);
+            backup_status = status_label();
+            backup_group.add_row(backup_status);
+            add_group(backup_group);
+
+            code_group = new PreferencesGroup(_("Recovery Code"),
+                _("Write it down and keep it apart from the backup. Without it the backup cannot be opened."));
+            code_value = new ActionRow("", "", "dialog-password-symbolic");
+            var copy = new Button.from_icon_name("edit-copy-symbolic");
+            copy.add_css_class("flat");
+            copy.valign = Align.CENTER;
+            copy.tooltip_text = _("Copy");
+            copy.clicked.connect(() => get_clipboard().set_text(code_value.title));
+            code_value.add_suffix(copy);
+            code_group.add_row(code_value);
+            code_group.visible = false;
+            add_group(code_group);
+
+            restore_group = new PreferencesGroup(_("Restore from a Backup"),
+                _("This computer takes the screen key from the backup, and the screens paired before connect again. Screens paired since the backup have to be paired again."));
+            file_row = new ActionRow(_("Backup File"), _("None chosen"), "document-open-symbolic");
+            var choose = row_button(_("Choose…"), false);
+            choose.clicked.connect(() => choose_file.begin());
+            file_row.add_suffix(choose);
+            restore_group.add_row(file_row);
+            recovery_row = new EntryRow(_("Recovery Code"));
+            recovery_row.placeholder_text = "XXXXX-XXXXX-XXXXX-XXXXX-XXXXX";
+            restore_button = row_button(_("Restore"), true);
+            restore_button.clicked.connect(() => restore.begin());
+            recovery_row.add_suffix(restore_button);
+            recovery_row.entry_activated.connect(() => restore.begin());
+            restore_group.add_row(recovery_row);
+            restore_status = status_label();
+            restore_group.add_row(restore_status);
+            add_group(restore_group);
+
             add_search_action(_("Pair a Screen"), _("Sinty Core, screen, TV, monitor, thin client, stream, desktop"), () => start_pairing.begin());
+            add_search_action(_("Back Up Screens"), _("Sinty Core, screen, backup, restore, recovery code"), () => back_up.begin(save));
 
             changed_id = client.changed.connect(() => sync());
             request_id = client.pairing_request.connect((screen) => {
@@ -149,6 +209,19 @@ namespace Singularity.SidebarPages {
             if (u >= 0) usb_row.selected_index = u;
             phone_row.visible = client.phone != "";
             phone_row.subtitle = _("Last command from %s").printf(phone_address(client.phone));
+            key_row.visible = client.identity != "";
+            switch (client.identity) {
+                case "tpm":
+                    key_row.subtitle = _("Sealed in the security chip");
+                    break;
+                case "replaced":
+                    key_row.subtitle = _("New, the previous key was lost");
+                    break;
+                default:
+                    key_row.subtitle = _("Kept in a file, this computer has no security chip");
+                    break;
+            }
+            lost_row.visible = client.identity == "replaced";
             syncing = false;
         }
 
@@ -215,6 +288,65 @@ namespace Singularity.SidebarPages {
             } catch (CoreError e) {
                 show_error(e.message);
             }
+        }
+
+        private async void back_up(Button save) {
+            var dialog = new Gtk.FileDialog();
+            dialog.title = _("Save Backup");
+            dialog.initial_name = "%s.sintycore".printf(client.core_name != "" ? client.core_name : "screens");
+            File? file = null;
+            try {
+                file = yield dialog.save(get_root() as Gtk.Window, null);
+            } catch (Error e) {
+                return;
+            }
+            if (file == null || file.get_path() == null) return;
+            save.sensitive = false;
+            backup_status.visible = true;
+            backup_status.label = _("Backing up…");
+            try {
+                string code = yield client.backup(file.get_path());
+                code_value.title = code;
+                code_group.visible = true;
+                backup_status.label = _("Backup saved as %s.").printf(file.get_basename());
+            } catch (CoreError e) {
+                backup_status.label = e.message;
+            }
+            save.sensitive = true;
+        }
+
+        private async void choose_file() {
+            var dialog = new Gtk.FileDialog();
+            dialog.title = _("Choose a Backup");
+            try {
+                var file = yield SidebarWait.choose_file(this, dialog, get_root() as Gtk.Window);
+                if (file == null || file.get_path() == null) return;
+                source = file.get_path();
+                file_row.subtitle = file.get_basename();
+            } catch (Error e) {
+            }
+        }
+
+        private async void restore() {
+            restore_status.visible = true;
+            if (source == null) {
+                restore_status.label = _("Choose the backup file first.");
+                return;
+            }
+            if (recovery_row.text.strip() == "") {
+                restore_status.label = _("Type the recovery code of the backup.");
+                return;
+            }
+            restore_button.sensitive = false;
+            restore_status.label = _("Restoring…");
+            try {
+                yield client.restore(source, recovery_row.text);
+                recovery_row.text = "";
+                restore_status.label = _("Restored. The screens in the backup can connect again.");
+            } catch (CoreError e) {
+                restore_status.label = e.message;
+            }
+            restore_button.sensitive = true;
         }
 
         private async void set_form(string form) {
