@@ -696,6 +696,10 @@ namespace Singularity.SidebarPages {
         private string drive;
         private string pin_cache = "";
         private PreferencesGroup state_group;
+        private PreferencesGroup home_group;
+        private Label home_status;
+        private bool moving;
+        private string confirm_delete = "";
         private PreferencesGroup computers_group;
         private PreferencesGroup security_group;
         private PreferencesGroup pin_group;
@@ -717,7 +721,13 @@ namespace Singularity.SidebarPages {
                 _("The backup is one encrypted file that opens only with the recovery code. Keep it on another drive or online."));
             recovery_group = new PreferencesGroup(_("Forgot the PIN?"),
                 _("Enter the recovery code you wrote down when the Key was made, then choose a new PIN."));
+            home_group = new PreferencesGroup(_("Your Home"),
+                _("Move your files and settings between this computer and the Key. They are encrypted again with the keys of the side they land on, and every file is checked before the original can be deleted."));
+            home_group.visible = false;
+            home_status = status_label();
             add_group(state_group);
+            add_group(home_group);
+            add_widget(home_status);
             add_group(computers_group);
             add_group(security_group);
             add_group(backup_group);
@@ -750,7 +760,9 @@ namespace Singularity.SidebarPages {
                 lock_btn.clicked.connect(() => lock_key.begin());
                 row.add_suffix(lock_btn);
                 state_group.add_row(row);
+                yield refresh_home();
             } else {
+                home_group.visible = false;
                 var pin = new PasswordRow(_("PIN"));
                 var open = row_button(_("Unlock"), true);
                 pin.add_suffix(open);
@@ -782,6 +794,98 @@ namespace Singularity.SidebarPages {
                 computers_group.add_row(row);
             }
             computers_group.visible = computers_group.get_rows().size > 0;
+        }
+
+        private void home_say(string text) {
+            home_status.label = text;
+            home_status.visible = text != "";
+        }
+
+        private async void refresh_home() {
+            home_group.clear();
+            string to_key, from_key;
+            try {
+                to_key = yield Client.get_default().move_home_state(drive, "to-key");
+                from_key = yield Client.get_default().move_home_state(drive, "from-key");
+            } catch (KeyError e) {
+                home_group.visible = false;
+                return;
+            }
+            if (to_key == "verified") {
+                add_done_row(_("Your Home Is on the Key"), "to-key", _("Delete from This Computer"));
+            } else if (from_key == "verified") {
+                add_done_row(_("Your Home Is on This Computer"), "from-key", _("Delete from the Key"));
+            } else {
+                add_move_row(_("Move Your Home to the Key"), "to-key", to_key == "copying",
+                    _("Take your files and settings to any Sinty OS computer."), _("Move"));
+                add_move_row(_("Bring Your Home from the Key"), "from-key", from_key == "copying",
+                    _("Copy the home kept on the Key into your account here."), _("Bring"));
+            }
+            home_group.visible = true;
+        }
+
+        private void add_move_row(string title, string direction, bool stopped, string subtitle, string label) {
+            var row = new ActionRow(title, stopped ? _("Interrupted. It continues where it stopped.") : subtitle, "user-home-symbolic");
+            var go = row_button(stopped ? _("Continue") : label, false);
+            go.clicked.connect(() => move_home.begin(direction, row, go));
+            row.add_suffix(go);
+            home_group.add_row(row);
+        }
+
+        private void add_done_row(string title, string direction, string delete_label) {
+            var row = new ActionRow(title, _("Every file was copied and checked."), "user-home-symbolic");
+            var keep = row_button(_("Keep Both"), false);
+            var del = row_button(delete_label, false);
+            del.add_css_class("destructive-action");
+            keep.clicked.connect(() => finish_move.begin(direction, false));
+            del.clicked.connect(() => {
+                if (confirm_delete != direction) {
+                    confirm_delete = direction;
+                    del.label = _("Delete Now");
+                    home_say(direction == "to-key"
+                        ? _("The files are checked once more, then deleted from this computer. Sign out right after.")
+                        : _("The files are checked once more, then deleted from the Key."));
+                    return;
+                }
+                confirm_delete = "";
+                finish_move.begin(direction, true);
+            });
+            row.add_suffix(keep);
+            row.add_suffix(del);
+            home_group.add_row(row);
+        }
+
+        private async void move_home(string direction, ActionRow row, Button go) {
+            if (moving) return;
+            moving = true;
+            go.sensitive = false;
+            home_say("");
+            row.subtitle = _("Copying…");
+            ulong id = Client.get_default().progress.connect((dev, pct) => {
+                if (dev == drive) row.subtitle = pct < 70 ? _("Copying… %u%%").printf(pct * 100 / 70) : _("Checking every file… %u%%").printf((pct - 70) * 100 / 30);
+            });
+            try {
+                yield Client.get_default().move_home(drive, direction);
+            } catch (KeyError e) {
+                home_say(e.message);
+            }
+            Client.get_default().disconnect(id);
+            moving = false;
+            yield refresh_home();
+        }
+
+        private async void finish_move(string direction, bool remove) {
+            if (moving) return;
+            moving = true;
+            home_say(remove ? _("Checking and deleting…") : "");
+            try {
+                yield Client.get_default().finish_move(drive, direction, remove);
+                home_say(remove && direction == "to-key" ? _("Your home now lives on the Key. Sign out of this computer.") : "");
+            } catch (KeyError e) {
+                home_say(e.message);
+            }
+            moving = false;
+            yield refresh_home();
         }
 
         private async void unlock(PasswordRow pin, Label status, Button open) {

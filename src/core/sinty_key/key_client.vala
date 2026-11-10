@@ -328,6 +328,19 @@ namespace Singularity.SintyKey {
             return list;
         }
 
+        public async void move_home(string root, string direction) throws KeyError {
+            yield call("MoveHome", new Variant("(sss)", root, "", direction), "()", int.MAX);
+        }
+
+        public async string move_home_state(string root, string direction) throws KeyError {
+            var v = yield call("MoveHomeState", new Variant("(sss)", root, "", direction), "(s)");
+            return v.get_child_value(0).get_string();
+        }
+
+        public async void finish_move(string root, string direction, bool remove) throws KeyError {
+            yield call("FinishMove", new Variant("(sssb)", root, "", direction, remove), "()", int.MAX);
+        }
+
         public async Gee.ArrayList<KeyDrive> rescue_targets() throws KeyError {
             var v = yield call("RescueTargets", null, "(a(sstsbb))");
             var list = new Gee.ArrayList<KeyDrive>();
