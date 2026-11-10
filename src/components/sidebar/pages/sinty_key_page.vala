@@ -10,6 +10,7 @@ namespace Singularity.SidebarPages {
         private PreferencesGroup drives_group;
         private PreferencesGroup trusted_group;
         private PreferencesGroup badge_group;
+        private PreferencesGroup rescue_group;
         private bool badge_reverting;
         private StatusPage empty;
         private VolumeMonitor monitor;
@@ -31,6 +32,12 @@ namespace Singularity.SidebarPages {
                 guest ? "sinty-key-guest" : "sinty-key-open"));
             running_group.visible = guest || FileUtils.test("/run/sinty-key/portable", FileTest.EXISTS);
             add_group(running_group);
+
+            rescue_group = new PreferencesGroup(_("Rescue This Computer"),
+                _("When this computer does not start, its files can be copied, its logs read and Sinty OS reinstalled from your Key."));
+            rescue_group.visible = false;
+            add_group(rescue_group);
+            if (running_group.visible) refresh_rescue.begin();
 
             drives_group = new PreferencesGroup(_("Drives"));
             add_group(drives_group);
@@ -158,6 +165,24 @@ namespace Singularity.SidebarPages {
                 update.sensitive = true;
             }
             Client.get_default().disconnect(id);
+        }
+
+        private async void refresh_rescue() {
+            Gee.ArrayList<KeyDrive> targets;
+            try {
+                targets = yield Client.get_default().rescue_targets();
+            } catch (KeyError e) {
+                return;
+            }
+            foreach (var d in targets) {
+                var row = key_row(d.name, format_size(d.size), "drive-harddisk");
+                var open = row_button(_("Rescue…"), false);
+                var drive = d;
+                open.clicked.connect(() => view.open_subpage(new SintyRescuePage(view, drive), "sinty-rescue"));
+                row.add_suffix(open);
+                rescue_group.add_row(row);
+            }
+            rescue_group.visible = targets.size > 0;
         }
 
         private async void refresh_badge() {

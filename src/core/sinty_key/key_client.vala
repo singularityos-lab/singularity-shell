@@ -328,6 +328,35 @@ namespace Singularity.SintyKey {
             return list;
         }
 
+        public async Gee.ArrayList<KeyDrive> rescue_targets() throws KeyError {
+            var v = yield call("RescueTargets", null, "(a(sstsbb))");
+            var list = new Gee.ArrayList<KeyDrive>();
+            var iter = v.get_child_value(0).iterator();
+            string device, name, root;
+            uint64 size;
+            bool key, startup;
+            while (iter.next("(sstsbb)", out device, out name, out size, out root, out key, out startup)) {
+                var d = new KeyDrive();
+                d.device = device;
+                d.name = name;
+                d.size = size;
+                d.root = root;
+                d.key = key;
+                d.startup = startup;
+                list.add(d);
+            }
+            return list;
+        }
+
+        public async string rescue(string device) throws KeyError {
+            var v = yield call("Rescue", new Variant("(s)", device), "(s)", 600000);
+            return v.get_child_value(0).get_string();
+        }
+
+        public async void end_rescue() throws KeyError {
+            yield call("EndRescue", null, "()");
+        }
+
         public async string prepare(string device) throws KeyError {
             var v = yield call("Prepare", new Variant("(s)", device), "(s)", 600000);
             return v.get_child_value(0).get_string();
