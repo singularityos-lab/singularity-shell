@@ -709,34 +709,17 @@ namespace Singularity {
                 double total_mem = 0.0;
                 var seen = new Gee.HashSet<string> ();
 
-                string ps_output;
-                int exit_status;
-                GLib.Process.spawn_command_line_sync (
-                    "ps -eo pid=,pcpu=,rss=,comm= --sort=-rss",
-                    out ps_output, null, out exit_status);
-                if (exit_status != 0 || ps_output == null || ps_output.strip () == "") {
-                    _total_cpu_val.set_text ("0.0%");
-                    _total_mem_val.set_text ("0 MB");
-                    return;
-                }
+                double up = ProcStats.uptime ();
+                double hz = Posix.sysconf (Posix._SC_CLK_TCK);
+                double page_mb = Posix.sysconf (Posix._SC_PAGESIZE) / (1024.0 * 1024.0);
+                var procs = ProcStats.snapshot ();
+                procs.sort ((x, y) => x.rss_pages > y.rss_pages ? -1 : (x.rss_pages < y.rss_pages ? 1 : 0));
 
-                string[] lines = ps_output.strip ().split ("\n");
-
-                foreach (string raw_line in lines) {
-                    string line = raw_line.strip ();
-                    if (line == "") continue;
-
-                    while (line.contains ("  "))
-                        line = line.replace ("  ", " ");
-
-                    string[] parts = line.split (" ", 4);
-                    if (parts.length < 4) continue;
-
-                    int pid = int.parse (parts[0]);
-                    double cpu = double.parse (parts[1]);
-                    double rss_kb = double.parse (parts[2]);
-                    double mem = rss_kb / 1024.0;
-                    string comm = parts[3];
+                foreach (var p in procs.data) {
+                    int pid = p.pid;
+                    double cpu = ProcStats.cpu_percent (p, up, hz);
+                    double mem = p.rss_pages * page_mb;
+                    string comm = p.comm;
 
                     string matched_proc = null;
                     if (comm == "labwc") {

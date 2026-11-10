@@ -257,7 +257,17 @@ private void test_heic_import_with_decoder_seam() {
     string src_dir = Path.build_filename(fixture_dir, "decoder");
     for (int i = 0; i < 4; i++) write_file("decoder/src-%d.png".printf(i), "frame%d".printf(i));
     string heic = write_file("import/Mojave Test.heic", "ftypheic<rdf apple_desktop:solar=\"" + SOLAR_B64 + "\"/>");
-    string[] decoder = { "sh", "-c", "cp \"$0\" \"$1\"", Path.build_filename(src_dir, "src-%n.png"), "%o" };
+    FrameDecoder decoder = (source, count, dir) => {
+        string[] frames = {};
+        for (int i = 0; i < count; i++) {
+            string target = Path.build_filename(dir, "frame-%02d.png".printf(i));
+            string data;
+            FileUtils.get_contents(Path.build_filename(src_dir, "src-%d.png".printf(i)), out data);
+            FileUtils.set_contents(target, data);
+            frames += target;
+        }
+        return frames;
+    };
     try {
         string manifest = DynamicWallpaperImporter.import_file(heic, decoder);
         assert(manifest.has_prefix(DynamicWallpaperImporter.import_root()));

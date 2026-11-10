@@ -418,6 +418,7 @@ singularity_core_sources = files(
     'src/core/wallpaper_manager.vala',
     'src/core/dynamic_wallpaper.vala',
     'src/core/dynamic_wallpaper_heic.vala',
+    'src/core/heic_decoder.c',
     'src/core/dynamic_wallpaper_controller.vala',
     'src/core/wallpaper_effects.vala',
     'src/core/wallpaper_collections.vala',
@@ -467,6 +468,7 @@ singularity_core_sources = files(
     'src/components/sidebar/widgets/hearing_risk_row.vala',
     'src/components/sidebar/widgets/fan_widgets.vala',
     'src/components/sidebar/widgets/developer_page.vala',
+    'src/core/proc_stat.vala',
     'src/components/sidebar/widgets/settings_subpages.vala',
     'src/components/sidebar/pages/dev_settings_editor_page.vala',
     'src/components/sidebar/pages/dev_dbus_page.vala',
@@ -1070,7 +1072,7 @@ wallpaper_sidecar_test = executable('wallpaper-sidecar-test',
 test('wallpaper-sidecar', wallpaper_sidecar_test)
 
 dynamic_wallpaper_test = executable('dynamic-wallpaper-test',
-  sources: ['src/core/dynamic_wallpaper.vala', 'src/core/dynamic_wallpaper_heic.vala', 'tests/dynamic_wallpaper_test.vala'],
+  sources: ['src/core/dynamic_wallpaper.vala', 'src/core/dynamic_wallpaper_heic.vala', 'src/core/heic_decoder.c', 'tests/dynamic_wallpaper_test.vala'],
   dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), dependency('gdk-pixbuf-2.0'), json_dep, libsingularity_dep, cc.find_library('m')],
 )
 test('dynamic-wallpaper', dynamic_wallpaper_test)
@@ -1199,3 +1201,10 @@ system_components_test = executable('system-components-test',
   dependencies: [dependency('gtk4'), dependency('gmodule-2.0'), json_dep],
 )
 test('system-components', system_components_test)
+
+proc_stat_test = executable('proc-stat-test',
+  sources: ['src/core/proc_stat.vala', 'tests/proc_stat_test.vala'],
+  vala_args: ['--pkg', 'posix'],
+  dependencies: [dependency('glib-2.0'), dependency('gobject-2.0')],
+)
+test('proc-stat', proc_stat_test)

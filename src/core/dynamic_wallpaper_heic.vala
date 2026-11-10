@@ -278,6 +278,13 @@ namespace Singularity {
         }
     }
 
+    public delegate string[] FrameDecoder(string source, int count, string dir) throws Error;
+
+    [CCode (cname = "singularity_heic_available")]
+    extern bool heic_available();
+    [CCode (cname = "singularity_heic_decode_frames", array_length = false, array_null_terminated = true)]
+    extern string[] heic_decode_frames(string source, int count, string dir) throws Error;
+
     public class DynamicWallpaperImporter : Object {
         public const string CONFIG_NAME = "dynamic-wallpapers.conf";
 
@@ -335,7 +342,7 @@ namespace Singularity {
             return dot > 0 ? b.substring(0, dot) : b;
         }
 
-        public static string import_file(string source, string[]? decoder_override = null) throws Error {
+        public static string import_file(string source, FrameDecoder? decoder_override = null) throws Error {
             string lower = source.down();
             ensure_collection();
             if (lower.has_suffix(".heic") || lower.has_suffix(".heif")) return import_heic(source, decoder_override);
@@ -361,29 +368,8 @@ namespace Singularity {
             throw new IOError.NOT_SUPPORTED(_("This file is not a dynamic wallpaper"));
         }
 
-        public static string[] decoder_command() {
-            var kf = new KeyFile();
-            var dirs = new GenericArray<string>();
-            dirs.add(Environment.get_user_config_dir());
-            foreach (unowned string d in Environment.get_system_config_dirs()) dirs.add(d);
-            foreach (string d in dirs.data) {
-                try {
-                    kf.load_from_file(Path.build_filename(d, "singularity", CONFIG_NAME), KeyFileFlags.NONE);
-                    string cmd = kf.get_string("HEIC", "Decoder").strip();
-                    if (cmd == "none") return {};
-                    string[] argv = {};
-                    if (cmd != "" && GLib.Shell.parse_argv(cmd, out argv)) return argv;
-                } catch (Error e) {
-                }
-            }
-            if (Environment.find_program_in_path("magick") != null) return { "magick", "%i[%n]", "%o" };
-            if (Environment.find_program_in_path("heif-dec") != null) return { "heif-dec", "--quiet", "%i", "%a" };
-            if (Environment.find_program_in_path("heif-convert") != null) return { "heif-convert", "--quiet", "%i", "%a" };
-            return {};
-        }
-
         public static bool heic_supported() {
-            return decoder_command().length > 0;
+            return heic_available();
         }
 
         private static int max_index(HeicDynamicMetadata meta) {
@@ -413,58 +399,14 @@ namespace Singularity {
             return best;
         }
 
-        private static string[] expand(string[] template, string input, int index, string output, string all_output) {
-            string[] argv = {};
-            foreach (string part in template) {
-                argv += part.replace("%i", input).replace("%n", index.to_string())
-                    .replace("%o", output).replace("%a", all_output);
-            }
-            return argv;
-        }
-
-        private static bool template_uses(string[] template, string token) {
-            foreach (string part in template) if (part.contains(token)) return true;
-            return false;
-        }
-
-        public static string[] decode_frames(string source, int count, string dir, string[]? decoder_override) throws Error {
-            string[] template = decoder_override ?? decoder_command();
-            if (template.length == 0)
+        public static string[] decode_frames(string source, int count, string dir, FrameDecoder? decoder) throws Error {
+            if (decoder != null) return decoder(source, count, dir);
+            if (!heic_available())
                 throw new IOError.NOT_SUPPORTED(_("No HEIC decoder is available on this system"));
-            string[] frames = {};
-            if (template_uses(template, "%n")) {
-                for (int i = 0; i < count; i++) {
-                    string out_path = Path.build_filename(dir, "frame-%02d.png".printf(i));
-                    run(expand(template, source, i, out_path, ""));
-                    if (!FileUtils.test(out_path, FileTest.EXISTS))
-                        throw new IOError.FAILED(_("The HEIC decoder did not produce frame %d").printf(i));
-                    frames += out_path;
-                }
-                return frames;
-            }
-            string all_out = Path.build_filename(dir, "frame.png");
-            run(expand(template, source, 0, all_out, all_out));
-            for (int i = 0; i < count; i++) {
-                string numbered = Path.build_filename(dir, "frame-%d.png".printf(i + 1));
-                string target = Path.build_filename(dir, "frame-%02d.png".printf(i));
-                if (FileUtils.test(numbered, FileTest.EXISTS)) FileUtils.rename(numbered, target);
-                else if (i == 0 && FileUtils.test(all_out, FileTest.EXISTS)) FileUtils.rename(all_out, target);
-                if (!FileUtils.test(target, FileTest.EXISTS))
-                    throw new IOError.FAILED(_("The HEIC decoder did not produce frame %d").printf(i));
-                frames += target;
-            }
-            return frames;
+            return heic_decode_frames(source, count, dir);
         }
 
-        private static void run(string[] argv) throws Error {
-            string std_err;
-            int status;
-            Process.spawn_sync(null, argv, null, SpawnFlags.SEARCH_PATH | SpawnFlags.STDOUT_TO_DEV_NULL,
-                null, null, out std_err, out status);
-            Process.check_wait_status(status);
-        }
-
-        public static string import_heic(string source, string[]? decoder_override = null) throws Error {
+        public static string import_heic(string source, FrameDecoder? decoder_override = null) throws Error {
             var mapped = new MappedFile(source, false);
             unowned uint8[] bytes = (uint8[]) mapped.get_contents();
             bytes.length = (int) mapped.get_length();
