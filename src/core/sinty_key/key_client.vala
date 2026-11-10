@@ -193,6 +193,19 @@ namespace Singularity.SintyKey {
             return list;
         }
 
+        public async string[] startup_sync(string device) throws KeyError {
+            var v = yield call("StartupSync", new Variant("(s)", device), "(sss)");
+            return { v.get_child_value(0).get_string(), v.get_child_value(1).get_string(), v.get_child_value(2).get_string() };
+        }
+
+        public async void update_startup_key(string device) throws KeyError {
+            yield call("UpdateStartupKey", new Variant("(s)", device), "()", 7200000);
+        }
+
+        public async void update_from_startup_key(string device) throws KeyError {
+            yield call("UpdateFromStartupKey", new Variant("(s)", device), "()", 7200000);
+        }
+
         public async bool badge_allowed() throws KeyError {
             try {
                 var bus = yield Bus.get(BusType.SYSTEM);

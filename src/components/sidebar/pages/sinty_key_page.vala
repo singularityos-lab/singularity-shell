@@ -110,15 +110,54 @@ namespace Singularity.SidebarPages {
                     drives_group.add_row(row);
                     continue;
                 }
-                var row = d.startup
-                    ? key_row(d.name, "%s, %s".printf(_("Startup Key"), size), "sinty-key-startup")
-                    : key_row(d.name, "%s, %s".printf(_("Not a Sinty Key"), size), "drive-removable-media");
+                if (d.startup) {
+                    var startup = key_row(d.name, "%s, %s".printf(_("Startup Key"), size), "sinty-key-startup");
+                    drives_group.add_row(startup);
+                    offer_sync.begin(d.device, startup);
+                    continue;
+                }
+                var row = key_row(d.name, "%s, %s".printf(_("Not a Sinty Key"), size), "drive-removable-media");
                 var make = row_button(_("Make a Key…"), false);
                 var drive = d;
                 make.clicked.connect(() => open_create(drive));
                 row.add_suffix(make);
                 drives_group.add_row(row);
             }
+        }
+
+        private async void offer_sync(string device, ActionRow row) {
+            string[] st;
+            try {
+                st = yield Client.get_default().startup_sync(device);
+            } catch (KeyError e) {
+                return;
+            }
+            if (st[0] == "") return;
+            bool key = st[0] == "key";
+            row.subtitle = key ? _("Runs %s, this computer runs %s").printf(st[1], st[2])
+                               : _("Runs %s, newer than %s on this computer").printf(st[1], st[2]);
+            var update = row_button(key ? _("Update Key") : _("Update This Computer"), true);
+            update.clicked.connect(() => run_sync.begin(device, key, row, update));
+            row.add_suffix(update);
+        }
+
+        private async void run_sync(string device, bool key, ActionRow row, Button update) {
+            update.sensitive = false;
+            row.subtitle = key ? _("Updating the Key…") : _("Updating this computer from the Key…");
+            ulong id = Client.get_default().progress.connect((dev, pct) => {
+                if (dev == device) row.subtitle = _("Updating… %u%%").printf(pct);
+            });
+            try {
+                if (key) yield Client.get_default().update_startup_key(device);
+                else yield Client.get_default().update_from_startup_key(device);
+                row.subtitle = key ? _("Updated. The Key starts the new version the next time it starts a computer.")
+                                   : _("Updated. Restart this computer to start the new version.");
+                update.visible = false;
+            } catch (KeyError e) {
+                row.subtitle = e.message;
+                update.sensitive = true;
+            }
+            Client.get_default().disconnect(id);
         }
 
         private async void refresh_badge() {
