@@ -34,12 +34,12 @@ namespace Singularity {
 
         // name, SPDX license, version probe.
         // probe: "gtk"|"glib"|"pango"|"cairo"|"json" | "wlroots" |
-        //        "bin:<argv...>" | "lib:<soname-prefix>" | "fn:<soname>:<prefix>" | "var:<soname>:<symbol>"
+        //        "labwc" | "elf3:<program>" | "elf2:<program>" | "lib:<soname-prefix>" | "fn:<soname>:<prefix>" | "var:<soname>:<symbol>"
         private const string[,] LIST = {
-            { "labwc",              "GPL-2.0-only",        "bin:labwc --version" },
+            { "labwc",              "GPL-2.0-only",        "labwc" },
             { "wlroots",            "MIT",                 "wlroots" },
             { "Wayland",            "MIT",                 "lib:libwayland-server.so" },
-            { "Xwayland",           "MIT",                 "bin:Xwayland -version" },
+            { "Xwayland",           "MIT",                 "elf3:Xwayland" },
             { "Vulkan loader",      "Apache-2.0",          "lib:libvulkan.so" },
             { "libinput",           "MIT",                 "lib:libinput.so" },
             { "libxkbcommon",       "MIT",                 "lib:libxkbcommon.so" },
@@ -58,18 +58,18 @@ namespace Singularity {
             { "json-glib",          "LGPL-2.1-or-later",   "json" },
             { "libgee",             "LGPL-2.1-or-later",   "lib:libgee-0.8.so" },
             { "libsoup",            "LGPL-2.0-or-later",   "fn:libsoup-3.0.so.0:soup_get_" },
-            { "D-Bus",              "AFL-2.1 OR GPL-2.0+", "bin:dbus-daemon --version" },
-            { "PipeWire",           "MIT",                 "bin:pipewire --version" },
-            { "WirePlumber",        "MIT",                 "bin:wireplumber --version" },
-            { "xdg-desktop-portal", "LGPL-2.1-or-later",   "bin:/usr/libexec/xdg-desktop-portal --version" },
-            { "polkit",             "LGPL-2.0-or-later",   "bin:pkaction --version" },
-            { "NetworkManager",     "GPL-2.0-or-later",    "bin:NetworkManager --version" },
-            { "BlueZ",              "GPL-2.0-or-later",    "bin:bluetoothctl --version" },
+            { "D-Bus",              "AFL-2.1 OR GPL-2.0+", "elf3:dbus-daemon" },
+            { "PipeWire",           "MIT",                 "elf3:pipewire" },
+            { "WirePlumber",        "MIT",                 "elf3:wireplumber" },
+            { "xdg-desktop-portal", "LGPL-2.1-or-later",   "elf3:/usr/libexec/xdg-desktop-portal" },
+            { "polkit",             "LGPL-2.0-or-later",   "elf3:pkaction" },
+            { "NetworkManager",     "GPL-2.0-or-later",    "elf3:NetworkManager" },
+            { "BlueZ",              "GPL-2.0-or-later",    "elf2:bluetoothctl" },
         };
 
         public static Component[] collect() {
             var list = new GenericArray<Component?>();
-            string labwc_raw = run({ "labwc", "--version" }) ?? "";
+            string labwc_raw = labwc_description();
             for (int i = 0; i < LIST.length[0]; i++) {
                 string name = LIST[i, 0];
                 var caps = caps_for(name, labwc_raw);
@@ -219,9 +219,11 @@ namespace Singularity {
                 } catch (RegexError e) {}
                 return "unknown";
             }
-            if (probe.has_prefix("bin:")) {
-                string? raw = run(probe.substring(4).split(" "));
-                return (raw != null) ? extract_version(raw) : "Not installed";
+            if (probe == "labwc") return labwc_raw != "" ? "Installed" : "Not installed";
+            if (probe.has_prefix("elf3:") || probe.has_prefix("elf2:")) {
+                uint8[]? data = read_program(probe.substring(5));
+                if (data == null) return "Not installed";
+                return embedded_version(data, probe.has_prefix("elf2:")) ?? "Installed";
             }
             if (probe.has_prefix("lib:")) return lib_version(probe.substring(4));
             if (probe.has_prefix("fn:")) return fn_version(probe.substring(3));
@@ -265,17 +267,87 @@ namespace Singularity {
             return self != null && self.symbol("sit_widget_set_visual_transform", out sym) && sym != null;
         }
 
-        private static string? run(string[] argv) {
+        private static uint8[]? read_program(string name) {
+            string? path = Path.is_absolute(name) ? name : Environment.find_program_in_path(name);
+            if (path == null || !FileUtils.test(path, FileTest.IS_REGULAR)) return null;
             try {
-                string out_s, err_s;
-                int status;
-                Process.spawn_sync(null, argv, null, SpawnFlags.SEARCH_PATH,
-                    null, out out_s, out err_s, out status);
-                string combined = (out_s ?? "") + (err_s ?? "");
-                return (combined.strip() == "") ? null : combined;
-            } catch (SpawnError e) {
+                uint8[] data;
+                FileUtils.get_data(path, out data);
+                return data;
+            } catch (FileError e) {
                 return null;
             }
+        }
+
+        internal static GenericArray<string> literals(uint8[] data) {
+            var out_list = new GenericArray<string>();
+            int start = 0;
+            for (int i = 0; i <= data.length; i++) {
+                bool end = i == data.length || data[i] == 0;
+                if (!end && data[i] >= 0x20 && data[i] < 0x7f) continue;
+                if (end && i - start >= 3) {
+                    var b = new StringBuilder.sized(i - start);
+                    for (int j = start; j < i; j++) b.append_c((char) data[j]);
+                    out_list.add(b.str);
+                }
+                start = i + 1;
+            }
+            return out_list;
+        }
+
+        internal static string? embedded_version(uint8[] data, bool two_parts) {
+            string? two = null;
+            int twos = 0;
+            var all = literals(data);
+            foreach (string lit in all.data) {
+                string[] parts = lit.split(".");
+                if (parts.length < 2 || parts.length > 3) continue;
+                bool digits = true;
+                foreach (string p in parts) {
+                    if (p == "" || p.length > 4) { digits = false; break; }
+                    for (int k = 0; k < p.length; k++) if (!p[k].isdigit()) { digits = false; break; }
+                }
+                if (!digits) continue;
+                if (parts.length == 3) return lit;
+                two = lit;
+                twos++;
+            }
+            return two_parts && twos == 1 ? two : null;
+        }
+
+        internal static string labwc_features(GenericArray<string> lits, bool translations) {
+            bool xcb = false;
+            bool rsvg = false;
+            bool sfdo = false;
+            string wlroots = "";
+            foreach (string lit in lits.data) {
+                if (lit.has_prefix("libxcb") && lit.contains(".so")) xcb = true;
+                else if (lit.has_prefix("librsvg-") && lit.contains(".so")) rsvg = true;
+                else if (lit.has_prefix("libsfdo") && lit.contains(".so")) sfdo = true;
+                else if (lit.has_prefix("libwlroots-") && lit.contains(".so")) wlroots = lit.substring(11, lit.index_of(".so") - 11);
+            }
+            var b = new StringBuilder("labwc (");
+            b.append(xcb ? "+xwayland" : "-xwayland");
+            b.append(translations ? " +nls" : " -nls");
+            b.append(rsvg ? " +rsvg" : " -rsvg");
+            b.append(sfdo ? " +libsfdo" : " -libsfdo");
+            b.append(")");
+            if (wlroots != "") b.append(" wlroots-" + wlroots);
+            return b.str;
+        }
+
+        private static string labwc_description() {
+            uint8[]? data = read_program("labwc");
+            if (data == null) return "";
+            bool translations = false;
+            try {
+                var d = Dir.open("/usr/share/locale");
+                string? n;
+                while ((n = d.read_name()) != null && !translations) {
+                    translations = FileUtils.test(Path.build_filename("/usr/share/locale", n, "LC_MESSAGES", "labwc.mo"), FileTest.EXISTS);
+                }
+            } catch (FileError e) {}
+            return labwc_features(literals(data), translations);
         }
 
         private static string lib_version(string prefix) {
@@ -295,22 +367,6 @@ namespace Singularity {
                 return "Installed";
             }
             return "Not installed";
-        }
-
-        private static string extract_version(string blob) {
-            try {
-                var re = new Regex("[0-9]+\\.[0-9]+(\\.[0-9]+)?([0-9A-Za-z._-]*)?");
-                MatchInfo mi;
-                if (re.match(blob, 0, out mi)) {
-                    string m = mi.fetch(0);
-                    if (m != null && m != "") return m;
-                }
-            } catch (RegexError e) {}
-            foreach (string line in blob.split("\n")) {
-                string t = line.strip();
-                if (t != "") return t;
-            }
-            return "unknown";
         }
 
         public static string to_markdown(Component[] comps) {

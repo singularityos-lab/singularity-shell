@@ -118,30 +118,14 @@ namespace Singularity {
         }
 
         public void copy_to_clipboard(string file_path) {
-            // wl-copy stays alive as clipboard owner so communicate_async would hang.
-            // Use synchronous write_all + close: write PNG data to stdin, send EOF, then return.
-            // wl-copy reads the data and stays alive to serve clipboard requests independently.
-            message("[Screenshot] copy_to_clipboard: %s", file_path);
             try {
                 uint8[] data;
                 GLib.FileUtils.get_data(file_path, out data);
-                message("[Screenshot] PNG size: %zu bytes, spawning wl-copy", data.length);
-                var proc = new GLib.Subprocess.newv(
-                    {"wl-copy", "--type", "image/png"},
-                    GLib.SubprocessFlags.STDIN_PIPE |
-                    GLib.SubprocessFlags.STDOUT_SILENCE |
-                    GLib.SubprocessFlags.STDERR_SILENCE
-                );
-                var stream = proc.get_stdin_pipe();
-                size_t written;
-                stream.write_all(data, out written, null);
-                stream.close(null);
-                message("[Screenshot] wl-copy stdin closed, wrote %zu bytes", written);
+                SystemClipboard.set_bytes(new Bytes(data), { "image/png" });
                 return;
             } catch (Error e) {
-                warning("[Screenshot] wl-copy failed, falling back to GTK clipboard: %s", e.message);
+                warning("[Screenshot] system clipboard failed, falling back to GTK clipboard: %s", e.message);
             }
-            // Fallback: GTK clipboard
             try {
                 var texture = Gdk.Texture.from_filename(file_path);
                 var display = Gdk.Display.get_default();

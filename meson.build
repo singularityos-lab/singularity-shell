@@ -1192,3 +1192,10 @@ crash_report_test = executable('crash-report-test',
   dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), json_dep],
 )
 test('crash-report', crash_report_test)
+
+system_components_test = executable('system-components-test',
+  sources: ['src/core/system_components.vala', 'src/wayland/wayland_integration.vapi', 'tests/system_components_test.vala', 'tests/wayland_globals_stub.c'],
+  include_directories: include_directories('src/wayland'),
+  dependencies: [dependency('gtk4'), dependency('gmodule-2.0'), json_dep],
+)
+test('system-components', system_components_test)
