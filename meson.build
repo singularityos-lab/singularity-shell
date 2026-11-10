@@ -691,6 +691,7 @@ singularity_core_sources = files(
     'src/core/account_alerts.vala',
     'src/core/fingerprint_manager.vala',
     'src/core/fingerprint_driver.vala',
+    'src/core/system_service.vala',
     'src/components/osk/on_screen_keyboard.vala',
     'src/core/crash/crash_report.vala',
     'src/core/crash/crash_config.vala',
@@ -817,6 +818,20 @@ os_identity_test = executable('os-identity-test',
   dependencies: [dependency('gobject-2.0')],
 )
 test('os-identity', os_identity_test)
+
+system_service_test = executable('system-service-test',
+  sources: ['src/core/system_service.vala', 'src/core/login_screen_sync.vala', 'src/core/fingerprint_driver.vala',
+    'tests/system_service_test.vala'],
+  dependencies: core_deps,
+  c_args: ['-DGETTEXT_PACKAGE="singularity-shell"'],
+)
+test('system-service', system_service_test)
+
+artist_pack_test = executable('artist-pack-test',
+  sources: ['src/core/artist_pack_manager.vala', 'tests/artist_pack_test.vala'],
+  dependencies: core_deps + [dependency('gee-0.8')],
+)
+test('artist-pack', artist_pack_test)
 
 update_indicator_test = executable('update-indicator-test',
   sources: ['src/components/dock/update_indicator.vala', 'tests/update_indicator_test.vala'],
@@ -982,13 +997,6 @@ if get_option('power-helper')
     install_dir: get_option('datadir') / 'polkit-1' / 'actions',
   )
 endif
-
-install_data('data/artist-packs/singularity-artist-pack-inventory',
-  install_dir: '/usr/local/bin', install_mode: 'rwxr-xr-x')
-install_data('data/artist-packs/singularity-artist-pack-install',
-  install_dir: '/usr/local/bin', install_mode: 'rwxr-xr-x')
-install_data('data/artist-packs/dev.sinty.desktop.artist-pack-install.policy',
-  install_dir: get_option('datadir') / 'polkit-1' / 'actions')
 
 install_data('data/icons/singularity-account-secure-mail.svg',
   install_dir: get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps'

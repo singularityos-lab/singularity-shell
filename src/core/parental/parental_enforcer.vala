@@ -22,7 +22,7 @@ namespace Singularity {
 
         private ParentalEnforcer() {
             var config = Parental.Config.get_default();
-            store = new Parental.FilePolicyStore(config.policy_directory, config.write_command);
+            store = new Parental.FilePolicyStore(config.policy_directory, "");
             _policy = store.load(Environment.get_user_name());
             policy_data = _policy.to_data();
         }

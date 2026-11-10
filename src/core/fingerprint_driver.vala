@@ -1,12 +1,8 @@
 namespace Singularity {
 
     public class FingerprintDriver : Object {
-        private const string[] PKEXEC_PATHS = { "/usr/bin/pkexec", "/bin/pkexec" };
-        private const string[] HELPER_PATHS = {
-            "/opt/local/libexec/singularity-fprint-driver",
-            "/usr/local/libexec/singularity-fprint-driver",
-            "/usr/libexec/singularity-fprint-driver",
-        };
+        public const string SERVICE = "dev.sinty.FingerprintDriver1";
+        private const string SERVICE_PATH = "/dev/sinty/FingerprintDriver1";
 
         public string id { get; private set; default = ""; }
         public string vendor { get; private set; default = ""; }
@@ -17,13 +13,6 @@ namespace Singularity {
         public string url { get; private set; default = ""; }
         public int64 size { get; private set; default = 0; }
         public bool installed { get; private set; default = false; }
-
-        private static string? first_existing(string[] paths) {
-            foreach (string path in paths) {
-                if (FileUtils.test(path, FileTest.IS_EXECUTABLE)) return path;
-            }
-            return null;
-        }
 
         public string host {
             owned get {
@@ -37,20 +26,16 @@ namespace Singularity {
         }
 
         public static async FingerprintDriver? find(string sensor) {
-            string? helper = first_existing(HELPER_PATHS);
-            if (helper == null) return null;
+            if (!SystemService.activatable(SERVICE)) return null;
             try {
-                var process = new Subprocess.newv({ helper, "info", sensor },
-                    SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_SILENCE);
-                string? output;
-                yield process.communicate_utf8_async(null, null, out output, null);
-                if (!process.get_successful() || output == null) return null;
+                var bus = yield Bus.get(BusType.SYSTEM);
+                var reply = yield bus.call(SERVICE, SERVICE_PATH, SERVICE, "Info", new Variant("(s)", sensor),
+                    new VariantType("(a{ss})"), DBusCallFlags.NONE, 10000, null);
                 var driver = new FingerprintDriver();
-                foreach (string line in output.split("\n")) {
-                    int eq = line.index_of("=");
-                    if (eq <= 0) continue;
-                    string key = line.substring(0, eq);
-                    string value = line.substring(eq + 1);
+                var iter = reply.get_child_value(0).iterator();
+                string key;
+                string value;
+                while (iter.next("{ss}", out key, out value)) {
                     switch (key) {
                         case "id": driver.id = value; break;
                         case "vendor": driver.vendor = value; break;
@@ -69,37 +54,24 @@ namespace Singularity {
             }
         }
 
-        private async void run(string mode) throws Error {
-            string? pkexec = first_existing(PKEXEC_PATHS);
-            string? helper = first_existing(HELPER_PATHS);
-            if (pkexec == null || helper == null) {
-                throw new IOError.NOT_FOUND(_("The driver installer is not available"));
+        private async void run(string method) throws Error {
+            try {
+                yield SystemService.call(SERVICE, SERVICE_PATH, method, new Variant("(s)", id),
+                    _("The driver installer is not available"));
+            } catch (IOError.PERMISSION_DENIED e) {
+                throw new IOError.CANCELLED(e.message);
+            } catch (IOError.FAILED e) {
+                throw new IOError.FAILED(e.message != "" ? e.message : method == "Install" ? _("The driver could not be installed") : _("The driver could not be removed"));
             }
-            var process = new Subprocess.newv({ pkexec, helper, mode, id },
-                SubprocessFlags.STDOUT_SILENCE | SubprocessFlags.STDERR_PIPE);
-            string? errors;
-            yield process.communicate_utf8_async(null, null, null, out errors);
-            if (process.get_if_exited() && process.get_exit_status() == 126) {
-                throw new IOError.CANCELLED(_("The change was not authorized"));
-            }
-            if (!process.get_successful()) {
-                string reason = "";
-                if (errors != null) {
-                    foreach (string line in errors.strip().split("\n")) {
-                        if (line.has_prefix("singularity-fprint-driver: ")) reason = line.substring(27);
-                    }
-                }
-                throw new IOError.FAILED(reason != "" ? reason : mode == "install" ? _("The driver could not be installed") : _("The driver could not be removed"));
-            }
-            installed = mode == "install";
+            installed = method == "Install";
         }
 
         public async void install() throws Error {
-            yield run("install");
+            yield run("Install");
         }
 
         public async void uninstall() throws Error {
-            yield run("uninstall");
+            yield run("Uninstall");
         }
     }
 }

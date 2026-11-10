@@ -1,27 +1,16 @@
 namespace Singularity {
 
     public class LoginScreenSync : Object {
-        private const string[] PKEXEC_PATHS = { "/usr/bin/pkexec", "/bin/pkexec" };
-        private const string[] HELPER_PATHS = {
-            "/opt/local/libexec/singularity-login-screen",
-            "/usr/local/libexec/singularity-login-screen",
-            "/usr/libexec/singularity-login-screen",
-        };
+        public const string SERVICE = "dev.sinty.LoginScreen1";
+        private const string SERVICE_PATH = "/dev/sinty/LoginScreen1";
 
         public bool displays { get; set; default = true; }
         public bool keyboard { get; set; default = true; }
         public bool pointer { get; set; default = true; }
         public bool cursor { get; set; default = true; }
 
-        private static string? first_existing(string[] paths) {
-            foreach (string path in paths) {
-                if (FileUtils.test(path, FileTest.IS_EXECUTABLE)) return path;
-            }
-            return null;
-        }
-
         public static bool available() {
-            return first_existing(PKEXEC_PATHS) != null && first_existing(HELPER_PATHS) != null;
+            return SystemService.activatable(SERVICE);
         }
 
         private static string labwc_file(string name) {
@@ -73,42 +62,12 @@ namespace Singularity {
             return payload.str;
         }
 
-        private async void run(string mode, string? input) throws Error {
-            string? pkexec = first_existing(PKEXEC_PATHS);
-            string? helper = first_existing(HELPER_PATHS);
-            if (pkexec == null || helper == null) {
-                throw new IOError.NOT_FOUND(_("The login screen helper is not installed"));
-            }
-            var process = new Subprocess.newv({ pkexec, helper, mode },
-                SubprocessFlags.STDIN_PIPE | SubprocessFlags.STDERR_PIPE);
-            string? errors;
-            yield process.communicate_utf8_async(input ?? "", null, null, out errors);
-            if (!process.get_successful()) {
-                string reason = errors != null ? errors.strip() : "";
-                throw new IOError.FAILED(reason != "" ? reason : _("The change was not authorized"));
-            }
+        private async void run(string method, Variant? parameters) throws Error {
+            yield SystemService.call(SERVICE, SERVICE_PATH, method, parameters,
+                _("The login screen service is not installed"));
         }
 
         private const string BACKGROUND_DIR = "/var/lib/singularity/login-screen";
-
-        private async void run_bytes(string mode, Bytes input) throws Error {
-            string? pkexec = first_existing(PKEXEC_PATHS);
-            string? helper = first_existing(HELPER_PATHS);
-            if (pkexec == null || helper == null) {
-                throw new IOError.NOT_FOUND(_("The login screen helper is not installed"));
-            }
-            var process = new Subprocess.newv({ pkexec, helper, mode },
-                SubprocessFlags.STDIN_PIPE | SubprocessFlags.STDERR_PIPE);
-            Bytes? errors;
-            yield process.communicate_async(input, null, null, out errors);
-            if (!process.get_successful()) {
-                string reason = errors != null ? ((string) errors.get_data()).strip() : "";
-                int newline = reason.index_of("\n");
-                if (newline > 0) reason = reason.substring(0, newline);
-                reason = reason.replace("singularity-login-screen: ", "");
-                throw new IOError.FAILED(reason != "" ? reason : _("The change was not authorized"));
-            }
-        }
 
         public static string? background_image() {
             string path = Path.build_filename(BACKGROUND_DIR, "background");
@@ -122,23 +81,23 @@ namespace Singularity {
 
         public async void set_background_image(File image) throws Error {
             var bytes = yield image.load_bytes_async(null, null);
-            yield run_bytes("background-image", bytes);
+            yield run("SetBackgroundImage", new Variant.tuple({ new Variant.from_bytes(VariantType.BYTESTRING, bytes, true) }));
         }
 
         public async void set_background_color(string hex) throws Error {
-            yield run("background-color", hex);
+            yield run("SetBackgroundColor", new Variant("(s)", hex));
         }
 
         public async void reset_background() throws Error {
-            yield run("background-reset", null);
+            yield run("ResetBackground", null);
         }
 
         public async void apply() throws Error {
-            yield run("apply", build_payload());
+            yield run("Apply", new Variant("(s)", build_payload()));
         }
 
         public async void reset() throws Error {
-            yield run("reset", null);
+            yield run("Reset", null);
         }
     }
 }
