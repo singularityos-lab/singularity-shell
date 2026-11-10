@@ -113,6 +113,24 @@ void test_coredumpctl() {
     assert(reports[0].source == SourceKind.COREDUMPCTL);
     assert(reports[0].core_path == "coredumpctl:10");
     assert(SourceSelection.parse_coredumpctl_json("garbage", 1000, 0).length == 0);
+    var named = SourceSelection.parse_coredump_name("core.my\\x2dapp.v2.1000.0123456789abcdef0123456789abcdef.4242.1790000000123456.zst", 1000, 1780000000000000);
+    assert(named != null);
+    assert(named.pid == 4242);
+    assert(named.uid == 1000);
+    assert(named.timestamp == 1790000000);
+    assert(named.executable == "my-app.v2");
+    assert(named.source == SourceKind.COREDUMPCTL);
+    assert(SourceSelection.parse_coredump_name("core.app.0.0123456789abcdef0123456789abcdef.1.1790000000123456", 1000, 0) == null);
+    assert(SourceSelection.parse_coredump_name("core.app.1000.0123456789abcdef0123456789abcdef.1.1700000000000000", 1000, 1780000000000000) == null);
+    assert(SourceSelection.parse_coredump_name("core.app.1000.short.1.1790000000123456", 1000, 0) == null);
+    assert(SourceSelection.parse_coredump_name("notes.txt", 1000, 0) == null);
+    var messages = new GenericArray<string>();
+    messages.add("Process 99 (other) of user 1000 dumped core.\n\nStack trace of thread 99:\n#0  0x1 other (other)\n");
+    messages.add("Process 4242 (my-app) of user 1000 dumped core.\n\nModule libc.so.6\nStack trace of thread 4242:\n#0  0x0000 raise (libc.so.6 + 0x1)\n#1  0x0001 main (my-app + 0x2)\n");
+    string journal_stack = SourceSelection.stack_from_journal(messages, 4242);
+    assert(journal_stack.has_prefix("Stack trace of thread 4242:"));
+    assert(journal_stack.contains("  #1  0x0001 main"));
+    assert(SourceSelection.stack_from_journal(messages, 7) == "");
     assert(SourceSelection.parse_coredumpctl_json("{}", 1000, 0).length == 0);
 }
 

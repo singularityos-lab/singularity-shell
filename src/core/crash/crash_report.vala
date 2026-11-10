@@ -393,6 +393,51 @@ namespace Singularity.Crash {
             return core_pattern.has_prefix("|") && core_pattern.contains("systemd-coredump");
         }
 
+        public static Report? parse_coredump_name(string name, int uid, int64 since_usec) {
+            if (!name.has_prefix("core.")) return null;
+            string[] parts = name.substring(5).split(".");
+            int n = parts.length;
+            if (n > 0 && (parts[n - 1] == "zst" || parts[n - 1] == "xz" || parts[n - 1] == "lz4")) n--;
+            if (n < 5) return null;
+            int64 usec = 0;
+            int64 pid = 0;
+            int64 owner = 0;
+            if (!int64.try_parse(parts[n - 1], out usec) || !int64.try_parse(parts[n - 2], out pid)
+                || parts[n - 3].length != 32 || !int64.try_parse(parts[n - 4], out owner)) return null;
+            if (usec <= since_usec || pid <= 0) return null;
+            if (uid >= 0 && owner != uid) return null;
+            var report = new Report();
+            report.source = SourceKind.COREDUMPCTL;
+            report.timestamp = usec / 1000000;
+            report.pid = (int) pid;
+            report.uid = (int) owner;
+            report.executable = unescape_comm(string.joinv(".", parts[0:n - 4]));
+            return report;
+        }
+
+        private static string unescape_comm(string comm) {
+            if (!comm.contains("\\x")) return comm;
+            var b = new StringBuilder();
+            for (int i = 0; i < comm.length; i++) {
+                if (comm[i] == '\\' && i + 3 < comm.length && comm[i + 1] == 'x'
+                    && comm[i + 2].isxdigit() && comm[i + 3].isxdigit()) {
+                    b.append_c((char) (comm[i + 2].xdigit_value() * 16 + comm[i + 3].xdigit_value()));
+                    i += 3;
+                } else {
+                    b.append_c(comm[i]);
+                }
+            }
+            return b.str;
+        }
+
+        public static string stack_from_journal(GenericArray<string> messages, int pid) {
+            string head = "Process %d (".printf(pid);
+            for (int i = (int) messages.length - 1; i >= 0; i--) {
+                if (messages[i].has_prefix(head)) return Report.extract_coredumpctl_stack(messages[i]);
+            }
+            return "";
+        }
+
         public static Report[] parse_coredumpctl_json(string json, int uid, int64 since_usec) {
             Report[] result = {};
             var parser = new Json.Parser();

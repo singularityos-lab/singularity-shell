@@ -37,14 +37,21 @@ namespace Singularity.Crash {
         }
 
         private static async void fill_from_coredumpctl(Report report, Config config) {
-            string? info = yield Tools.run({ "coredumpctl", "--no-pager", "info", report.pid.to_string() },
-                                           config.backtrace_timeout);
-            if (info != null) {
-                string stack = Report.extract_coredumpctl_stack(info);
+            var journal = new SystemJournal();
+            if (!journal.available()) return;
+            try {
+                var entries = yield journal.query(null, 2, null, 200);
+                var messages = new GenericArray<string>();
+                foreach (var e in entries.data) {
+                    if (e.identifier == "systemd-coredump") messages.add(e.message);
+                }
+                string stack = SourceSelection.stack_from_journal(messages, report.pid);
                 if (stack != "") {
                     report.backtrace = Report.trim_backtrace(stack);
-                    report.backtrace_tool = "coredumpctl";
+                    report.backtrace_tool = "systemd-coredump";
                 }
+            } catch (Error e) {
+                debug("Crash: journal: %s", e.message);
             }
         }
     }

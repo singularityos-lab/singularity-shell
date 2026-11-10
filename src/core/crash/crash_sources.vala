@@ -138,7 +138,7 @@ namespace Singularity.Crash {
         }
 
         public static bool available() {
-            return Environment.find_program_in_path("coredumpctl") != null;
+            return FileUtils.test(storage_dir(), FileTest.IS_DIR);
         }
 
         private static string storage_dir() {
@@ -183,13 +183,30 @@ namespace Singularity.Crash {
         private async void query() {
             if (querying) return;
             querying = true;
-            string since = "@%lld".printf(since_usec / 1000000);
-            string? output = yield Tools.run({ "coredumpctl", "--json=short", "--no-pager", "--no-legend",
-                                               "list", "--since=" + since }, 15);
+            var found = new GenericArray<Report>();
+            var dir = File.new_for_path(storage_dir());
+            try {
+                var e = yield dir.enumerate_children_async("standard::name,xattr::coredump.signal,xattr::coredump.exe",
+                                                          FileQueryInfoFlags.NOFOLLOW_SYMLINKS, Priority.LOW, null);
+                List<FileInfo> infos;
+                while ((infos = yield e.next_files_async(64, Priority.LOW, null)) != null) {
+                    foreach (var info in infos) {
+                        var report = SourceSelection.parse_coredump_name(info.get_name(), current_uid(), since_usec);
+                        if (report == null) continue;
+                        string? sig = info.get_attribute_string("xattr::coredump.signal");
+                        string? exe = info.get_attribute_string("xattr::coredump.exe");
+                        if (sig != null) report.signal_number = int.parse(sig);
+                        if (exe != null && exe != "") report.executable = exe;
+                        report.core_path = dir.get_child(info.get_name()).get_path();
+                        found.add(report);
+                    }
+                }
+            } catch (Error e) {
+                debug("Crash: cannot list %s: %s", dir.get_path(), e.message);
+            }
             querying = false;
-            if (output == null || output.strip() == "") return;
-            var reports = SourceSelection.parse_coredumpctl_json(output, current_uid(), since_usec);
-            foreach (var report in reports) {
+            found.sort((a, b) => a.timestamp < b.timestamp ? -1 : (a.timestamp > b.timestamp ? 1 : 0));
+            foreach (var report in found.data) {
                 if (report.timestamp * 1000000 > since_usec) since_usec = report.timestamp * 1000000;
                 crashed(report);
             }
