@@ -540,6 +540,7 @@ singularity_core_sources = files(
     'src/components/sidebar/pages/system_page.vala',
     'src/components/sidebar/pages/boot_chain_group.vala',
     'src/components/sidebar/pages/users_page.vala',
+    'src/components/sidebar/pages/pin_security_keys_page.vala',
     'src/components/sidebar/pages/parental_controls_page.vala',
     'src/components/sidebar/pages/parental_subpages.vala',
     'src/components/sidebar/pages/screen_time_page.vala',

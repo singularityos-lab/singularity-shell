@@ -617,6 +617,16 @@ namespace Singularity.SidebarPages {
                 view.open_subpage(page, "change-pin-%s".printf(user.uid.to_string()));
             });
             sec_group.add_row(pin_row);
+            if (self_account && PinKeys.available()) {
+                var keys_row = new ActionRow(_("Security Keys"),
+                    _("Ask for a FIDO2 security key together with the PIN"), "security-high-symbolic");
+                keys_row.activatable = true;
+                string back = "user-detail-%s".printf(user.uid.to_string());
+                keys_row.activated.connect(() => {
+                    view.open_subpage(new PinSecurityKeysPage(view, back), "pin-keys-%s".printf(user.uid.to_string()));
+                });
+                sec_group.add_row(keys_row);
+            }
             add_group(sec_group);
 
             if (admin_unlocked && !self_account && user.account_type == 0) {

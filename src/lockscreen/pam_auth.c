@@ -18,6 +18,14 @@ static char *pam_password = NULL;
  * VERIFY the PIN: ask the root sinty-recoverd daemon over its socket (verify
  * action, SO_PEERCRED-gated to our own uid, rate-limited). Returns 0 on OK,
  * 1 on FAIL/BLOCKED, -1 if the socket is unreachable (fall back to PAM). */
+int
+singularity_pam_needs_touch(void)
+{
+    char path[64];
+    snprintf(path, sizeof path, "/run/sinty-key/%u.security-keys", (unsigned)getuid());
+    return access(path, F_OK) == 0;
+}
+
 static int
 daemon_verify(const char *pin)
 {
@@ -27,7 +35,7 @@ daemon_verify(const char *pin)
     /* bound the round-trip so a hung/slow daemon cannot freeze the unlock thread
      * ("Authenticating..." forever); a timeout reads as FAIL (closed) and the user
      * can retry. */
-    struct timeval tv = { .tv_sec = 4, .tv_usec = 0 };
+    struct timeval tv = { .tv_sec = singularity_pam_needs_touch() ? 40 : 4, .tv_usec = 0 };
     setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
     setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
     struct sockaddr_un a;

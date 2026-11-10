@@ -585,7 +585,8 @@ static bool retry_wait_text(char *out, size_t n) {
 static void submit_password(void) {
     if (password_len == 0) return;
     password[password_len] = '\0';
-    snprintf(status_text, sizeof status_text, "%s", "Authenticating…");
+    snprintf(status_text, sizeof status_text, "%s",
+             singularity_pam_needs_touch() ? "Touch your security key…" : "Authenticating…");
     status_error = false;
     render_all();
     wl_display_flush(display);
@@ -603,6 +604,8 @@ static void submit_password(void) {
         if (!retry_wait_text(status_text, sizeof status_text))
             snprintf(status_text, sizeof status_text, "%s",
                      (access("/run/sinty-recoverd.sock", F_OK) != 0) ? "Incorrect password"
+                     : singularity_pam_needs_touch() ? (secret_is_pin() ? "Incorrect PIN, or the security key was not touched"
+                                                                        : "Incorrect passphrase, or the security key was not touched")
                      : secret_is_pin() ? "Incorrect PIN" : "Incorrect passphrase");
         status_error = true;
         render_all();
