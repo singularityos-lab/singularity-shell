@@ -30,6 +30,7 @@ namespace Singularity.SintyKey {
                 return;
             }
             take(false);
+            if (Posix.getuid() == Client.BADGE_UID) follow_badge();
             proxy.g_properties_changed.connect((changed, invalidated) => take(true));
             proxy.notify["g-name-owner"].connect(() => take(false));
         }
@@ -62,6 +63,23 @@ namespace Singularity.SintyKey {
             }
             states = now_states;
             owners = now_owners;
+        }
+
+        private void follow_badge() {
+            proxy.g_signal.connect((sender, name, args) => {
+                if (name == "BadgeKeyRemoved") {
+                    post(_("Sinty Key Removed"),
+                        _("Plug the Key back in within two minutes and enter its PIN, or this session closes."), "sinty-key-locked");
+                    SessionManager.get_default().lock_screen();
+                }
+            });
+            SessionManager.get_default().session_ending.connect(() => {
+                try {
+                    proxy.call_sync("EndBadge", null, DBusCallFlags.NONE, 10000);
+                } catch (Error e) {
+                    warning("Sinty Key session: %s", e.message);
+                }
+            });
         }
 
         private void post(string summary, string body, string icon = "sinty-key") {

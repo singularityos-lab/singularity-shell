@@ -9,6 +9,8 @@ namespace Singularity.SidebarPages {
         private PreferencesGroup running_group;
         private PreferencesGroup drives_group;
         private PreferencesGroup trusted_group;
+        private PreferencesGroup badge_group;
+        private bool badge_reverting;
         private StatusPage empty;
         private VolumeMonitor monitor;
 
@@ -37,6 +39,11 @@ namespace Singularity.SidebarPages {
             trusted_group.visible = false;
             add_group(trusted_group);
             refresh_trusted.begin();
+            badge_group = new PreferencesGroup(_("Other Keys"),
+                _("A Sinty Key without an account here can open its own session on this computer. Its files stay on the Key, and nothing is left here when it is removed."));
+            badge_group.visible = false;
+            add_group(badge_group);
+            refresh_badge.begin();
 
             monitor = VolumeMonitor.get();
             monitor.mount_added.connect(() => refresh.begin());
@@ -111,6 +118,33 @@ namespace Singularity.SidebarPages {
                 make.clicked.connect(() => open_create(drive));
                 row.add_suffix(make);
                 drives_group.add_row(row);
+            }
+        }
+
+        private async void refresh_badge() {
+            bool on;
+            try {
+                on = yield Client.get_default().badge_allowed();
+            } catch (KeyError e) {
+                return;
+            }
+            var row = new SwitchRow(_("Open Sessions From Other Keys"), null, on);
+            row.switch_btn.notify["active"].connect(() => set_badge.begin(row));
+            badge_group.add_row(row);
+            badge_group.visible = true;
+        }
+
+        private async void set_badge(SwitchRow row) {
+            if (badge_reverting) return;
+            bool want = row.switch_btn.active;
+            try {
+                yield Client.get_default().set_badge_allowed(want);
+                row.subtitle = "";
+            } catch (KeyError e) {
+                row.subtitle = e.message;
+                badge_reverting = true;
+                row.switch_btn.active = !want;
+                badge_reverting = false;
             }
         }
 

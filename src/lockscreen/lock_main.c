@@ -582,8 +582,54 @@ static bool retry_wait_text(char *out, size_t n) {
     return true;
 }
 
+#define BADGE_UID 61000
+
+static int badge_resume(const char *pin, char *why, size_t n) {
+    GError *err = NULL;
+    GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SYSTEM, NULL, &err);
+    if (!bus) {
+        g_clear_error(&err);
+        snprintf(why, n, "%s", "The Sinty Key service is not running");
+        return -1;
+    }
+    GVariant *r = g_dbus_connection_call_sync(bus, "dev.sinty.Key1", "/dev/sinty/Key1", "dev.sinty.Key1",
+        "ResumeBadge", g_variant_new("(s)", pin), NULL, G_DBUS_CALL_FLAGS_NONE, 60000, NULL, &err);
+    g_object_unref(bus);
+    if (r) {
+        g_variant_unref(r);
+        return 0;
+    }
+    char *name = g_dbus_error_get_remote_error(err);
+    if (name && g_str_has_suffix(name, ".WrongPin")) snprintf(why, n, "%s", "Incorrect PIN");
+    else if (name && g_str_has_suffix(name, ".SecurityKeyRequired")) snprintf(why, n, "%s", "Plug in the security key of the Sinty Key and touch it");
+    else snprintf(why, n, "%s", "Plug the Sinty Key back in, then enter its PIN");
+    g_free(name);
+    g_clear_error(&err);
+    return -1;
+}
+
 static void submit_password(void) {
     if (password_len == 0) return;
+    if (getuid() == BADGE_UID) {
+        password[password_len] = '\0';
+        snprintf(status_text, sizeof status_text, "%s", "Opening the Sinty Key…");
+        status_error = false;
+        render_all();
+        wl_display_flush(display);
+        char why[128];
+        int rc = badge_resume(password, why, sizeof why);
+        memset(password, 0, sizeof password);
+        password_len = 0;
+        if (rc == 0) {
+            begin_leave();
+            return;
+        }
+        if (!motion_reduced) shake_start = now_us();
+        snprintf(status_text, sizeof status_text, "%s", why);
+        status_error = true;
+        render_all();
+        return;
+    }
     password[password_len] = '\0';
     snprintf(status_text, sizeof status_text, "%s",
              singularity_pam_needs_touch() ? "Touch your security key…" : "Authenticating…");

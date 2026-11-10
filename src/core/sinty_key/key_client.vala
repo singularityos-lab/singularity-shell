@@ -74,6 +74,7 @@ namespace Singularity.SintyKey {
     public class Client : Object {
         private const string NAME = "dev.sinty.Key1";
         private const string PATH = "/dev/sinty/Key1";
+        public const uint BADGE_UID = 61000;
 
         private static Client? instance = null;
 
@@ -131,6 +132,8 @@ namespace Singularity.SintyKey {
                 case "dev.sinty.Key1.Error.WrongSecurityKeyPin": return new KeyError.WRONG_SECURITY_KEY_PIN(_("The security key PIN is not correct."));
                 case "dev.sinty.Key1.Error.SecurityKeyPinBlocked": return new KeyError.SECURITY_KEY_PIN_BLOCKED(_("The security key PIN is blocked. Reset the security key with its maker's tool."));
                 case "dev.sinty.Key1.Error.SecurityKeyUnsupported": return new KeyError.SECURITY_KEY_UNSUPPORTED(_("This security key cannot protect a Sinty Key. It needs FIDO2 with hmac-secret."));
+                case "dev.sinty.Key1.Error.Disabled": return new KeyError.NOT_ALLOWED(_("This computer does not open sessions from a Sinty Key."));
+                case "dev.sinty.Key1.Error.Unverified": return new KeyError.NOT_ALLOWED(_("This computer is not running a verified system."));
                 case "dev.sinty.Key1.Error.NoTpm": return new KeyError.NO_TPM(_("This computer has no security chip to remember the Key."));
             }
             return new KeyError.FAILED(e.message);
@@ -188,6 +191,22 @@ namespace Singularity.SintyKey {
                 list.add(d);
             }
             return list;
+        }
+
+        public async bool badge_allowed() throws KeyError {
+            try {
+                var bus = yield Bus.get(BusType.SYSTEM);
+                var v = yield bus.call(NAME, PATH, "org.freedesktop.DBus.Properties", "Get",
+                    new Variant("(ss)", NAME, "BadgeAllowed"), new VariantType("(v)"), DBusCallFlags.NONE, 5000);
+                var inner = v.get_child_value(0).get_variant();
+                return inner.is_of_type(VariantType.BOOLEAN) && inner.get_boolean();
+            } catch (Error e) {
+                throw translate(e);
+            }
+        }
+
+        public async void set_badge_allowed(bool on) throws KeyError {
+            yield call("SetBadgeAllowed", new Variant("(b)", on), "()");
         }
 
         public async void revoke(string kind, string id) throws KeyError {
