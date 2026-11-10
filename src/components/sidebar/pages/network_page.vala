@@ -529,9 +529,7 @@ namespace Singularity {
             var entries = new GenericArray<WifiEntry>();
             var by_ssid = new HashTable<string, WifiEntry>(str_hash, str_equal);
             foreach (var ap in aps) {
-                var ssid_bytes = ap.ssid;
-                if (ssid_bytes == null) continue;
-                string ssid = NM.Utils.ssid_to_utf8(ssid_bytes.get_data());
+                string ssid = ap.ssid;
                 if (ssid == "") continue;
                 var known = by_ssid[ssid];
                 if (known != null) {
@@ -562,7 +560,7 @@ namespace Singularity {
                     row.subtitle = _("Saved");
                 }
                 if (entry.saved) add_network_actions(row, ssid, network_actions);
-                if (ap.rsn_flags != NM.80211ApSecurityFlags.NONE || ap.wpa_flags != NM.80211ApSecurityFlags.NONE) {
+                if (ap.secured) {
                     var lock_icon = new Image.from_icon_name("channel-secure-symbolic");
                     lock_icon.add_css_class("dim-label");
                     lock_icon.tooltip_text = _("Secured");
@@ -586,7 +584,7 @@ namespace Singularity {
                         return;
                     }
                     if (entry.saved && network.activate_saved_wifi(ssid, ap)) return;
-                    bool secured = (ap.rsn_flags != NM.80211ApSecurityFlags.NONE || ap.wpa_flags != NM.80211ApSecurityFlags.NONE);
+                    bool secured = ap.secured;
                     if (secured) {
                         var dialog = new WifiPasswordDialog(ssid);
                         dialog.response.connect((accepted) => {
@@ -606,12 +604,12 @@ namespace Singularity {
         }
 
         private class WifiEntry {
-            public NM.AccessPoint ap;
+            public NmAccessPoint ap;
             public string ssid;
             public bool connected;
             public bool saved;
 
-            public WifiEntry(NM.AccessPoint ap, string ssid) {
+            public WifiEntry(NmAccessPoint ap, string ssid) {
                 this.ap = ap;
                 this.ssid = ssid;
             }
@@ -628,7 +626,7 @@ namespace Singularity {
             return button;
         }
 
-        private void open_detail(NM.RemoteConnection conn, string title, string? iface) {
+        private void open_detail(NmConnection conn, string title, string? iface) {
             settings_view.open_subpage(
                 new ConnectionDetailPage(settings_view, settings_network, conn, title, iface),
                 "connection-detail");
@@ -816,7 +814,7 @@ namespace Singularity {
             }
         }
 
-        private Widget build_nm_vpn_row(NM.RemoteConnection vpn_conn, NetworkManagerWrapper network) {
+        private Widget build_nm_vpn_row(NmConnection vpn_conn, NetworkManagerWrapper network) {
             string name = vpn_conn.get_id();
             var link_state = network.vpn_link_state(vpn_conn);
 

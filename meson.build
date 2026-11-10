@@ -36,7 +36,6 @@ shell_deps = [
   dependency('gtksourceview-5'),
   dependency('wayland-client'),
   meson.get_compiler('c').find_library('xkbcommon'),
-  dependency('libnm', version: '>= 1.0.0'),
   dependency('upower-glib', version: '>= 0.99.0'),
   dependency('libpulse'),
   dependency('libpulse-mainloop-glib'),

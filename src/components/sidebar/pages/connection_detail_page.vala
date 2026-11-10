@@ -32,7 +32,7 @@ namespace Singularity {
         private const double LINK_CEILING = 125000000.0;
 
         private NetworkManagerWrapper network;
-        private NM.RemoteConnection conn;
+        private NmConnection conn;
         private string? wired_iface;
         private uint timer = 0;
         private uint64 last_rx = 0;
@@ -60,7 +60,7 @@ namespace Singularity {
         private Label error_label;
 
         public ConnectionDetailPage(SettingsView view, NetworkManagerWrapper network,
-                                    NM.RemoteConnection conn, string title, string? wired_iface) {
+                                    NmConnection conn, string title, string? wired_iface) {
             base(title);
             this.network = network;
             this.conn = conn;
@@ -138,8 +138,7 @@ namespace Singularity {
 
         private PreferencesGroup build_ipv4_group() {
             var group = new PreferencesGroup(_("IPv4"));
-            var s_ip4 = conn.get_setting_ip4_config();
-            bool manual = s_ip4 != null && s_ip4.method == "manual";
+            bool manual = conn.ipv4_method() == "manual";
             string automatic = _("Automatic (DHCP)");
             string by_hand = _("Manual");
             method_row = new SelectionRow(_("Method"), { automatic, by_hand },
@@ -154,22 +153,16 @@ namespace Singularity {
             dns_entry = new EntryRow(_("DNS Servers"), "network-transmit-receive-symbolic");
             dns_entry.placeholder_text = "9.9.9.9, 1.1.1.1";
             only_dns_row = new SwitchRow(_("Use Only These DNS Servers"), _("Ignore the ones offered by the network"),
-                s_ip4 != null && s_ip4.ignore_auto_dns);
+                conn.ipv4_ignore_auto_dns);
             group.add_row(address_entry);
             group.add_row(gateway_entry);
             group.add_row(dns_entry);
             group.add_row(only_dns_row);
 
-            if (s_ip4 != null) {
-                if (s_ip4.get_num_addresses() > 0) {
-                    unowned var first = s_ip4.get_address(0);
-                    address_entry.text = "%s/%u".printf(first.get_address(), first.get_prefix());
-                }
-                gateway_entry.text = s_ip4.gateway ?? "";
-                string[] servers = {};
-                for (uint i = 0; i < s_ip4.get_num_dns(); i++) servers += s_ip4.get_dns((int) i);
-                dns_entry.text = string.joinv(", ", servers);
-            }
+            var addresses = conn.ipv4_addresses();
+            if (addresses.length > 0) address_entry.text = addresses[0];
+            gateway_entry.text = conn.ipv4_gateway();
+            dns_entry.text = string.joinv(", ", conn.ipv4_dns());
             method_row.selected.connect((item) => set_manual(item == by_hand));
             set_manual(manual);
             return group;
@@ -183,9 +176,7 @@ namespace Singularity {
 
         private PreferencesGroup build_actions_group(SettingsView view) {
             var group = new PreferencesGroup(_("Connection"));
-            var s_con = conn.get_setting_connection();
-            auto_row = new SwitchRow(_("Connect Automatically"), null,
-                s_con == null || s_con.autoconnect);
+            auto_row = new SwitchRow(_("Connect Automatically"), null, conn.autoconnect);
             auto_row.icon_name = "view-refresh-symbolic";
             group.add_row(auto_row);
 
@@ -230,7 +221,7 @@ namespace Singularity {
             }
         }
 
-        private NM.Device? current_device() {
+        private NmDeviceInfo? current_device() {
             return network.active_device(conn);
         }
 
@@ -241,27 +232,14 @@ namespace Singularity {
             status_group.visible = active;
             disconnect_row.visible = active;
             if (!active) return;
-            var ip4 = device.get_ip4_config();
-            string address = "";
-            string gateway = "";
-            string dns = "";
-            if (ip4 != null) {
-                var addresses = ip4.get_addresses();
-                if (addresses.length > 0) {
-                    unowned var first = addresses.get(0);
-                    address = "%s/%u".printf(first.get_address(), first.get_prefix());
-                }
-                gateway = ip4.get_gateway() ?? "";
-                var servers = ip4.get_nameservers();
-                if (servers != null) dns = string.joinv(", ", servers);
-            }
+            string address = device.ip4_address;
+            string gateway = device.ip4_gateway;
+            string dns = string.joinv(", ", device.ip4_dns);
             address_row.subtitle = address != "" ? address : _("None");
             gateway_row.subtitle = gateway != "" ? gateway : _("None");
             dns_row.subtitle = dns != "" ? dns : _("None");
-            hardware_row.subtitle = device.get_hw_address() ?? _("Unknown");
-            uint speed = 0;
-            if (device is NM.DeviceWifi) speed = ((NM.DeviceWifi) device).get_bitrate() / 1000;
-            else if (device is NM.DeviceEthernet) speed = ((NM.DeviceEthernet) device).get_speed();
+            hardware_row.subtitle = device.hw_address != "" ? device.hw_address : _("Unknown");
+            uint speed = device.speed_mbps;
             speed_row.subtitle = speed > 0 ? "%u Mb/s".printf(speed) : _("Unknown");
         }
 
@@ -281,7 +259,7 @@ namespace Singularity {
 
         private bool sample() {
             var device = current_device();
-            string? iface = device != null ? device.get_iface() : wired_iface;
+            string? iface = device != null ? device.iface : wired_iface;
             if (iface == null || device == null) return Source.CONTINUE;
             uint64 rx = read_counter(iface, "rx_bytes");
             uint64 tx = read_counter(iface, "tx_bytes");
