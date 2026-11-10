@@ -40,19 +40,12 @@ namespace Singularity {
 
     public class UserspaceDriverProvider : Object {
         public const string GROUP = "Driver Provider";
-        private const string[] PKEXEC_PATHS = { "/usr/bin/pkexec", "/bin/pkexec" };
-        private const string[] HELPER_DIRS = {
-            "/opt/local/libexec",
-            "/usr/local/libexec",
-            "/usr/libexec",
-            "/usr/lib/singularity",
-        };
 
         public string id { get; set; default = ""; }
         public string name { get; set; default = ""; }
         public string icon_name { get; set; default = "application-x-firmware-symbolic"; }
-        public string helper { get; set; default = ""; }
-        public string detect { get; set; default = "command"; }
+        public string service { get; set; default = ""; }
+        public string detect { get; set; default = "service"; }
         public string setup_page { get; set; default = ""; }
         public string[] usb_vendors = {};
         public string[] product_keywords = {};
@@ -62,7 +55,7 @@ namespace Singularity {
             provider.id = "fingerprint";
             provider.name = _("Fingerprint Reader");
             provider.icon_name = "auth-fingerprint-symbolic";
-            provider.helper = "singularity-fprint-driver";
+            provider.service = FingerprintDriver.SERVICE;
             provider.detect = "fingerprint";
             provider.setup_page = "users";
             return provider;
@@ -74,13 +67,17 @@ namespace Singularity {
                 var provider = new UserspaceDriverProvider();
                 provider.id = keyfile.has_key(GROUP, "Id") ? keyfile.get_string(GROUP, "Id").strip() : fallback_id;
                 provider.name = keyfile.get_locale_string(GROUP, "Name", null).strip();
-                provider.helper = keyfile.get_string(GROUP, "Helper").strip();
+                if (!keyfile.has_key(GROUP, "Service")) {
+                    debug("Drivers: provider %s names no service", fallback_id);
+                    return null;
+                }
+                provider.service = keyfile.get_string(GROUP, "Service").strip();
                 if (keyfile.has_key(GROUP, "Icon")) provider.icon_name = keyfile.get_string(GROUP, "Icon").strip();
                 if (keyfile.has_key(GROUP, "Detect")) provider.detect = keyfile.get_string(GROUP, "Detect").strip().down();
                 if (keyfile.has_key(GROUP, "SetupPage")) provider.setup_page = keyfile.get_string(GROUP, "SetupPage").strip();
                 if (keyfile.has_key(GROUP, "USBVendors")) provider.usb_vendors = keyfile.get_string_list(GROUP, "USBVendors");
                 if (keyfile.has_key(GROUP, "ProductKeywords")) provider.product_keywords = keyfile.get_string_list(GROUP, "ProductKeywords");
-                if (provider.id == "" || provider.name == "" || provider.helper == "") return null;
+                if (provider.id == "" || provider.name == "" || !DBus.is_name(provider.service) || DBus.is_unique_name(provider.service)) return null;
                 return provider;
             } catch (KeyFileError e) {
                 warning("Drivers: invalid provider %s: %s", fallback_id, e.message);
@@ -88,16 +85,12 @@ namespace Singularity {
             }
         }
 
-        public string? helper_path() {
-            if (helper.has_prefix("/")) {
-                return FileUtils.test(helper, FileTest.IS_EXECUTABLE) ? helper : null;
-            }
-            if (helper.contains("/")) return null;
-            foreach (string dir in HELPER_DIRS) {
-                string path = Path.build_filename(dir, helper);
-                if (FileUtils.test(path, FileTest.IS_EXECUTABLE)) return path;
-            }
-            return null;
+        public string object_path {
+            owned get { return "/" + service.replace(".", "/"); }
+        }
+
+        public bool available() {
+            return SystemService.activatable(service);
         }
 
         public async string[] detect_devices() {
@@ -108,15 +101,19 @@ namespace Singularity {
                 case "usb":
                     return usb_devices();
             }
-            string? path = helper_path();
-            if (path == null) return {};
-            string? output = yield capture({ path, "detect" });
-            if (output == null) return {};
-            string[] ids = {};
-            foreach (string line in output.split("\n")) {
-                if (line.strip() != "") ids += line.strip();
+            if (!available()) return {};
+            try {
+                var bus = yield Bus.get(BusType.SYSTEM);
+                var reply = yield bus.call(service, object_path, service, "Detect", null,
+                    new VariantType("(as)"), DBusCallFlags.NONE, 10000, null);
+                string[] ids = {};
+                foreach (string id in reply.get_child_value(0).get_strv()) {
+                    if (id.strip() != "") ids += id.strip();
+                }
+                return ids;
+            } catch (Error e) {
+                return {};
             }
-            return ids;
         }
 
         private string[] usb_devices() {
@@ -154,28 +151,21 @@ namespace Singularity {
             return ids;
         }
 
-        private static async string? capture(string[] argv) {
+        public async UserspaceDriver? info(string device) {
+            if (!available()) return null;
+            Variant reply;
             try {
-                var process = new Subprocess.newv(argv, SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_SILENCE);
-                string? output;
-                yield process.communicate_utf8_async(null, null, out output, null);
-                return process.get_successful() ? output : null;
+                var bus = yield Bus.get(BusType.SYSTEM);
+                reply = yield bus.call(service, object_path, service, "Info", new Variant("(s)", device),
+                    new VariantType("(a{ss})"), DBusCallFlags.NONE, 10000, null);
             } catch (Error e) {
                 return null;
             }
-        }
-
-        public async UserspaceDriver? info(string device) {
-            string? path = helper_path();
-            if (path == null) return null;
-            string? output = yield capture({ path, "info", device });
-            if (output == null) return null;
             var driver = new UserspaceDriver(this);
-            foreach (string line in output.split("\n")) {
-                int eq = line.index_of("=");
-                if (eq <= 0) continue;
-                string key = line.substring(0, eq);
-                string value = line.substring(eq + 1);
+            var iter = reply.get_child_value(0).iterator();
+            string key;
+            string value;
+            while (iter.next("{ss}", out key, out value)) {
                 switch (key) {
                     case "id": driver.device_id = value; break;
                     case "vendor": driver.vendor = value; break;
@@ -201,33 +191,13 @@ namespace Singularity {
         }
 
         public async void run(string mode, string device) throws Error {
-            string? pkexec = null;
-            foreach (string candidate in PKEXEC_PATHS) {
-                if (FileUtils.test(candidate, FileTest.IS_EXECUTABLE)) {
-                    pkexec = candidate;
-                    break;
-                }
-            }
-            string? path = helper_path();
-            if (pkexec == null || path == null) {
-                throw new IOError.NOT_FOUND(_("The driver installer is not available"));
-            }
-            var process = new Subprocess.newv({ pkexec, path, mode, device },
-                SubprocessFlags.STDOUT_SILENCE | SubprocessFlags.STDERR_PIPE);
-            string? errors;
-            yield process.communicate_utf8_async(null, null, null, out errors);
-            if (process.get_if_exited() && process.get_exit_status() == 126) {
-                throw new IOError.CANCELLED(_("The change was not authorized"));
-            }
-            if (!process.get_successful()) {
-                string prefix = Path.get_basename(path) + ": ";
-                string reason = "";
-                if (errors != null) {
-                    foreach (string line in errors.strip().split("\n")) {
-                        if (line.has_prefix(prefix)) reason = line.substring(prefix.length);
-                    }
-                }
-                throw new IOError.FAILED(reason != "" ? reason
+            try {
+                yield SystemService.call(service, object_path, mode == "install" ? "Install" : "Uninstall",
+                    new Variant("(s)", device), _("The driver installer is not available"));
+            } catch (IOError.PERMISSION_DENIED e) {
+                throw new IOError.CANCELLED(e.message);
+            } catch (IOError.FAILED e) {
+                throw new IOError.FAILED(e.message != "" ? e.message
                     : mode == "install" ? _("The driver could not be installed") : _("The driver could not be removed"));
             }
         }

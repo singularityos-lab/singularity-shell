@@ -821,8 +821,8 @@ test('os-identity', os_identity_test)
 
 system_service_test = executable('system-service-test',
   sources: ['src/core/system_service.vala', 'src/core/login_screen_sync.vala', 'src/core/fingerprint_driver.vala',
-    'tests/system_service_test.vala'],
-  dependencies: core_deps,
+    'src/core/userspace_drivers.vala', 'src/core/fingerprint_manager.vala', 'tests/system_service_test.vala'],
+  dependencies: core_deps + [dependency('gee-0.8')],
   c_args: ['-DGETTEXT_PACKAGE="singularity-shell"'],
 )
 test('system-service', system_service_test)

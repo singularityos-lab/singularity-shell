@@ -55,6 +55,32 @@ public class MockFingerprint : Object {
     }
 }
 
+[DBus (name = "dev.sinty.TestDrivers1")]
+public class MockDrivers : Object {
+    [DBus (visible = false)]
+    public string last = "";
+
+    public string[] detect() throws Error {
+        return { "aaaa:0001", " ", "aaaa:0002" };
+    }
+
+    public HashTable<string, string> info(string id) throws Error {
+        var table = new HashTable<string, string>(str_hash, str_equal);
+        table["id"] = id;
+        table["name"] = "Widget " + id;
+        table["installed"] = id == "aaaa:0002" ? "true" : "false";
+        return table;
+    }
+
+    public void install(string id) throws Error {
+        last = "install " + id;
+    }
+
+    public void uninstall(string id) throws Error {
+        throw new DBusError.ACCESS_DENIED("no");
+    }
+}
+
 private string services;
 
 private void advertise(string name) {
@@ -87,6 +113,7 @@ private void own(string name, string path, Object mock) {
     try {
         var conn = Bus.get_sync(BusType.SYSTEM);
         if (mock is MockLoginScreen) conn.register_object(path, (MockLoginScreen) mock);
+        else if (mock is MockDrivers) conn.register_object(path, (MockDrivers) mock);
         else conn.register_object(path, (MockFingerprint) mock);
         conn.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "RequestName",
             new Variant("(su)", name, 0), null, DBusCallFlags.NONE, -1);
@@ -164,6 +191,60 @@ private void test_fingerprint() {
     assert(found == null);
 }
 
+private Singularity.UserspaceDriverProvider? provider_from(string text) {
+    var keyfile = new KeyFile();
+    try {
+        keyfile.load_from_data(text, -1, KeyFileFlags.NONE);
+    } catch (Error e) {
+        error("keyfile: %s", e.message);
+    }
+    return Singularity.UserspaceDriverProvider.from_keyfile(keyfile, "fallback");
+}
+
+private void test_driver_provider() {
+    assert(provider_from("[Driver Provider]\nName=Old\nHelper=/usr/libexec/old-helper\n") == null);
+    assert(provider_from("[Driver Provider]\nName=Bad\nService=:1.42\n") == null);
+    assert(provider_from("[Driver Provider]\nName=Bad\nService=not a name\n") == null);
+    var provider = provider_from("[Driver Provider]\nId=widgets\nName=Widgets\nService=dev.sinty.TestDrivers1\n");
+    assert(provider != null);
+    assert(provider.id == "widgets");
+    assert(provider.detect == "service");
+    assert(provider.object_path == "/dev/sinty/TestDrivers1");
+    assert(!provider.available());
+
+    var loop = new MainLoop();
+    Gee.ArrayList<Singularity.UserspaceDriver>? found = null;
+    provider.drivers.begin((obj, res) => {
+        found = provider.drivers.end(res);
+        loop.quit();
+    });
+    loop.run();
+    assert(found.size == 0);
+
+    advertise("dev.sinty.TestDrivers1");
+    var mock = new MockDrivers();
+    own("dev.sinty.TestDrivers1", "/dev/sinty/TestDrivers1", mock);
+    provider.drivers.begin((obj, res) => {
+        found = provider.drivers.end(res);
+        loop.quit();
+    });
+    loop.run();
+    assert(found.size == 2);
+    assert(found[0].device_id == "aaaa:0001");
+    assert(found[0].name == "Widget aaaa:0001");
+    assert(!found[0].installed);
+    assert(found[1].installed);
+
+    var driver = found[0];
+    assert(run((cb) => driver.install.begin(cb), (r) => driver.install.end(r)) == null);
+    assert(mock.last == "install aaaa:0001");
+    assert(driver.installed);
+    assert(run((cb) => driver.uninstall.begin(cb), (r) => driver.uninstall.end(r)) is IOError.CANCELLED);
+
+    var builtin = Singularity.UserspaceDriverProvider.fingerprint();
+    assert(builtin.service == Singularity.FingerprintDriver.SERVICE);
+}
+
 public static int main(string[] args) {
     Test.init(ref args);
     try {
@@ -177,6 +258,7 @@ public static int main(string[] args) {
     Environment.set_variable("DBUS_SYSTEM_BUS_ADDRESS", bus.get_bus_address(), true);
     Test.add_func("/system-service/login-screen", test_login_screen);
     Test.add_func("/system-service/fingerprint", test_fingerprint);
+    Test.add_func("/system-service/driver-provider", test_driver_provider);
     int result = Test.run();
     bus.down();
     return result;
