@@ -31,6 +31,12 @@ namespace Singularity.SintyKey {
         public bool startup;
     }
 
+    public class SecurityKey : Object {
+        public string id;
+        public string name;
+        public int64 added;
+    }
+
     public class TrustedDevice : Object {
         public string kind;
         public string id;
@@ -53,6 +59,15 @@ namespace Singularity.SintyKey {
         NOT_A_BACKUP,
         DAMAGED,
         FAKE_DRIVE,
+        SECURITY_KEY_REQUIRED,
+        UNKNOWN_SECURITY_KEY,
+        SECURITY_KEY_EXISTS,
+        TOO_MANY_SECURITY_KEYS,
+        NOT_TOUCHED,
+        SECURITY_KEY_PIN_REQUIRED,
+        WRONG_SECURITY_KEY_PIN,
+        SECURITY_KEY_PIN_BLOCKED,
+        SECURITY_KEY_UNSUPPORTED,
         FAILED
     }
 
@@ -106,6 +121,16 @@ namespace Singularity.SintyKey {
                 case "dev.sinty.Key1.Error.NotABackup": return new KeyError.NOT_A_BACKUP(_("This file is not a Sinty Key backup."));
                 case "dev.sinty.Key1.Error.Damaged": return new KeyError.DAMAGED(_("The backup is damaged or was changed."));
                 case "dev.sinty.Key1.Error.FakeDrive": return new KeyError.FAKE_DRIVE(_("This drive reports more space than it really has and would lose your files. Use another drive."));
+                case "dev.sinty.Key1.Error.SecurityKeyRequired": return new KeyError.SECURITY_KEY_REQUIRED(_("Plug in one of the security keys of this Key."));
+                case "dev.sinty.Key1.Error.UnknownSecurityKey": return new KeyError.UNKNOWN_SECURITY_KEY(_("This security key does not belong to the Key."));
+                case "dev.sinty.Key1.Error.SecurityKeyExists": return new KeyError.SECURITY_KEY_EXISTS(_("This security key already belongs to the Key."));
+                case "dev.sinty.Key1.Error.TooManySecurityKeys": return new KeyError.TOO_MANY_SECURITY_KEYS(_("The Key already has as many security keys as it can hold."));
+                case "dev.sinty.Key1.Error.NoSecurityKey": return new KeyError.FAILED(_("That security key is no longer on the Key."));
+                case "dev.sinty.Key1.Error.NotTouched": return new KeyError.NOT_TOUCHED(_("The security key was not touched in time."));
+                case "dev.sinty.Key1.Error.SecurityKeyPinRequired": return new KeyError.SECURITY_KEY_PIN_REQUIRED(_("This security key has its own PIN. Enter it too."));
+                case "dev.sinty.Key1.Error.WrongSecurityKeyPin": return new KeyError.WRONG_SECURITY_KEY_PIN(_("The security key PIN is not correct."));
+                case "dev.sinty.Key1.Error.SecurityKeyPinBlocked": return new KeyError.SECURITY_KEY_PIN_BLOCKED(_("The security key PIN is blocked. Reset the security key with its maker's tool."));
+                case "dev.sinty.Key1.Error.SecurityKeyUnsupported": return new KeyError.SECURITY_KEY_UNSUPPORTED(_("This security key cannot protect a Sinty Key. It needs FIDO2 with hmac-secret."));
                 case "dev.sinty.Key1.Error.NoTpm": return new KeyError.NO_TPM(_("This computer has no security chip to remember the Key."));
             }
             return new KeyError.FAILED(e.message);
@@ -220,6 +245,35 @@ namespace Singularity.SintyKey {
 
         public async void recover(string root, string code, string pin) throws KeyError {
             yield call("Recover", new Variant("(sss)", root, code, pin), "()");
+        }
+
+        public async Gee.ArrayList<SecurityKey> security_keys(string root) throws KeyError {
+            var v = yield call("SecurityKeys", new Variant("(s)", root), "(a(ssx))");
+            var list = new Gee.ArrayList<SecurityKey>();
+            var iter = v.get_child_value(0).iterator();
+            string id, name;
+            int64 added;
+            while (iter.next("(ssx)", out id, out name, out added)) {
+                var k = new SecurityKey();
+                k.id = id;
+                k.name = name;
+                k.added = added;
+                list.add(k);
+            }
+            return list;
+        }
+
+        public async string add_security_key(string root, string pin, string name, string key_pin) throws KeyError {
+            var v = yield call("AddSecurityKey", new Variant("(ssss)", root, pin, name, key_pin), "(s)");
+            return v.get_child_value(0).get_string();
+        }
+
+        public async void remove_security_key(string root, string pin, string id) throws KeyError {
+            yield call("RemoveSecurityKey", new Variant("(sss)", root, pin, id), "()");
+        }
+
+        public async void recover_without_security_keys(string root, string code, string pin) throws KeyError {
+            yield call("RecoverWithoutSecurityKeys", new Variant("(sss)", root, code, pin), "()");
         }
 
         public async Gee.ArrayList<KeyDrive> drives() throws KeyError {

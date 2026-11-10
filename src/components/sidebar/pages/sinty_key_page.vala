@@ -599,9 +599,12 @@ namespace Singularity.SidebarPages {
         private string pin_cache = "";
         private PreferencesGroup state_group;
         private PreferencesGroup computers_group;
+        private PreferencesGroup security_group;
         private PreferencesGroup pin_group;
         private PreferencesGroup recovery_group;
         private PreferencesGroup backup_group;
+        private Button drop_button;
+        private bool strong = false;
 
         public SintyKeyDetailPage(SettingsView view, string drive) {
             base(Path.get_basename(drive));
@@ -609,6 +612,8 @@ namespace Singularity.SidebarPages {
             state_group = new PreferencesGroup();
             computers_group = new PreferencesGroup(_("Remembered Computers"),
                 _("On these computers the Key is also sealed in the security chip, which blocks guessing the PIN and refuses older copies of the Key."));
+            security_group = new PreferencesGroup(_("Security Keys"),
+                _("With a FIDO2 security key the Key opens only when one of its security keys is plugged in and touched, together with the PIN. Register a spare and keep it apart. The recovery code still opens the Key without them."));
             pin_group = new PreferencesGroup(_("Change PIN"));
             backup_group = new PreferencesGroup(_("Backup"),
                 _("The backup is one encrypted file that opens only with the recovery code. Keep it on another drive or online."));
@@ -616,6 +621,7 @@ namespace Singularity.SidebarPages {
                 _("Enter the recovery code you wrote down when the Key was made, then choose a new PIN."));
             add_group(state_group);
             add_group(computers_group);
+            add_group(security_group);
             add_group(backup_group);
             add_group(pin_group);
             add_group(recovery_group);
@@ -628,12 +634,14 @@ namespace Singularity.SidebarPages {
         private async void refresh() {
             state_group.clear();
             computers_group.clear();
+            yield refresh_security();
             KeyInfo info;
             try {
                 info = yield Client.get_default().inspect(drive);
             } catch (KeyError e) {
                 state_group.add_row(new ActionRow(e.message, "", "dialog-warning-symbolic"));
                 computers_group.visible = false;
+                security_group.visible = false;
                 return;
             }
             if (info.unlocked) {
@@ -682,7 +690,7 @@ namespace Singularity.SidebarPages {
             if (pin.text == "") return;
             open.sensitive = false;
             status.visible = true;
-            status.label = _("Unlocking…");
+            status.label = strong ? _("Touch the security key when it blinks…") : _("Unlocking…");
             try {
                 yield Client.get_default().unlock(drive, pin.text);
                 pin_cache = pin.text;
@@ -718,6 +726,77 @@ namespace Singularity.SidebarPages {
                 yield Client.get_default().forget(drive, pin_cache, fingerprint);
             } catch (KeyError e) {
                 computers_group.add_row(new ActionRow(e.message, "", "dialog-warning-symbolic"));
+                return;
+            }
+            yield refresh();
+        }
+
+        private async void refresh_security() {
+            security_group.clear();
+            Gee.ArrayList<SecurityKey> keys;
+            try {
+                keys = yield Client.get_default().security_keys(drive);
+            } catch (KeyError e) {
+                security_group.visible = false;
+                return;
+            }
+            security_group.visible = true;
+            strong = keys.size > 0;
+            if (drop_button != null) drop_button.visible = strong;
+            foreach (var k in keys) {
+                string when = _("Added %s").printf(new DateTime.from_unix_local(k.added).format(_("%e %B %Y")).strip());
+                var row = new ActionRow(k.name, when, "security-high-symbolic");
+                var remove = row_button(_("Remove"), false);
+                remove.add_css_class("destructive-action");
+                string id = k.id;
+                remove.clicked.connect(() => remove_security_key.begin(id));
+                row.add_suffix(remove);
+                security_group.add_row(row);
+            }
+            var name = new EntryRow(_("Name"));
+            name.text = strong ? _("Spare") : _("Security Key");
+            var key_pin = new PasswordRow(_("Security Key PIN, if It Has One"));
+            var add = row_button(strong ? _("Add Spare") : _("Add"), false);
+            key_pin.add_suffix(add);
+            var status = status_label();
+            security_group.add_row(name);
+            security_group.add_row(key_pin);
+            security_group.add_row(status);
+            add.clicked.connect(() => add_security_key.begin(name, key_pin, status, add));
+        }
+
+        private async void add_security_key(EntryRow name, PasswordRow key_pin, Label status, Button add) {
+            status.visible = true;
+            if (pin_cache == "") {
+                status.label = _("Unlock the Key with its PIN first.");
+                return;
+            }
+            if (name.text.strip() == "") {
+                status.label = _("Give the security key a name.");
+                return;
+            }
+            add.sensitive = false;
+            status.label = strong
+                ? _("Touch a security key of this Key, then touch the new one…")
+                : _("Plug in the security key and touch it when it blinks, up to two times…");
+            try {
+                yield Client.get_default().add_security_key(drive, pin_cache, name.text.strip(), key_pin.text);
+                yield refresh();
+            } catch (KeyError e) {
+                status.label = e.message;
+                add.sensitive = true;
+            }
+        }
+
+        private async void remove_security_key(string id) {
+            if (pin_cache == "") {
+                security_group.add_row(new ActionRow(_("Unlock the Key with its PIN first."), "", "dialog-warning-symbolic"));
+                return;
+            }
+            try {
+                yield Client.get_default().remove_security_key(drive, pin_cache, id);
+            } catch (KeyError e) {
+                security_group.add_row(new ActionRow(e.message, "", "dialog-warning-symbolic"));
                 return;
             }
             yield refresh();
@@ -801,16 +880,25 @@ namespace Singularity.SidebarPages {
             var reset = row_button(_("Set PIN"), false);
             fresh.add_suffix(reset);
             var status = status_label();
+            drop_button = row_button(_("Set PIN and Remove Security Keys"), false);
+            drop_button.add_css_class("destructive-action");
+            drop_button.visible = strong;
+            var drop_row = new ActionRow(_("Lost the Security Keys Too?"), _("The Key goes back to PIN and computer only."), "security-high-symbolic");
+            drop_row.add_suffix(drop_button);
+            drop_button.bind_property("visible", drop_row, "visible", BindingFlags.SYNC_CREATE);
             recovery_group.add_row(code);
             recovery_group.add_row(fresh);
+            recovery_group.add_row(drop_row);
             recovery_group.add_row(status);
-            reset.clicked.connect(() => recover.begin(code, fresh, status));
+            reset.clicked.connect(() => recover.begin(code, fresh, status, false));
+            drop_button.clicked.connect(() => recover.begin(code, fresh, status, true));
         }
 
-        private async void recover(EntryRow code, PasswordRow fresh, Label status) {
+        private async void recover(EntryRow code, PasswordRow fresh, Label status, bool drop) {
             status.visible = true;
             try {
-                yield Client.get_default().recover(drive, code.text, fresh.text);
+                if (drop) yield Client.get_default().recover_without_security_keys(drive, code.text, fresh.text);
+                else yield Client.get_default().recover(drive, code.text, fresh.text);
                 code.text = fresh.text = "";
                 status.label = _("New PIN set. Unlock the Key with it.");
                 yield refresh();
