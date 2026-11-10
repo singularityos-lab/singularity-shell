@@ -470,4 +470,86 @@ namespace Singularity.Crash {
             return result;
         }
     }
+
+    namespace PackageOwner {
+        public string? dpkg_version(string root, string path) {
+            string? owner = null;
+            try {
+                var dir = Dir.open(Path.build_filename(root, "info"));
+                string? name = null;
+                while (owner == null && (name = dir.read_name()) != null) {
+                    if (!name.has_suffix(".list")) continue;
+                    string text;
+                    try {
+                        FileUtils.get_contents(Path.build_filename(root, "info", name), out text);
+                    } catch (FileError e) {
+                        continue;
+                    }
+                    foreach (string line in text.split("\n")) {
+                        if (line == path) {
+                            owner = name.substring(0, name.length - 5);
+                            int colon = owner.index_of_char(':');
+                            if (colon > 0) owner = owner.substring(0, colon);
+                            break;
+                        }
+                    }
+                }
+            } catch (FileError e) {
+                return null;
+            }
+            if (owner == null) return null;
+            string status;
+            try {
+                FileUtils.get_contents(Path.build_filename(root, "status"), out status);
+            } catch (FileError e) {
+                return null;
+            }
+            foreach (string block in status.split("\n\n")) {
+                string? pkg = null;
+                string? version = null;
+                bool installed = false;
+                foreach (string line in block.split("\n")) {
+                    if (line.has_prefix("Package: ")) pkg = line.substring(9).strip();
+                    else if (line.has_prefix("Version: ")) version = line.substring(9).strip();
+                    else if (line.has_prefix("Status: ")) installed = line.has_suffix(" installed");
+                }
+                if (pkg == owner && installed && version != null) return version;
+            }
+            return null;
+        }
+
+        public string? pacman_version(string local_db, string path) {
+            string rel = path.has_prefix("/") ? path.substring(1) : path;
+            try {
+                var dir = Dir.open(local_db);
+                string? name;
+                while ((name = dir.read_name()) != null) {
+                    string files;
+                    try {
+                        FileUtils.get_contents(Path.build_filename(local_db, name, "files"), out files);
+                    } catch (FileError e) {
+                        continue;
+                    }
+                    bool listed = false;
+                    foreach (string line in files.split("\n")) {
+                        if (line == rel) { listed = true; break; }
+                    }
+                    if (!listed) continue;
+                    string desc;
+                    try {
+                        FileUtils.get_contents(Path.build_filename(local_db, name, "desc"), out desc);
+                    } catch (FileError e) {
+                        return null;
+                    }
+                    string[] lines = desc.split("\n");
+                    for (int i = 0; i + 1 < lines.length; i++) {
+                        if (lines[i] == "%VERSION%") return lines[i + 1].strip();
+                    }
+                    return null;
+                }
+            } catch (FileError e) {
+            }
+            return null;
+        }
+    }
 }

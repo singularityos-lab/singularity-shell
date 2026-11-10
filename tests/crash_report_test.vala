@@ -198,6 +198,28 @@ void test_rate_limit() {
     assert(burst.check("app9", 2100) == RateLimiter.Verdict.SHOW);
 }
 
+void test_package_owner() {
+    string root;
+    try {
+        root = DirUtils.make_tmp("pkgdb-XXXXXX");
+        DirUtils.create_with_parents(Path.build_filename(root, "dpkg", "info"), 0755);
+        FileUtils.set_contents(Path.build_filename(root, "dpkg", "info", "other.list"), "/usr/bin/other\n");
+        FileUtils.set_contents(Path.build_filename(root, "dpkg", "info", "crashy:amd64.list"), "/.\n/usr/bin\n/usr/bin/crashy\n");
+        FileUtils.set_contents(Path.build_filename(root, "dpkg", "status"),
+            "Package: other\nStatus: install ok installed\nVersion: 1.0\n\nPackage: crashy\nStatus: install ok installed\nArchitecture: amd64\nVersion: 2.3-1\n");
+        DirUtils.create_with_parents(Path.build_filename(root, "pacman", "crashy-4.5-2"), 0755);
+        FileUtils.set_contents(Path.build_filename(root, "pacman", "crashy-4.5-2", "files"), "%FILES%\nusr/\nusr/bin/crashy\n");
+        FileUtils.set_contents(Path.build_filename(root, "pacman", "crashy-4.5-2", "desc"), "%NAME%\ncrashy\n\n%VERSION%\n4.5-2\n");
+    } catch (Error e) {
+        error(e.message);
+    }
+    assert(PackageOwner.dpkg_version(Path.build_filename(root, "dpkg"), "/usr/bin/crashy") == "2.3-1");
+    assert(PackageOwner.dpkg_version(Path.build_filename(root, "dpkg"), "/usr/bin/missing") == null);
+    assert(PackageOwner.dpkg_version(Path.build_filename(root, "none"), "/usr/bin/crashy") == null);
+    assert(PackageOwner.pacman_version(Path.build_filename(root, "pacman"), "/usr/bin/crashy") == "4.5-2");
+    assert(PackageOwner.pacman_version(Path.build_filename(root, "pacman"), "/usr/bin/other") == null);
+}
+
 void main() {
     test_report_parsing();
     test_block_escape();
@@ -214,4 +236,5 @@ void main() {
     test_config();
     test_metadata();
     test_rate_limit();
+    test_package_owner();
 }

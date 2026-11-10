@@ -134,31 +134,14 @@ namespace Singularity.Crash {
         public static async void fill_package_version(Report report) {
             if (report.app_version != "" || report.executable == "") return;
             string exe = report.executable;
-            if (Environment.find_program_in_path("rpm") != null) {
-                string? out_text = yield Tools.run({ "rpm", "-qf", "--qf", "%{VERSION}-%{RELEASE}", exe }, 5);
-                if (out_text != null && out_text.strip() != "" && !out_text.contains("not owned")) {
-                    report.app_version = out_text.strip();
-                    return;
-                }
-            }
-            if (Environment.find_program_in_path("dpkg-query") != null) {
-                string? owner = yield Tools.run({ "dpkg-query", "-S", exe }, 5);
-                if (owner != null && owner.contains(":")) {
-                    string pkg = owner.split(":")[0].strip();
-                    string? version = yield Tools.run({ "dpkg-query", "-W", "-f", "${Version}", pkg }, 5);
-                    if (version != null && version.strip() != "") {
-                        report.app_version = version.strip();
-                        return;
-                    }
-                }
-            }
-            if (Environment.find_program_in_path("pacman") != null) {
-                string? owned = yield Tools.run({ "pacman", "-Qo", exe }, 5);
-                if (owned != null && owned.contains(" is owned by ")) {
-                    var parts = owned.strip().split(" ");
-                    if (parts.length >= 2) report.app_version = parts[parts.length - 1];
-                }
-            }
+            string? version = null;
+            SourceFunc resume = fill_package_version.callback;
+            new Thread<void>("crash-package", () => {
+                version = PackageOwner.dpkg_version("/var/lib/dpkg", exe) ?? PackageOwner.pacman_version("/var/lib/pacman/local", exe);
+                Idle.add((owned) resume);
+            });
+            yield;
+            if (version != null) report.app_version = version;
         }
     }
 
