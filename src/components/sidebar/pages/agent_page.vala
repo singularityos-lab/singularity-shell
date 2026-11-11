@@ -4,13 +4,15 @@ using Singularity.Widgets;
 namespace Singularity.SidebarPages {
 
     public class AgentPage : SettingsPage {
-        private const string[] PROVIDERS = { "claude-code", "codex", "claude-api", "ollama" };
+        private const string[] PROVIDERS = { "local", "claude-code", "codex", "claude-api", "ollama" };
+        private const string[] MODES = { "plan", "ask", "auto" };
         private SelectionRow provider_row;
         private EntryRow model_row;
         private EntryRow endpoint_row;
         private PasswordRow key_row;
         private SwitchRow enabled_row;
         private PreferencesGroup model_group;
+        private PreferencesGroup behaviour_group;
         private bool loading = true;
         private uint key_timeout = 0;
         private string stored_key = "";
@@ -72,6 +74,31 @@ namespace Singularity.SidebarPages {
             refresh_key_state.begin();
             add_group(model_group);
 
+            behaviour_group = new PreferencesGroup(_("Behaviour"), null);
+            string[] mode_names = { _("Suggest Only"), _("Ask Before Lasting Changes"), _("Act on Its Own") };
+            int mode_index = 1;
+            for (int i = 0; i < MODES.length; i++) if (MODES[i] == AgentConfig.mode()) mode_index = i;
+            var mode_row = new SelectionRow(_("Mode"), mode_names, mode_names[mode_index]);
+            mode_row.selected.connect(() => {
+                int i = mode_row.selected_index;
+                if (i < 0 || i >= MODES.length) return;
+                try {
+                    AgentConfig.set_mode(MODES[i]);
+                } catch (Error e) {
+                    warning("Cannot save the AI mode: %s", e.message);
+                }
+            });
+            behaviour_group.add_row(mode_row);
+            var voice_row = new SwitchRow(_("Voice"), _("Listen while Super+Shift+A is held"), AgentConfig.flag("voice", true));
+            voice_row.switch_btn.notify["active"].connect(() => save_flag("voice", voice_row.switch_btn.active));
+            behaviour_group.add_row(voice_row);
+            var background_row = new SwitchRow(_("Work in the Background"),
+                _("Finish tasks while you use other apps. It still asks before anything that cannot be undone."),
+                AgentConfig.flag("background", false));
+            background_row.switch_btn.notify["active"].connect(() => save_flag("background", background_row.switch_btn.active));
+            behaviour_group.add_row(background_row);
+            add_group(behaviour_group);
+
             var phones = new PreferencesGroup(_("Phones"),
                 _("Ask Sinty AI from a paired phone. It has the same powers as this panel and asks you the same questions."));
             var phones_row = new ActionRow(_("Paired Phones"), phones_summary(), "phone-symbolic");
@@ -89,8 +116,10 @@ namespace Singularity.SidebarPages {
             add_group(phones);
 
             model_group.sensitive = enabled_row.switch_btn.active;
+            behaviour_group.sensitive = enabled_row.switch_btn.active;
             enabled_row.switch_btn.notify["active"].connect(() => {
                 model_group.sensitive = enabled_row.switch_btn.active;
+                behaviour_group.sensitive = enabled_row.switch_btn.active;
                 if (enabled_row.switch_btn.active) save();
                 else if (!loading) AgentConfig.remove();
             });
@@ -101,6 +130,15 @@ namespace Singularity.SidebarPages {
             if (loading || !enabled_row.switch_btn.active) return;
             try {
                 AgentConfig.save(provider_row.current_value, model_row.text.strip(), endpoint_row.text.strip());
+            } catch (Error e) {
+                warning("Cannot save the AI settings: %s", e.message);
+            }
+        }
+
+        private void save_flag(string name, bool value) {
+            if (loading || !enabled_row.switch_btn.active) return;
+            try {
+                AgentConfig.set_flag(name, value);
             } catch (Error e) {
                 warning("Cannot save the AI settings: %s", e.message);
             }

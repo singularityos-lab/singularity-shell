@@ -33,17 +33,54 @@ namespace Singularity {
             }
         }
 
-        public static void save(string provider, string model, string endpoint) throws Error {
-            var builder = new Json.Builder();
-            builder.begin_object();
-            builder.set_member_name("provider").add_string_value(provider);
-            builder.set_member_name("model").add_string_value(model);
-            builder.set_member_name("endpoint").add_string_value(endpoint);
-            builder.end_object();
+        private static Json.Object read_root() {
+            try {
+                var parser = new Json.Parser();
+                parser.load_from_file(path());
+                var root = parser.get_root();
+                if (root != null && root.get_node_type() == Json.NodeType.OBJECT) return root.get_object();
+            } catch (Error e) {
+                debug("No AI configuration: %s", e.message);
+            }
+            return new Json.Object();
+        }
+
+        private static void write_root(Json.Object root) throws Error {
+            var node = new Json.Node(Json.NodeType.OBJECT);
+            node.set_object(root);
             var generator = new Json.Generator();
-            generator.set_root(builder.get_root());
+            generator.set_root(node);
             DirUtils.create_with_parents(Path.get_dirname(path()), 0700);
             FileUtils.set_contents(path(), generator.to_data(null));
+        }
+
+        public static void save(string provider, string model, string endpoint) throws Error {
+            var root = read_root();
+            root.set_string_member("provider", provider);
+            root.set_string_member("model", model);
+            root.set_string_member("endpoint", endpoint);
+            write_root(root);
+        }
+
+        public static string mode() {
+            return read_root().get_string_member_with_default("mode", "ask");
+        }
+
+        public static bool flag(string name, bool fallback) {
+            var root = read_root();
+            return root.has_member(name) ? root.get_boolean_member(name) : fallback;
+        }
+
+        public static void set_mode(string mode) throws Error {
+            var root = read_root();
+            root.set_string_member("mode", mode);
+            write_root(root);
+        }
+
+        public static void set_flag(string name, bool value) throws Error {
+            var root = read_root();
+            root.set_boolean_member(name, value);
+            write_root(root);
         }
 
         public static async int key_state(string provider) {

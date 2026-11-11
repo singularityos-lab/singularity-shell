@@ -463,7 +463,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             run_dialog.toggle_ai();
         });
         Singularity.SystemMonitor.get_default().shortcuts.agent_voice_triggered.connect(() => {
-            if (!Singularity.AgentConfig.configured()) return;
+            if (!Singularity.AgentConfig.configured() || !Singularity.AgentConfig.flag("voice", true)) return;
             ensure_run_dialog();
             run_dialog.voice_ai();
         });
