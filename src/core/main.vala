@@ -511,6 +511,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
                 conn.register_object<Singularity.Shell.ShellService>("/dev/sinty/Shell", this);
                 conn.register_object<Singularity.StageService>("/dev/sinty/Shell/Stage", new Singularity.StageService());
                 conn.register_object<Singularity.Shell.ShellChoiceService>("/dev/sinty/Shell/Choice", new Singularity.Shell.ShellChoiceService(this));
+                conn.register_object<Singularity.Shell.AgentClipboardService>("/dev/sinty/Shell/AgentClipboard", new Singularity.Shell.AgentClipboardService(conn));
                 var pause_service = new Singularity.AppPauseService();
                 Singularity.AppPause.get_default().changed.connect((app_id, paused) => pause_service.changed(app_id, paused));
                 conn.register_object<Singularity.AppPauseService>("/dev/sinty/Shell/AppPause", pause_service);
