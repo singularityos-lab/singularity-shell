@@ -6,7 +6,10 @@ namespace Singularity.SidebarPages {
     public class StoragePage : SettingsPage {
         private SettingsView view;
         private PreferencesGroup drives_group;
+        private const int LOW_PERCENT = 20;
+
         private ActionRow space_row;
+        private Image space_warning;
         private ulong health_id;
         private VolumeMonitor monitor;
 
@@ -15,6 +18,11 @@ namespace Singularity.SidebarPages {
             this.view = view;
             var computer = new PreferencesGroup();
             space_row = new ActionRow(_("This Computer"), "", "drive-harddisk-symbolic");
+            space_warning = new Image.from_icon_name("dialog-warning-symbolic");
+            space_warning.valign = Align.CENTER;
+            space_warning.add_css_class("warning");
+            space_warning.visible = false;
+            space_row.add_suffix(space_warning);
             computer.add_row(space_row);
             add_group(computer);
             drives_group = new PreferencesGroup(_("USB Drives"),
@@ -38,12 +46,19 @@ namespace Singularity.SidebarPages {
 
         private void update_space() {
             try {
-                var info = File.new_for_path("/").query_filesystem_info("filesystem::size,filesystem::free");
+                var info = File.new_for_path(Environment.get_home_dir())
+                    .query_filesystem_info("filesystem::size,filesystem::free");
                 uint64 size = info.get_attribute_uint64("filesystem::size");
                 uint64 free = info.get_attribute_uint64("filesystem::free");
-                space_row.subtitle = _("%s free of %s").printf(format_size(free), format_size(size));
+                string text = _("%s free of %s").printf(format_size(free), format_size(size));
+                space_warning.visible = size > 0 && free * 100 < size * LOW_PERCENT;
+                if (space_warning.visible)
+                    text = _("%s. Less than %d%% is free: the disk slows down and updates may not fit. Remove files you no longer need.")
+                        .printf(text, LOW_PERCENT);
+                space_row.subtitle = text;
             } catch (Error e) {
                 space_row.subtitle = "";
+                space_warning.visible = false;
             }
         }
 
