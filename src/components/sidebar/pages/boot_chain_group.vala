@@ -163,7 +163,7 @@ namespace Singularity.SidebarPages {
             }
         }
 
-        private async Json.Object request(string method, string path, uint timeout) throws Error {
+        internal static async Json.Object request(string method, string path, uint timeout) throws Error {
             var cancellable = new Cancellable();
             uint timeout_id = Timeout.add_seconds(timeout, () => {
                 cancellable.cancel();

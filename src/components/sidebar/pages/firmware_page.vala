@@ -43,6 +43,8 @@ namespace Singularity.SidebarPages {
                 _("Extra drivers from device makers, installed outside the system packages."));
             add_group(drivers_group);
 
+            if (GraphicsDriverGroup.available()) add_group(new GraphicsDriverGroup());
+
             destroy.connect(() => {
                 if (changed_handler != 0) Client.get_default().disconnect(changed_handler);
             });
