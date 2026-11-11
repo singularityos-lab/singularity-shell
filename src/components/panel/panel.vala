@@ -806,6 +806,7 @@ namespace Singularity {
             system_area.append(new RecordingIndicator());
             system_area.append(new ScreenSharingIndicator());
             system_area.append(new CollaborationIndicator());
+            system_area.append(new AgentActivityIndicator());
             system_area.append(new AgentRemoteIndicator());
             system_area.append(new NearbyIndicator());
             system_area.append(new DeviceChargingIndicator());
