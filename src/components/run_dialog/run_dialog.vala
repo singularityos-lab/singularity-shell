@@ -33,6 +33,8 @@ namespace Singularity {
         private bool ai_mode_syncing = false;
         private const string[] AGENT_MODES = { "plan", "ask", "auto", "autopilot" };
         private Button ai_close;
+        private Button ai_undo;
+        private uint ai_last_change = 0;
         private Button ai_voice;
         private AgentVoice voice;
         private Label ai_answer;
@@ -191,6 +193,13 @@ namespace Singularity {
             ai_spinner = new Spinner();
             ai_spinner.visible = false;
             ai_controls.append(ai_spinner);
+            ai_undo = new Button.from_icon_name("edit-undo-symbolic");
+            ai_undo.add_css_class("flat");
+            ai_undo.add_css_class("circular");
+            ai_undo.tooltip_text = _("Undo the last change made by Sinty AI (Ctrl+Z)");
+            ai_undo.visible = false;
+            ai_undo.clicked.connect(() => undo_agent_change.begin());
+            ai_controls.append(ai_undo);
             ai_close = new Button.from_icon_name("window-close-symbolic");
             ai_close.add_css_class("flat");
             ai_close.add_css_class("circular");
@@ -282,7 +291,11 @@ namespace Singularity {
             suggestions_list.add_controller(list_keys);
 
             var card_keys = new EventControllerKey();
-            card_keys.key_pressed.connect((keyval) => {
+            card_keys.key_pressed.connect((keyval, keycode, state) => {
+                if (keyval == Gdk.Key.z && (state & Gdk.ModifierType.CONTROL_MASK) != 0 && ai_last_change != 0) {
+                    undo_agent_change.begin();
+                    return true;
+                }
                 if (keyval != Gdk.Key.Escape) return false;
                 close_dialog();
                 return true;
@@ -436,6 +449,7 @@ namespace Singularity {
             ai_mode_syncing = false;
             ai_provider_select.visible = ai_mode;
             ai_voice.visible = ai_mode;
+            ai_undo.visible = ai_mode && ai_last_change != 0;
             reserve_ai_space();
             fetch_agent_mode.begin(2);
         }
@@ -491,6 +505,7 @@ namespace Singularity {
         private void leave_ai_mode() {
             voice.end();
             ai_voice.visible = false;
+            ai_undo.visible = false;
             stop_ai();
             set_ai_compact(false);
             ai_mode_select.visible = false;
@@ -604,6 +619,15 @@ namespace Singularity {
                             parameters.get("(ssss)", out app, out intent, out args, out result);
                             show_agent_card(app, intent, args, result);
                         });
+                    bus.signal_subscribe("dev.sinty.Agent", "dev.sinty.Agent1", "ChangeRecorded", "/dev/sinty/Agent",
+                        null, DBusSignalFlags.NONE, (conn, sender, path, iface, name, parameters) => {
+                            uint id;
+                            string app, summary;
+                            parameters.get("(uss)", out id, out app, out summary);
+                            ai_last_change = id;
+                            ai_undo.visible = ai_mode && visible;
+                            reserve_ai_space();
+                        });
                 } catch (Error e) {
                     warning("Sinty AI cards: %s", e.message);
                 }
@@ -625,6 +649,47 @@ namespace Singularity {
             ai_card_keys.replace(key, card);
             ai_cards.visible = true;
             ai_scroll.visible = true;
+            queue_resize();
+        }
+
+        private async void undo_agent_change() {
+            if (ai_last_change == 0 || ai_process != null) return;
+            ai_undo.sensitive = false;
+            string json = "";
+            try {
+                var bus = yield Bus.get(BusType.SESSION);
+                var reply = yield bus.call("dev.sinty.Agent", "/dev/sinty/Agent", "dev.sinty.Agent1",
+                    "Undo", new Variant("(u)", 0), new VariantType("(s)"), DBusCallFlags.NONE, 130000, null);
+                reply.get("(s)", out json);
+            } catch (Error e) {
+                error_label.label = e.message;
+                error_label.visible = true;
+            }
+            ai_undo.sensitive = true;
+            if (json == "") return;
+            try {
+                var parser = new Json.Parser();
+                parser.load_from_data(json);
+                var obj = parser.get_root().get_object();
+                var instruction = obj.has_member("instruction") && obj.get_member("instruction").get_node_type() != Json.NodeType.NULL
+                    ? obj.get_string_member("instruction") : null;
+                if (instruction != null) {
+                    updating_text = true;
+                    entry.text = instruction;
+                    updating_text = false;
+                    ask_ai();
+                } else if (obj.get_boolean_member_with_default("failed", false)) {
+                    error_label.label = obj.get_string_member_with_default("text", _("Nothing to undo"));
+                    error_label.visible = true;
+                } else {
+                    error_label.visible = false;
+                    ai_answer.label = _("Undone.");
+                    ai_answer.visible = true;
+                    ai_scroll.visible = true;
+                }
+            } catch (Error e) {
+                warning("Sinty AI undo: %s", e.message);
+            }
             queue_resize();
         }
 
@@ -1082,7 +1147,14 @@ namespace Singularity {
                 else close_dialog();
                 return true;
             }
-            if (ai_mode) return false;
+            if (ai_mode) {
+                if (keyval == Gdk.Key.z && (state & Gdk.ModifierType.CONTROL_MASK) != 0
+                        && (state & Gdk.ModifierType.SHIFT_MASK) == 0 && entry.text == "" && ai_last_change != 0) {
+                    undo_agent_change.begin();
+                    return true;
+                }
+                return false;
+            }
             if (keyval == Gdk.Key.Down) {
                 if (focus_suggestion(false)) return true;
                 if (_history_pos <= 0) {
