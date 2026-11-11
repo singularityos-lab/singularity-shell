@@ -45,7 +45,12 @@ namespace Singularity.SidebarPages {
 
             model_group = new PreferencesGroup(_("Model"),
                 _("Claude Code and Codex use your own login in their programs. Keys stay in the keyring."));
-            provider_row = new SelectionRow(_("Provider"), PROVIDERS, provider != "" ? provider : PROVIDERS[0]);
+            string[] provider_names = { _("This Computer"), _("Claude Code"), _("Codex"), _("Claude API"), _("Ollama Cloud") };
+            var provider_options = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
+            for (int i = 0; i < PROVIDERS.length; i++) {
+                provider_options.add(new Singularity.Core.AppSettingOption() { id = PROVIDERS[i], label = provider_names[i] });
+            }
+            provider_row = new SelectionRow.with_options(_("Provider"), provider_options, provider != "" ? provider : PROVIDERS[0]);
             provider_row.selected.connect(() => {
                 save();
                 refresh_key_state.begin();
