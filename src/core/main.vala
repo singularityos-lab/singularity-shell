@@ -515,6 +515,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
                 var pause_service = new Singularity.AppPauseService();
                 Singularity.AppPause.get_default().changed.connect((app_id, paused) => pause_service.changed(app_id, paused));
                 conn.register_object<Singularity.AppPauseService>("/dev/sinty/Shell/AppPause", pause_service);
+                conn.register_object<Singularity.Shell.SettingsIndexService>("/dev/sinty/Shell/SettingsIndex", new Singularity.Shell.SettingsIndexService(this));
             } catch (IOError e) {
                 warning("Failed to register Shell Service: %s", e.message);
             }
