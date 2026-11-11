@@ -25,6 +25,9 @@ namespace Singularity {
         private string ai_conversation = "";
         private Spinner ai_spinner;
         private Singularity.Widgets.ChoiceButton ai_mode_select;
+        private Singularity.Widgets.ChoiceButton ai_provider_select;
+        private const string[] AI_PROVIDERS = { "local", "claude-code", "claude-api", "codex", "ollama" };
+        private string ai_provider = "";
         private Box ai_cards;
         private HashTable<string, Widget> ai_card_keys = new HashTable<string, Widget>(str_hash, str_equal);
         private bool ai_mode_syncing = false;
@@ -174,6 +177,17 @@ namespace Singularity {
                 if (!ai_mode_syncing) set_agent_mode(ai_mode_select.selected);
             });
             ai_controls.append(ai_mode_select);
+            ai_provider_select = new Singularity.Widgets.ChoiceButton.from_strings({
+                _("This Computer"), _("Claude Code"), _("Claude API"), _("Codex"), _("Ollama Cloud")
+            });
+            ai_provider_select.tooltip_text = _("Who answers in this conversation");
+            ai_provider_select.visible = false;
+            ai_provider_select.notify["selected"].connect(() => {
+                if (ai_mode_syncing) return;
+                uint i = ai_provider_select.selected;
+                if (i < AI_PROVIDERS.length) ai_provider = AI_PROVIDERS[i];
+            });
+            ai_controls.append(ai_provider_select);
             ai_spinner = new Spinner();
             ai_spinner.visible = false;
             ai_controls.append(ai_spinner);
@@ -410,6 +424,17 @@ namespace Singularity {
 
         private void sync_agent_mode() {
             ai_mode_select.visible = ai_mode;
+            if (ai_provider == "") {
+                string provider, model, endpoint;
+                AgentConfig.load(out provider, out model, out endpoint);
+                ai_provider = provider;
+            }
+            ai_mode_syncing = true;
+            for (uint i = 0; i < AI_PROVIDERS.length; i++) {
+                if (AI_PROVIDERS[i] == ai_provider) ai_provider_select.selected = i;
+            }
+            ai_mode_syncing = false;
+            ai_provider_select.visible = ai_mode;
             ai_voice.visible = ai_mode;
             reserve_ai_space();
             fetch_agent_mode.begin(2);
@@ -469,6 +494,8 @@ namespace Singularity {
             stop_ai();
             set_ai_compact(false);
             ai_mode_select.visible = false;
+            ai_provider_select.visible = false;
+            ai_provider = "";
             ai_mode = false;
             reserve_ai_space();
             ai_direct = false;
@@ -648,7 +675,13 @@ namespace Singularity {
                 var launcher = new SubprocessLauncher(SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_PIPE);
                 var token = yield AgentConfig.grant_session();
                 if (token != null) launcher.setenv("SINTY_AGENT_TOKEN", token, true);
-                process = launcher.spawnv({ AgentConfig.BINARY, "ask", "--conversation", ai_conversation, text });
+                string[] argv = { AgentConfig.BINARY, "ask", "--conversation", ai_conversation };
+                if (ai_provider != "") {
+                    argv += "--provider";
+                    argv += ai_provider;
+                }
+                argv += text;
+                process = launcher.spawnv(argv);
                 ai_process = process;
                 yield process.communicate_utf8_async(null, null, out out_text, out err_text);
                 ok = process.get_successful();
