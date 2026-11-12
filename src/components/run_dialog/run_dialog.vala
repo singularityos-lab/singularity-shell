@@ -171,7 +171,7 @@ namespace Singularity {
                 queue_resize();
             });
             ai_mode_select = new Singularity.Widgets.ChoiceButton.from_strings({
-                _("Plan"), _("Ask"), _("Auto"), _("Autopilot")
+                _("Plan"), _("Ask First"), _("Automatic"), _("Autopilot")
             });
             ai_mode_select.tooltip_text = _("How much Sinty AI may do without asking");
             ai_mode_select.visible = false;
@@ -285,6 +285,17 @@ namespace Singularity {
             var entry_keys = new EventControllerKey();
             entry_keys.key_pressed.connect(on_entry_key_pressed);
             entry.add_controller(entry_keys);
+
+            var undo_keys = new EventControllerKey();
+            undo_keys.propagation_phase = PropagationPhase.CAPTURE;
+            undo_keys.key_pressed.connect((keyval, keycode, state) => {
+                if (!ai_mode || entry.text != "" || ai_last_change == 0) return false;
+                if (keyval != Gdk.Key.z || (state & Gdk.ModifierType.CONTROL_MASK) == 0
+                        || (state & Gdk.ModifierType.SHIFT_MASK) != 0) return false;
+                undo_agent_change.begin();
+                return true;
+            });
+            entry.add_controller(undo_keys);
 
             var list_keys = new EventControllerKey();
             list_keys.key_pressed.connect(on_list_key_pressed);
@@ -1147,14 +1158,7 @@ namespace Singularity {
                 else close_dialog();
                 return true;
             }
-            if (ai_mode) {
-                if (keyval == Gdk.Key.z && (state & Gdk.ModifierType.CONTROL_MASK) != 0
-                        && (state & Gdk.ModifierType.SHIFT_MASK) == 0 && entry.text == "" && ai_last_change != 0) {
-                    undo_agent_change.begin();
-                    return true;
-                }
-                return false;
-            }
+            if (ai_mode) return false;
             if (keyval == Gdk.Key.Down) {
                 if (focus_suggestion(false)) return true;
                 if (_history_pos <= 0) {
