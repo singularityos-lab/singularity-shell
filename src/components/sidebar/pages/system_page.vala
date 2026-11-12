@@ -8,6 +8,9 @@ namespace Singularity.SidebarPages {
         private EntryRow hostname_row;
         private SystemComponents.Component[] _components;
         private SettingsSubpages subpages;
+        private ActionRow? software_link = null;
+        private Label? channel_value = null;
+        private string os_summary = "";
 
         public SystemPage(SettingsView view) {
             base(_("About"));
@@ -76,6 +79,14 @@ namespace Singularity.SidebarPages {
                     sw_group.add_row(create_info_row("OS Version", runtime_identity.version_id));
                 if (runtime_identity.build_id != "")
                     sw_group.add_row(create_info_row("OS Build", runtime_identity.build_id));
+                if (Singularity.Runtime.is_sinty_os()) {
+                    var channel_row = new ActionRow("Update Channel");
+                    channel_value = new Label("");
+                    channel_value.add_css_class("dim-label");
+                    channel_value.selectable = true;
+                    channel_row.add_suffix(channel_value);
+                    sw_group.add_row(channel_row);
+                }
             }
             sw_group.add_row(create_info_row("OS Type", sizeof(void*) == 8 ? "64-bit" : "32-bit"));
             sw_group.add_row(create_info_row("Singularity Desktop", SingularityApp.VERSION));
@@ -87,9 +98,15 @@ namespace Singularity.SidebarPages {
             var details_group = new PreferencesGroup(_("Details"));
             details_group.add_row(subpages.link(_("Hardware"), get_hardware_model(),
                 "computer-symbolic", hardware_page, "system-hardware"));
-            string os_summary = OsIdentity.has_host_identity() ? host_identity.menu_label() : runtime_identity.menu_label();
-            details_group.add_row(subpages.link(_("Software"), os_summary,
-                "system-software-install-symbolic", software_page, "system-software"));
+            os_summary = OsIdentity.has_host_identity() ? host_identity.menu_label() : runtime_identity.menu_label();
+            software_link = subpages.link(_("Software"), os_summary,
+                "system-software-install-symbolic", software_page, "system-software");
+            details_group.add_row(software_link);
+            if (Singularity.Runtime.is_sinty_os()) {
+                refresh_channel();
+                map.connect(refresh_channel);
+                software_page.map.connect(refresh_channel);
+            }
             add_group(details_group);
             var security_group = details_group;
             var security_row = new ActionRow(_("Device Security"), DeviceSecurityPage.summary(), "security-high-symbolic");
@@ -135,6 +152,25 @@ namespace Singularity.SidebarPages {
             var dev_row = new SwitchRow(_("Developer Mode"), _("Show the Developer settings page"), settings.get_boolean("developer-mode"));
             settings.bind("developer-mode", dev_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
             preview_group.add_row(dev_row);
+        }
+
+        private static string update_channel() {
+            string name;
+            try {
+                FileUtils.get_contents("/var/lib/sinty/update-channel", out name);
+            } catch (Error e) {
+                return "stable";
+            }
+            name = name.strip();
+            return name == "" ? "stable" : name;
+        }
+
+        private void refresh_channel() {
+            string name = update_channel();
+            string label = name == "stable" ? _("Stable") : name == "canary" ? _("Canary") : name;
+            if (channel_value != null) channel_value.label = label;
+            if (software_link != null)
+                software_link.subtitle = name == "stable" ? os_summary : "%s, %s".printf(os_summary, label);
         }
 
         private async void load_components(PreferencesGroup comp_group) {

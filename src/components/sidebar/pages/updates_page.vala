@@ -19,6 +19,7 @@ namespace Singularity.SidebarPages {
         private ActionRow newer_row;
         private ActionRow firmware_row;
         private ActionRow auto_row;
+        private SelectionRow? channel_row = null;
         private GLib.Settings settings;
         private ulong provider_handler = 0;
         private ulong firmware_handler = 0;
@@ -97,12 +98,23 @@ namespace Singularity.SidebarPages {
                     auto_row.subtitle = AutomaticUpdatesPage.summary(settings);
                 }
             });
+            if (Singularity.Runtime.is_sinty_os() && BootChainGroup.available()) {
+                channel_row = new SelectionRow(_("Update Channel"), { _("Stable"), _("Canary") }, _("Stable"));
+                channel_row.subtitle = _("Canary receives every build as soon as it is signed, before it reaches Stable.");
+                channel_row.icon_name = "software-update-available-symbolic";
+                channel_row.visible = false;
+                channel_row.selected.connect((val) => set_channel.begin(val == _("Canary") ? "canary" : "stable"));
+                system_group.add_row(channel_row);
+                load_channel.begin();
+            }
             add_group(system_group);
 
 
             add_search_action(_("Check for Updates"), _("Look for a newer version of the system now"), () => run_action.begin("check"));
             add_search_action(_("Firmware"), _("Device firmware, drivers and security metadata"), open_firmware);
             add_search_action(_("Automatic Updates"), _("Check for and download updates in the background"), open_automatic);
+            if (channel_row != null)
+                add_search_action(_("Update Channel"), _("Choose between Stable and Canary builds"), () => channel_row.expanded = true);
             add_search_action(_("Update History"), _("See which updates were installed and when"), open_history);
 
             destroy.connect(() => {
@@ -111,6 +123,45 @@ namespace Singularity.SidebarPages {
             });
 
             load.begin();
+        }
+
+        private static string channel_label(string name) {
+            return name == "canary" ? _("Canary") : _("Stable");
+        }
+
+        private void apply_channel(Json.Object state) {
+            bool has_canary = false;
+            if (state.has_member("channels")) {
+                foreach (var node in state.get_array_member("channels").get_elements()) {
+                    if (node.get_string() == "canary") has_canary = true;
+                }
+            }
+            channel_row.visible = has_canary;
+            channel_row.current_value = channel_label(state.get_string_member_with_default("channel", "stable"));
+        }
+
+        private async void load_channel() {
+            try {
+                apply_channel(yield BootChainGroup.request("GET", "/channel", 5));
+            } catch (Error e) {
+                debug("Update channel: %s", e.message);
+            }
+        }
+
+        private async void set_channel(string name) {
+            try {
+                var state = yield BootChainGroup.request("POST", "/channel?name=" + name, 60);
+                apply_channel(state);
+                string error = state.get_string_member_with_default("error", "");
+                if (error != "") {
+                    os_row.subtitle = error;
+                    return;
+                }
+                yield run_action("check");
+            } catch (Error e) {
+                os_row.subtitle = e.message;
+                yield load_channel();
+            }
         }
 
         private async void load() {
