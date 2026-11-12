@@ -670,28 +670,8 @@ namespace Singularity {
             }
 
             if (!is_greeter_mode) {
-                _sig_app_focused = app_system.app_focused.connect((app_id) => {
-                    // Secondary panels: only update if focused window is on our monitor
-                    if (!is_primary && gdk_monitor != null) {
-                        var focused_handle = app_system.get_focused_window_handle();
-                        if (focused_handle != null) {
-                            var wmon = Singularity.wayland_get_window_monitor(focused_handle);
-                            if (wmon != gdk_monitor) return;
-                        }
-                    }
-                    last_monitor_app_id = app_id;
-                    if (app_id == null || app_id == "") {
-                        app_title_label.label = "";
-                        return;
-                    }
-                    var app_info = app_system.resolve_app_for_id(app_id);
-                    if (app_info != null) {
-                        app_title_label.label = app_info.get_name();
-                    } else {
-                        app_title_label.label = humanize_app_id(app_id);
-                    }
-                    app_title_label.visible = true;
-                });
+                _sig_app_focused = app_system.app_focused.connect(show_app_title);
+                show_app_title(app_system.get_focused_app_id());
             }
             var sys_btn = new Button();
             sys_btn.has_frame = false;
@@ -1458,6 +1438,29 @@ namespace Singularity {
                 if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) return true;
             }
             return false;
+        }
+
+        private void show_app_title(string? app_id) {
+            // Secondary panels: only update if focused window is on our monitor
+            if (!is_primary && gdk_monitor != null) {
+                var focused_handle = AppSystem.get_default().get_focused_window_handle();
+                if (focused_handle != null) {
+                    var wmon = Singularity.wayland_get_window_monitor(focused_handle);
+                    if (wmon != gdk_monitor) return;
+                }
+            }
+            last_monitor_app_id = app_id;
+            if (app_id == null || app_id == "") {
+                app_title_label.label = "";
+                return;
+            }
+            var app_info = AppSystem.get_default().resolve_app_for_id(app_id);
+            if (app_info != null) {
+                app_title_label.label = app_info.get_name();
+            } else {
+                app_title_label.label = humanize_app_id(app_id);
+            }
+            app_title_label.visible = true;
         }
 
         private string humanize_app_id(string app_id) {

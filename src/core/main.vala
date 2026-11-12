@@ -1923,6 +1923,7 @@ window.inactive.shadow.color: %s
     private void launch_autostart_apps() {
         if (_autostart_done) return;
         _autostart_done = true;
+        if (Environment.get_variable("SINGULARITY_SHELL_RESTARTED") != null) return;
         var manager = new Singularity.AutostartManager();
         foreach (var path in manager.launchable_entries()) {
             var info = new GLib.DesktopAppInfo.from_filename(path);
@@ -1936,6 +1937,7 @@ window.inactive.shadow.color: %s
     }
 
     private void launch_first_run_tour() {
+        if (Environment.get_variable("SINGULARITY_SHELL_RESTARTED") != null) return;
         var schema = GLib.SettingsSchemaSource.get_default()?.lookup("dev.sinty.desktop", true);
         if (schema == null || !schema.has_key("show-tour")) return;
         var settings = new GLib.Settings("dev.sinty.desktop");
