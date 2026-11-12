@@ -81,8 +81,8 @@ namespace Singularity.SidebarPages {
             refresh_key_state.begin();
             add_group(model_group);
 
-            behaviour_group = new PreferencesGroup(_("Behaviour"), null);
-            string[] mode_names = { _("Suggest Only"), _("Ask Before Lasting Changes"), _("Act on Its Own") };
+            behaviour_group = new PreferencesGroup(_("Behaviour"), _("Plan only reads and suggests. Ask First asks before lasting changes. Automatic asks only before what cannot be undone."));
+            string[] mode_names = { _("Plan"), _("Ask First"), _("Automatic") };
             int mode_index = 1;
             for (int i = 0; i < MODES.length; i++) if (MODES[i] == AgentConfig.mode()) mode_index = i;
             var mode_row = new SelectionRow(_("Mode"), mode_names, mode_names[mode_index]);

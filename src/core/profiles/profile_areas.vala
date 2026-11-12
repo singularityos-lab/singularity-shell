@@ -463,9 +463,9 @@ namespace Singularity {
         }
 
         private void build_agent() {
-            var a = area(Areas.AGENT, "sinty-agent-symbolic");
-            var mode = new Option("mode", _("What Sinty Agent Can Do Alone"), OptionKind.CHOICE);
-            mode.add_choice("plan", _("Plan Only"))
+            var a = area(Areas.AGENT, "dialog-question-symbolic");
+            var mode = new Option("mode", _("What Sinty AI Can Do Alone"), OptionKind.CHOICE);
+            mode.add_choice("plan", _("Plan"))
                 .add_choice("ask", _("Ask First"))
                 .add_choice("auto", _("Automatic"))
                 .add_choice("autopilot", _("Autopilot"));

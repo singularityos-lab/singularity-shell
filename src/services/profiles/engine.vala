@@ -244,7 +244,7 @@ namespace Singularity.ProfilesService {
                 case "menu": return _("Turned on from the system menu");
                 case "shortcut": return _("Turned on with its keyboard shortcut");
                 case "settings": return _("Turned on in Settings");
-                case "agent": return _("Turned on by Sinty Agent");
+                case "agent": return _("Turned on by Sinty AI");
             }
             return _("Turned on by hand");
         }
