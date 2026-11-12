@@ -100,7 +100,8 @@ namespace Singularity {
             foreach (var info in AppPluginHost.catalog ()) {
                 if (info.is_hidden ()) continue;
                 foreach (string host in AppPluginHost.hosts_of (info)) {
-                    if (host != "" && !ids.contains (host)) ids.add (host);
+                    if (host != "" && !ids.contains (host)
+                            && new GLib.DesktopAppInfo (host + ".desktop") != null) ids.add (host);
                 }
             }
             return ids;
