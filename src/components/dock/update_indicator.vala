@@ -6,6 +6,8 @@ namespace Singularity {
         private const string SOCKET = "/run/updated.sock";
         private const uint POLL_SECONDS = 5;
         private const uint RETRY_SECONDS = 1;
+        private const uint APPLY_LIVE_SECONDS = 300;
+        public const int RELOAD_EXIT_CODE = 79;
 
         private string state = "idle";
         private string latest = "";
@@ -15,12 +17,17 @@ namespace Singularity {
         private string error = "";
         private string consent_token = "";
         private int percent = 0;
+        private string live_class = "";
+        private bool applying_live = false;
+        private string live_failed = "";
         private bool agent_available = false;
         private bool polling = false;
         private uint poll_id = 0;
         private uint interval = 0;
 
         public signal void restart_requested(string version);
+        public signal void live_requested(string version, string live_class);
+        public signal void reload_needed();
 
         public UpdateIndicator(int icon_size) {
             add_css_class("dock-update-indicator");
@@ -85,10 +92,10 @@ namespace Singularity {
             return Source.CONTINUE;
         }
 
-        private async string? request(string method, string path) {
+        private async string? request(string method, string path, uint timeout = 2) {
             var cancellable = new Cancellable();
             uint timeout_id = 0;
-            timeout_id = Timeout.add_seconds(2, () => {
+            timeout_id = Timeout.add_seconds(timeout, () => {
                 timeout_id = 0;
                 cancellable.cancel();
                 return Source.REMOVE;
@@ -165,6 +172,7 @@ namespace Singularity {
                 string token = o.get_string_member_with_default("consent_token", "");
                 consent_token = valid_consent_token(token) ? token : "";
                 percent = (int) o.get_int_member_with_default("percent", 0);
+                live_class = latest != "" && latest == live_failed ? "" : parse_live_class(o);
             } catch (Error e) {
                 agent_available = false;
                 ((Gtk.Widget) this).visible = false;
@@ -174,6 +182,24 @@ namespace Singularity {
             agent_available = true;
             render();
             adjust_interval();
+            if (state == "ready" && live_class == "silent") apply_live.begin();
+        }
+
+        internal static string parse_live_class(Json.Object status) {
+            if (!status.has_member("live")) return "";
+            var node = status.get_member("live");
+            if (node.get_node_type() != Json.NodeType.OBJECT) return "";
+            var live = node.get_object();
+            if (!live.get_boolean_member_with_default("eligible", false)) return "";
+            string klass = live.get_string_member_with_default("class", "");
+            switch (klass) {
+                case "silent":
+                case "reload":
+                case "relogin":
+                    return klass;
+                default:
+                    return "";
+            }
         }
 
         private void render() {
@@ -188,7 +214,7 @@ namespace Singularity {
                     ((Gtk.Widget) this).visible = true;
                     break;
                 case "ready":
-                    set_tooltip_text(_("Update ready: restart to apply %s").printf(version));
+                    set_tooltip_text(ready_tooltip(live_class, version));
                     ((Gtk.Widget) this).visible = true;
                     break;
                 case "error":
@@ -202,6 +228,19 @@ namespace Singularity {
                 default:
                     ((Gtk.Widget) this).visible = false;
                     break;
+            }
+        }
+
+        internal static string ready_tooltip(string live_class, string version) {
+            switch (live_class) {
+                case "reload":
+                    return _("Update ready: apply %s now").printf(version);
+                case "relogin":
+                    return _("Update ready: log out and back in to apply %s").printf(version);
+                case "silent":
+                    return _("Applying %s").printf(version);
+                default:
+                    return _("Update ready: restart to apply %s").printf(version);
             }
         }
 
@@ -246,7 +285,10 @@ namespace Singularity {
                     start_download.begin();
                     break;
                 case "ready":
-                    restart_requested(display_version());
+                    if (live_class == "reload" || live_class == "relogin")
+                        live_requested(display_version(), live_class);
+                    else
+                        restart_requested(display_version());
                     break;
                 case "error":
                     retry_check.begin();
@@ -276,6 +318,24 @@ namespace Singularity {
             render();
             yield request("GET", "/check");
             poll();
+        }
+
+        public async bool apply_live() {
+            if (applying_live || state != "ready" || live_class == "") return false;
+            applying_live = true;
+            string applied = live_class;
+            var body = yield request("POST", "/apply-live", APPLY_LIVE_SECONDS);
+            applying_live = false;
+            if (body == null) {
+                live_failed = latest;
+                live_class = "";
+                render();
+                poll();
+                return false;
+            }
+            poll();
+            if (applied == "reload") reload_needed();
+            return true;
         }
 
         public void apply_update() {

@@ -1978,6 +1978,30 @@ namespace Singularity {
                     );
                     dialog.open_dialog();
                 });
+                indicator.live_requested.connect((version, live_class) => {
+                    var app = (Gtk.Application) GLib.Application.get_default();
+                    bool relogin = live_class == "relogin";
+                    var dialog = new PowerConfirmDialog(
+                        app,
+                        version,
+                        "sinty",
+                        relogin
+                            ? _("Log out and back in to finish updating.")
+                            : _("An update is ready and can be applied now: some parts of the desktop restart, your work and apps stay open."),
+                        relogin ? _("Log Out") : _("Apply Now"),
+                        () => {
+                            if (relogin)
+                                SessionManager.get_default().logout();
+                            else
+                                indicator.apply_live.begin();
+                        }
+                    );
+                    dialog.open_dialog();
+                });
+                indicator.reload_needed.connect(() => {
+                    Singularity.SystemMonitor.get_default().notifications.save_now();
+                    Process.exit(UpdateIndicator.RELOAD_EXIT_CODE);
+                });
                 pill.append(indicator);
                 wrapper.visible = indicator.visible;
                 indicator.notify["visible"].connect(() => {

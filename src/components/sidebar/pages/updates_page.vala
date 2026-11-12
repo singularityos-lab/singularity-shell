@@ -298,9 +298,27 @@ namespace Singularity.SidebarPages {
                     button = _("Install on Restart");
                     break;
                 case State.SCHEDULED:
-                    title = _("Restart to Finish Updating");
-                    detail = _("The update installs while the computer restarts.");
-                    button = _("Restart");
+                    switch (live_class()) {
+                        case "reload":
+                            title = _("Ready to Apply");
+                            detail = _("Some parts of the desktop restart. Your work and apps stay open.");
+                            button = _("Apply Now");
+                            break;
+                        case "relogin":
+                            title = _("Log Out to Finish Updating");
+                            detail = _("The update is applied when you log out and back in.");
+                            button = _("Log Out");
+                            break;
+                        case "silent":
+                            title = _("Applying Update");
+                            detail = _("Nothing to do: the update applies on its own.");
+                            break;
+                        default:
+                            title = _("Restart to Finish Updating");
+                            detail = _("The update installs while the computer restarts.");
+                            button = _("Restart");
+                            break;
+                    }
                     break;
                 case State.ERROR:
                     title = _("Update Failed");
@@ -392,12 +410,22 @@ namespace Singularity.SidebarPages {
                     run_action.begin("schedule");
                     break;
                 case State.SCHEDULED:
-                    confirm_restart();
+                    if (live_class() == "reload")
+                        run_action.begin("apply-live");
+                    else if (live_class() == "relogin")
+                        SessionManager.get_default().logout();
+                    else
+                        confirm_restart();
                     break;
                 default:
                     run_action.begin("check");
                     break;
             }
+        }
+
+        private string live_class() {
+            var updated = provider as UpdatedProvider;
+            return updated != null ? updated.live_class : "";
         }
 
         private void confirm_restart() {
@@ -429,6 +457,16 @@ namespace Singularity.SidebarPages {
                         break;
                     case "unschedule":
                         yield provider.unschedule();
+                        break;
+                    case "apply-live":
+                        var updated = provider as UpdatedProvider;
+                        if (updated == null) break;
+                        bool reload = updated.live_class == "reload";
+                        yield updated.apply_live();
+                        if (reload) {
+                            Singularity.SystemMonitor.get_default().notifications.save_now();
+                            Process.exit(UpdateIndicator.RELOAD_EXIT_CODE);
+                        }
                         break;
                 }
             } catch (Error e) {
