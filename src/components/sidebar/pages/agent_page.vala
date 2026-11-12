@@ -11,6 +11,9 @@ namespace Singularity.SidebarPages {
         private EntryRow endpoint_row;
         private PasswordRow key_row;
         private SwitchRow enabled_row;
+        private SelectionRow mode_row;
+        private SwitchRow voice_row;
+        private SwitchRow background_row;
         private PreferencesGroup model_group;
         private PreferencesGroup behaviour_group;
         private PreferencesGroup tasks_group;
@@ -85,7 +88,7 @@ namespace Singularity.SidebarPages {
             string[] mode_names = { _("Plan"), _("Ask First"), _("Automatic") };
             int mode_index = 1;
             for (int i = 0; i < MODES.length; i++) if (MODES[i] == AgentConfig.mode()) mode_index = i;
-            var mode_row = new SelectionRow(_("Mode"), mode_names, mode_names[mode_index]);
+            mode_row = new SelectionRow(_("Mode"), mode_names, mode_names[mode_index]);
             mode_row.selected.connect(() => {
                 int i = mode_row.selected_index;
                 if (i < 0 || i >= MODES.length) return;
@@ -96,10 +99,10 @@ namespace Singularity.SidebarPages {
                 }
             });
             behaviour_group.add_row(mode_row);
-            var voice_row = new SwitchRow(_("Voice"), _("Listen while Super+Shift+A is held"), AgentConfig.flag("voice", true));
+            voice_row = new SwitchRow(_("Voice"), _("Listen while Super+Shift+A is held"), AgentConfig.flag("voice", true));
             voice_row.switch_btn.notify["active"].connect(() => save_flag("voice", voice_row.switch_btn.active));
             behaviour_group.add_row(voice_row);
-            var background_row = new SwitchRow(_("Work in the Background"),
+            background_row = new SwitchRow(_("Work in the Background"),
                 _("Finish tasks while you use other apps. It still asks before anything that cannot be undone."),
                 AgentConfig.flag("background", false));
             background_row.switch_btn.notify["active"].connect(() => save_flag("background", background_row.switch_btn.active));
@@ -142,6 +145,23 @@ namespace Singularity.SidebarPages {
                 if (enabled_row.switch_btn.active) save();
                 else if (!loading) AgentConfig.remove();
             });
+            loading = false;
+            map.connect(reload);
+        }
+
+        private void reload() {
+            loading = true;
+            string provider, model, endpoint;
+            AgentConfig.load(out provider, out model, out endpoint);
+            enabled_row.switch_btn.active = AgentConfig.configured();
+            if (provider != "") provider_row.current_value = provider;
+            if (model_row.text != model) model_row.text = model;
+            if (endpoint_row.text != endpoint) endpoint_row.text = endpoint;
+            string[] mode_names = { _("Plan"), _("Ask First"), _("Automatic") };
+            for (int i = 0; i < MODES.length; i++) if (MODES[i] == AgentConfig.mode()) mode_row.current_value = mode_names[i];
+            voice_row.switch_btn.active = AgentConfig.flag("voice", true);
+            background_row.switch_btn.active = AgentConfig.flag("background", false);
+            fill_tasks();
             loading = false;
         }
 
