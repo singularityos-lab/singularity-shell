@@ -1994,7 +1994,8 @@ namespace Singularity {
                                 SessionManager.get_default().logout();
                             else
                                 indicator.apply_live.begin();
-                        }
+                        },
+                        relogin
                     );
                     dialog.open_dialog();
                 });

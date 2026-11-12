@@ -16,7 +16,8 @@ namespace Singularity {
             string icon_name,
             string description,
             string confirm_label,
-            owned ConfirmCallback on_confirm
+            owned ConfirmCallback on_confirm,
+            bool destructive = true
         ) {
             Object(
                 application: app,
@@ -67,7 +68,7 @@ namespace Singularity {
 
             var confirm_btn = new Button.with_label(confirm_label);
             confirm_btn.add_css_class("pill");
-            confirm_btn.add_css_class("destructive-action");
+            confirm_btn.add_css_class(destructive ? "destructive-action" : "suggested-action");
             confirm_btn.width_request = 128;
             confirm_btn.clicked.connect(() => {
                 close_dialog();
