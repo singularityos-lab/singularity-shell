@@ -26,6 +26,11 @@ namespace Singularity {
         private Spinner ai_spinner;
         private Singularity.Widgets.ChoiceButton ai_mode_select;
         private Singularity.Widgets.ChoiceButton ai_provider_select;
+        private static string choice_text(Singularity.Widgets.ChoiceButton button) {
+            var item = button.selected_item as StringObject;
+            return item != null ? item.string : "";
+        }
+
         private const string[] AI_PROVIDERS = { "local", "claude-code", "claude-api", "codex", "ollama" };
         private string ai_provider = "";
         private Box ai_cards;
@@ -173,7 +178,18 @@ namespace Singularity {
             ai_mode_select = new Singularity.Widgets.ChoiceButton.from_strings({
                 _("Plan"), _("Ask First"), _("Automatic"), _("Autopilot")
             });
-            ai_mode_select.tooltip_text = _("How much Sinty AI may do without asking");
+            ai_mode_select.icon_names = {
+                "sinty-ai-plan-symbolic", "sinty-ai-ask-symbolic", "sinty-ai-automatic-symbolic", "sinty-ai-autopilot-symbolic"
+            };
+            ai_mode_select.descriptions = {
+                _("Only reads and suggests"), _("Asks before lasting changes"),
+                _("Asks only before what cannot be undone"), _("Finishes the task on its own")
+            };
+            ai_mode_select.icon_only = true;
+            ai_mode_select.notify["selected"].connect(() => {
+                ai_mode_select.tooltip_text = _("Mode: %s").printf(choice_text(ai_mode_select));
+            });
+            ai_mode_select.tooltip_text = _("Mode: %s").printf(choice_text(ai_mode_select));
             ai_mode_select.visible = false;
             ai_mode_select.notify["selected"].connect(() => {
                 if (!ai_mode_syncing) set_agent_mode(ai_mode_select.selected);
@@ -182,7 +198,15 @@ namespace Singularity {
             ai_provider_select = new Singularity.Widgets.ChoiceButton.from_strings({
                 _("This Computer"), _("Claude Code"), _("Claude API"), _("Codex"), _("Ollama Cloud")
             });
-            ai_provider_select.tooltip_text = _("Who answers in this conversation");
+            ai_provider_select.icon_names = {
+                "sinty-ai-computer-symbolic", "sinty-ai-claude-symbolic", "sinty-ai-anthropic-symbolic",
+                "sinty-ai-openai-symbolic", "sinty-ai-ollama-symbolic"
+            };
+            ai_provider_select.icon_only = true;
+            ai_provider_select.notify["selected"].connect(() => {
+                ai_provider_select.tooltip_text = _("Answers: %s").printf(choice_text(ai_provider_select));
+            });
+            ai_provider_select.tooltip_text = _("Answers: %s").printf(choice_text(ai_provider_select));
             ai_provider_select.visible = false;
             ai_provider_select.notify["selected"].connect(() => {
                 if (ai_mode_syncing) return;

@@ -1011,6 +1011,19 @@ install_data('data/icons/singularity-account-secure-mail.svg',
   install_dir: get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps'
 )
 
+install_data(
+  'data/icons/symbolic/sinty-ai-plan-symbolic.svg',
+  'data/icons/symbolic/sinty-ai-ask-symbolic.svg',
+  'data/icons/symbolic/sinty-ai-automatic-symbolic.svg',
+  'data/icons/symbolic/sinty-ai-autopilot-symbolic.svg',
+  'data/icons/symbolic/sinty-ai-computer-symbolic.svg',
+  'data/icons/symbolic/sinty-ai-claude-symbolic.svg',
+  'data/icons/symbolic/sinty-ai-anthropic-symbolic.svg',
+  'data/icons/symbolic/sinty-ai-openai-symbolic.svg',
+  'data/icons/symbolic/sinty-ai-ollama-symbolic.svg',
+  install_dir: get_option('datadir') / 'icons' / 'hicolor' / 'symbolic' / 'apps'
+)
+
 wallpaper_collections_test = executable('wallpaper-collections-test',
   sources: ['src/core/wallpaper_collections.vala', 'src/core/dynamic_wallpaper.vala', 'tests/wallpaper_collections_test.vala'],
   dependencies: [dependency('gobject-2.0'), dependency('glib-2.0'), dependency('gio-2.0'), gee_dep, json_dep, cc.find_library('m')],
