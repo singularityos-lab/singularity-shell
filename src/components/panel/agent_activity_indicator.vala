@@ -10,6 +10,7 @@ namespace Singularity {
         private const uint CURSOR_MS = 2500;
 
         private Label who_label;
+        private AgentOrb orb;
         private DBusConnection? bus = null;
         private uint working_sub = 0;
         private uint pointer_sub = 0;
@@ -27,9 +28,13 @@ namespace Singularity {
             add_css_class("agent-activity-indicator");
 
             var box = new Box(Orientation.HORIZONTAL, 6);
-            var icon = new Image.from_icon_name("dialog-question-symbolic");
-            icon.pixel_size = 16;
-            box.append(icon);
+            orb = new AgentOrb(14);
+            orb.state = AgentOrbState.ACT;
+            orb.margin_start = -6;
+            orb.margin_end = -6;
+            orb.margin_top = -6;
+            orb.margin_bottom = -6;
+            box.append(orb);
             who_label = new Label(_("Sinty AI"));
             who_label.ellipsize = Pango.EllipsizeMode.END;
             who_label.max_width_chars = 22;
@@ -89,6 +94,8 @@ namespace Singularity {
             tooltip_text = text;
             update_property(Gtk.AccessibleProperty.LABEL, text, -1);
             visible = true;
+            orb.state = tool == "" ? AgentOrbState.THINK : AgentOrbState.ACT;
+            orb.kick(0.4);
             if (idle_timer != 0) Source.remove(idle_timer);
             idle_timer = Timeout.add(IDLE_MS, () => {
                 idle_timer = 0;

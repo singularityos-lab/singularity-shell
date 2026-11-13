@@ -11,6 +11,7 @@ namespace Singularity.SidebarPages {
         private EntryRow endpoint_row;
         private PasswordRow key_row;
         private SwitchRow enabled_row;
+        private AgentOrb hero_orb;
         private SelectionRow mode_row;
         private SwitchRow voice_row;
         private SwitchRow background_row;
@@ -35,6 +36,12 @@ namespace Singularity.SidebarPages {
             base(_("Sinty AI"));
             back_btn.visible = true;
             back_clicked.connect(() => view.go_home());
+
+            hero_orb = new AgentOrb(56);
+            hero_orb.halign = Align.CENTER;
+            hero_orb.margin_top = 8;
+            hero_orb.margin_bottom = 4;
+            add_widget(hero_orb);
 
             var general = new PreferencesGroup(_("Sinty AI"),
                 _("Off unless you turn it on. Without a model nothing on this computer uses AI."));
@@ -138,10 +145,13 @@ namespace Singularity.SidebarPages {
             model_group.sensitive = enabled_row.switch_btn.active;
             behaviour_group.sensitive = enabled_row.switch_btn.active;
             tasks_group.sensitive = enabled_row.switch_btn.active;
+            hero_orb.state = enabled_row.switch_btn.active ? AgentOrbState.IDLE : AgentOrbState.OFF;
             enabled_row.switch_btn.notify["active"].connect(() => {
                 model_group.sensitive = enabled_row.switch_btn.active;
                 behaviour_group.sensitive = enabled_row.switch_btn.active;
                 tasks_group.sensitive = enabled_row.switch_btn.active;
+                hero_orb.state = enabled_row.switch_btn.active ? AgentOrbState.IDLE : AgentOrbState.OFF;
+                if (enabled_row.switch_btn.active && !loading) hero_orb.kick(1);
                 if (enabled_row.switch_btn.active) save();
                 else if (!loading) AgentConfig.remove();
             });

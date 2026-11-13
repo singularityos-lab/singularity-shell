@@ -24,6 +24,8 @@ namespace Singularity {
         private Subprocess? ai_process = null;
         private string ai_conversation = "";
         private Spinner ai_spinner;
+        private AgentOrb ai_orb;
+        private uint ai_orb_rest = 0;
         private Singularity.Widgets.ChoiceButton ai_mode_select;
         private Singularity.Widgets.ChoiceButton ai_provider_select;
         private static string choice_text(Singularity.Widgets.ChoiceButton button) {
@@ -140,6 +142,12 @@ namespace Singularity {
             action_prefix.can_target = false;
             action_prefix.visible = false;
             entry_overlay.add_overlay(action_prefix);
+            ai_orb = new AgentOrb(16);
+            ai_orb.halign = Align.START;
+            ai_orb.valign = Align.CENTER;
+            ai_orb.margin_start = 3;
+            ai_orb.visible = false;
+            entry_overlay.add_overlay(ai_orb);
 
             ai_controls = new Box(Orientation.HORIZONTAL, 6);
             ai_controls.halign = Align.END;
@@ -391,7 +399,13 @@ namespace Singularity {
             string query = entry.text.strip();
             error_label.visible = false;
 
-            if (ai_mode) return;
+            if (ai_mode) {
+                if (ai_process == null && !voice.listening) {
+                    ai_orb.state = query == "" ? AgentOrbState.IDLE : AgentOrbState.LISTEN;
+                    ai_orb.kick(0.15);
+                }
+                return;
+            }
 
             if (!action_mode && query.has_prefix("@") && AgentConfig.configured()) {
                 enter_ai_mode(query.substring(1));
@@ -456,7 +470,9 @@ namespace Singularity {
             active_query = "";
             ai_mode = true;
             action_prefix.label = "@";
-            action_prefix.visible = true;
+            action_prefix.visible = false;
+            set_orb(AgentOrbState.IDLE);
+            ai_orb.visible = true;
             entry.primary_icon_name = null;
             entry.add_css_class("action-mode");
             entry.placeholder_text = _("Ask Sinty AI");
@@ -551,6 +567,8 @@ namespace Singularity {
             ai_direct = false;
             action_prefix.label = "!";
             action_prefix.visible = false;
+            set_orb(AgentOrbState.IDLE);
+            ai_orb.visible = false;
             ai_answer.label = "";
             clear_agent_cards();
             ai_scroll.visible = false;
@@ -608,6 +626,9 @@ namespace Singularity {
                 ai_voice.tooltip_text = _("Send Voice Message");
             }
             entry.editable = !voice.listening;
+            if (voice.listening) set_orb(AgentOrbState.LISTEN);
+            else if (voice.speaking) set_orb(AgentOrbState.SPEAK);
+            else if (ai_process == null && ai_mode) set_orb(AgentOrbState.IDLE);
             if (voice.listening) entry.placeholder_text = _("Listening");
             else if (voice.speaking) entry.placeholder_text = _("Speaking");
             else if (ai_mode) entry.placeholder_text = _("Ask Sinty AI");
@@ -616,6 +637,19 @@ namespace Singularity {
                 entry.text = "";
                 updating_text = false;
             }
+        }
+
+        private void set_orb(AgentOrbState state, AgentOrbState then = AgentOrbState.IDLE, uint after = 0) {
+            if (ai_orb_rest != 0) GLib.Source.remove(ai_orb_rest);
+            ai_orb_rest = 0;
+            ai_orb.state = state;
+            if (after == 0) return;
+            ai_orb_rest = Timeout.add(after, () => {
+                ai_orb_rest = 0;
+                ai_orb.state = then;
+                if (then == AgentOrbState.DONE) ai_orb.kick(1);
+                return GLib.Source.REMOVE;
+            });
         }
 
         private void stop_ai() {
@@ -682,6 +716,8 @@ namespace Singularity {
                 ai_cards.append(card);
             }
             ai_card_keys.replace(key, card);
+            if (ai_process != null) set_orb(AgentOrbState.ACT);
+            ai_orb.kick(0.5);
             ai_cards.visible = true;
             ai_scroll.visible = true;
             queue_resize();
@@ -758,8 +794,7 @@ namespace Singularity {
             ai_answer.label = "";
             clear_agent_cards();
             ai_scroll.visible = false;
-            ai_spinner.visible = true;
-            ai_spinner.start();
+            set_orb(AgentOrbState.THINK);
             entry.sensitive = false;
             set_ai_compact(true);
             run_ai.begin(text);
@@ -796,6 +831,8 @@ namespace Singularity {
             entry.sensitive = true;
             entry.grab_focus();
             if (!ok) voice.end();
+            if (ok) set_orb(AgentOrbState.SPEAK, AgentOrbState.DONE, 1400);
+            else set_orb(AgentOrbState.IDLE);
             if (ok) {
                 string answer = (out_text ?? "").strip();
                 string markup = AnswerMarkup.to_pango(answer);

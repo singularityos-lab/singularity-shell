@@ -639,6 +639,7 @@ singularity_core_sources = files(
     'src/components/run_dialog/agent_voice.vala',
     'src/components/run_dialog/agent_cards.vala',
     'src/components/agent/agent.vala',
+    'src/components/agent/agent_orb.vala',
     'src/components/emoji_picker/emoji_picker.vala',
     'src/components/app_switcher/app_switcher.vala',
     'src/core/search/search_manager.vala',
