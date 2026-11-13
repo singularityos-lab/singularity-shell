@@ -129,7 +129,7 @@ namespace Singularity {
             append(header);
                         var content = new Box(Orientation.VERTICAL, 0);
                         _content = content;
-                        content.margin_bottom = 8;
+                        content.margin_bottom = 6;
                         content.margin_start = 6;
                         content.margin_end = 6;
 
@@ -607,10 +607,14 @@ namespace Singularity {
                 kbd_row.set_child(kbd_box);
                 sliders_group.add_row(kbd_row);
             }
+            sliders_group.margin_bottom = 0;
             content.append(sliders_group);
-            content.append(new BackgroundAppsGroup());
+            var background_apps = new BackgroundAppsGroup();
+            background_apps.margin_top = 10;
+            background_apps.margin_bottom = 0;
+            content.append(background_apps);
             var media_player = new MediaPlayerCard();
-            media_player.margin_bottom = 10;
+            media_player.margin_top = 10;
             content.append(media_player);
             _inactive_tile_grid.visible = false;
             _quick_settings_preferences.visible = false;
