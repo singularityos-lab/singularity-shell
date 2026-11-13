@@ -924,13 +924,23 @@ namespace Singularity {
             }
         }
 
+        private async bool on_canary () {
+            try {
+                var state = yield SidebarPages.BootChainGroup.request ("GET", "/channel", 5);
+                return state.get_string_member_with_default ("channel", "stable") == "canary";
+            } catch (GLib.Error e) {
+                return false;
+            }
+        }
+
         private async void refresh_six_state () {
+            bool canary = yield on_canary ();
             try {
                 UshBroker broker = yield Bus.get_proxy (BusType.SESSION, "dev.sinty.ush.Broker", "/dev/sinty/ush/Broker");
                 bool available;
                 string state;
                 yield broker.six_status (out available, out state);
-                _six_switch.visible = available;
+                _six_switch.visible = available && (canary || state != "off");
                 set_six_switch (state);
             } catch (GLib.Error e) {
                 _six_switch.visible = false;
