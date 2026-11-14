@@ -113,6 +113,13 @@ namespace Singularity {
                 settings.get_boolean("mouse-acceleration"));
             settings.bind("mouse-acceleration", accel_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
             pointer_group.add_row(accel_row);
+            if (settings.settings_schema.has_key("touchpad-tap-to-click")) {
+                var tap_row = new SwitchRow(_("Tap to Click"),
+                    _("Tap the touchpad lightly instead of pressing to click"),
+                    settings.get_boolean("touchpad-tap-to-click"));
+                settings.bind("touchpad-tap-to-click", tap_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+                pointer_group.add_row(tap_row);
+            }
 
             var two_finger_row = new SwitchRow(_("Two-Finger Scrolling"),
                 _("Scroll with two fingers anywhere on the touchpad"),
