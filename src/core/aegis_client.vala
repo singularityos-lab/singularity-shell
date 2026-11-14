@@ -194,6 +194,26 @@ namespace Singularity {
             }
         }
 
+        public static bool alarm() {
+            string[]? player = NotificationSound.player_command("");
+            if (player == null) return false;
+            var files = new Gee.ArrayList<string>();
+            files.add(Path.build_filename(Environment.get_user_data_dir(), "singularity", "sounds", "aegis-alert.wav"));
+            foreach (string d in Environment.get_system_data_dirs()) files.add(Path.build_filename(d, "singularity", "sounds", "aegis-alert.wav"));
+            foreach (string file in files) {
+                if (!FileUtils.test(file, FileTest.IS_REGULAR)) continue;
+                string[] argv = player;
+                argv += file;
+                try {
+                    Process.spawn_async(null, argv, null, SpawnFlags.SEARCH_PATH | SpawnFlags.STDOUT_TO_DEV_NULL | SpawnFlags.STDERR_TO_DEV_NULL, null, null);
+                    return true;
+                } catch (SpawnError e) {
+                    return false;
+                }
+            }
+            return false;
+        }
+
         public static string kind_label(string kind) {
             switch (kind) {
                 case "earthquake": return _("Earthquake");

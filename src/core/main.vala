@@ -484,6 +484,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         });
         Singularity.AegisClient.get_default().raised.connect((alert) => {
             if (!alert.danger) return;
+            Singularity.AegisClient.alarm();
             ensure_aegis_dialog();
             aegis_dialog.show_alert();
         });

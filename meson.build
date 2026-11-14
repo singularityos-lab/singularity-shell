@@ -757,6 +757,8 @@ executable('singularity-markup',
   dependencies: dependencies + [libsingularity_dep, gee_dep],
   install: true
 )
+install_data('data/aegis/aegis-alert.wav',
+  install_dir: get_option('datadir') / 'singularity' / 'sounds')
 install_data('data/dictation/dictation-models.json',
   install_dir: get_option('datadir') / 'singularity')
 install_data('data/dictation/singularity-dictation-vosk',
