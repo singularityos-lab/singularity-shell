@@ -546,6 +546,7 @@ singularity_core_sources = files(
     'src/components/sidebar/pages/parental_subpages.vala',
     'src/components/sidebar/pages/screen_time_page.vala',
     'src/components/sidebar/pages/wellbeing_page.vala',
+    'src/components/sidebar/pages/safety_page.vala',
     'src/components/sidebar/pages/plugins_page.vala',
     'src/components/sidebar/pages/plugin_details_page.vala',
     'src/components/sidebar/pages/performance_page.vala',
