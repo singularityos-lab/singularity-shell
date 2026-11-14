@@ -14,6 +14,7 @@ namespace Singularity {
         public int64 raised = 0;
         public int64 dismissable_at = 0;
         public bool test = false;
+        public bool danger = false;
 
         public string icon_name {
             owned get { return "aegis-%s-symbolic".printf(kind); }
@@ -108,6 +109,7 @@ namespace Singularity {
                         a.raised = o.get_int_member("raised");
                         a.dismissable_at = o.get_int_member("dismissable_at");
                         a.test = o.get_boolean_member("test");
+                        a.danger = o.has_member("danger") && o.get_boolean_member("danger");
                         next.add(a);
                     }
                 }

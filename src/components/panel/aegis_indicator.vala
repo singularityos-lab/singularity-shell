@@ -39,7 +39,7 @@ namespace Singularity {
             var top = AegisClient.get_default().top;
             visible = top != null;
             if (bar != null) {
-                if (top != null) bar.add_css_class("aegis-active");
+                if (top != null && top.danger) bar.add_css_class("aegis-active");
                 else bar.remove_css_class("aegis-active");
             }
             if (top == null) return;

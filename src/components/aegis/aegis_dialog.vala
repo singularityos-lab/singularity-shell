@@ -30,7 +30,7 @@ namespace Singularity {
 
             stack = new Stack();
             stack.transition_type = StackTransitionType.CROSSFADE;
-            stack.width_request = 760;
+            stack.width_request = 500;
             content_box.halign = Align.CENTER;
             content_box.valign = Align.CENTER;
             content_box.append(stack);
@@ -40,7 +40,7 @@ namespace Singularity {
 
             var head = new Box(Orientation.HORIZONTAL, 18);
             icon = new Image();
-            icon.pixel_size = 72;
+            icon.pixel_size = 64;
             icon.valign = Align.START;
             head.append(icon);
             var titles = new Box(Orientation.VERTICAL, 4);
@@ -52,13 +52,13 @@ namespace Singularity {
             headline = new Label("");
             headline.xalign = 0;
             headline.wrap = true;
-            headline.max_width_chars = 34;
+            headline.max_width_chars = 22;
             headline.add_css_class("aegis-headline");
             titles.append(headline);
             meta = new Label("");
             meta.xalign = 0;
             meta.wrap = true;
-            meta.max_width_chars = 60;
+            meta.max_width_chars = 34;
             meta.add_css_class("dim-label");
             titles.append(meta);
             head.append(titles);
@@ -67,14 +67,14 @@ namespace Singularity {
             instruction = new Label("");
             instruction.xalign = 0;
             instruction.wrap = true;
-            instruction.max_width_chars = 56;
+            instruction.max_width_chars = 36;
             instruction.add_css_class("aegis-instruction");
             page.append(instruction);
 
             description = new Label("");
             description.xalign = 0;
             description.wrap = true;
-            description.max_width_chars = 70;
+            description.max_width_chars = 44;
             var scroller = new ScrolledWindow();
             scroller.hscrollbar_policy = PolicyType.NEVER;
             scroller.max_content_height = 220;
@@ -82,8 +82,15 @@ namespace Singularity {
             scroller.set_child(description);
             page.append(scroller);
 
-            var actions = new Box(Orientation.HORIZONTAL, 10);
-            actions.margin_top = 6;
+            var keep = new Button.with_label(_("Continue Working"));
+            keep.add_css_class("suggested-action");
+            keep.add_css_class("pill");
+            keep.margin_top = 6;
+            keep.clicked.connect(() => close_dialog());
+            page.append(keep);
+
+            var actions = new Box(Orientation.HORIZONTAL, 8);
+            actions.homogeneous = true;
             var sos = new Button.with_label(_("Emergency Call"));
             sos.add_css_class("destructive-action");
             sos.add_css_class("pill");
@@ -101,9 +108,6 @@ namespace Singularity {
                 }
             });
             actions.append(weather);
-            var spacer = new Box(Orientation.HORIZONTAL, 0);
-            spacer.hexpand = true;
-            actions.append(spacer);
             dismiss = new Button.with_label(_("Dismiss"));
             dismiss.add_css_class("pill");
             dismiss.clicked.connect(() => {
@@ -112,11 +116,6 @@ namespace Singularity {
                 });
             });
             actions.append(dismiss);
-            var keep = new Button.with_label(_("Continue Working"));
-            keep.add_css_class("suggested-action");
-            keep.add_css_class("pill");
-            keep.clicked.connect(() => close_dialog());
-            actions.append(keep);
             page.append(actions);
             stack.add_named(page, "alert");
 
@@ -204,9 +203,8 @@ namespace Singularity {
             instruction.visible = a.instruction != "";
             description.label = a.description;
             weather.visible = a.kind in new string[] { "storm", "wind", "snow", "heat", "cold", "flood" } && new DesktopAppInfo("dev.sinty.weather.desktop") != null;
-            remove_css_class("aegis-extreme");
-            remove_css_class("aegis-severe");
-            add_css_class("aegis-" + a.severity);
+            if (a.danger) add_css_class("aegis-danger");
+            else remove_css_class("aegis-danger");
             hold();
         }
 
@@ -314,10 +312,12 @@ namespace Singularity {
         }
 
         private const string CSS = """
-            .aegis-page { padding: 28px; }
-            .aegis-kind { font-size: 13px; font-weight: 800; letter-spacing: 1.5px; color: #ff6b6b; }
-            .aegis-headline { font-size: 30px; font-weight: 800; }
-            .aegis-instruction { font-size: 18px; font-weight: 700; padding: 14px 16px; border-radius: 14px; background-color: alpha(#e01b24, 0.18); }
+            .aegis-page { padding: 24px; }
+            .aegis-kind { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; opacity: 0.7; }
+            .aegis-danger .aegis-kind { color: #ff6b6b; opacity: 1; }
+            .aegis-headline { font-size: 24px; font-weight: 800; }
+            .aegis-instruction { font-size: 16px; font-weight: 700; padding: 12px 14px; border-radius: 14px; background-color: alpha(currentColor, 0.07); }
+            .aegis-danger .aegis-instruction { background-color: alpha(#e01b24, 0.2); }
             .aegis-number { font-size: 34px; font-weight: 800; padding: 10px 26px; border-radius: 18px; }
             label.aegis-number { background-color: alpha(currentColor, 0.08); }
             .aegis-medical { padding: 12px 16px; border-radius: 14px; background-color: alpha(currentColor, 0.06); }

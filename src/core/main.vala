@@ -483,6 +483,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             emoji_picker.toggle();
         });
         Singularity.AegisClient.get_default().raised.connect((alert) => {
+            if (!alert.danger) return;
             ensure_aegis_dialog();
             aegis_dialog.show_alert();
         });
