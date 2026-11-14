@@ -12,6 +12,7 @@ namespace Singularity {
         private Label description;
         private Label instruction;
         private Button dismiss;
+        private Button weather;
         private Box sos_box;
         private string current = "";
         private uint tick = 0;
@@ -88,6 +89,18 @@ namespace Singularity {
             sos.add_css_class("pill");
             sos.clicked.connect(() => show_sos());
             actions.append(sos);
+            weather = new Button.with_label(_("Open Weather"));
+            weather.add_css_class("pill");
+            weather.clicked.connect(() => {
+                var info = new DesktopAppInfo("dev.sinty.weather.desktop");
+                if (info == null) return;
+                try {
+                    info.launch(null, null);
+                    close_dialog();
+                } catch (Error e) {
+                }
+            });
+            actions.append(weather);
             var spacer = new Box(Orientation.HORIZONTAL, 0);
             spacer.hexpand = true;
             actions.append(spacer);
@@ -190,6 +203,7 @@ namespace Singularity {
             instruction.label = a.instruction;
             instruction.visible = a.instruction != "";
             description.label = a.description;
+            weather.visible = a.kind in new string[] { "storm", "wind", "snow", "heat", "cold", "flood" } && new DesktopAppInfo("dev.sinty.weather.desktop") != null;
             remove_css_class("aegis-extreme");
             remove_css_class("aegis-severe");
             add_css_class("aegis-" + a.severity);
