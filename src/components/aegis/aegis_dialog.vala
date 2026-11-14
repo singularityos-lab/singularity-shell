@@ -30,74 +30,93 @@ namespace Singularity {
 
             stack = new Stack();
             stack.transition_type = StackTransitionType.CROSSFADE;
-            stack.width_request = 500;
-            content_box.halign = Align.CENTER;
-            content_box.valign = Align.CENTER;
+            stack.vhomogeneous = false;
+            stack.hhomogeneous = false;
+            stack.interpolate_size = true;
             content_box.append(stack);
 
-            var page = new Box(Orientation.VERTICAL, 14);
-            page.add_css_class("aegis-page");
+            var page = new Box(Orientation.VERTICAL, 12);
+            page.halign = Align.CENTER;
+            page.valign = Align.CENTER;
+            page.add_css_class("power-card");
+            page.margin_top = 28;
+            page.margin_bottom = 28;
+            page.margin_start = 40;
+            page.margin_end = 40;
 
-            var head = new Box(Orientation.HORIZONTAL, 18);
             icon = new Image();
             icon.pixel_size = 64;
-            icon.valign = Align.START;
-            head.append(icon);
-            var titles = new Box(Orientation.VERTICAL, 4);
-            titles.hexpand = true;
+            page.append(icon);
             kind = new Label("");
-            kind.xalign = 0;
             kind.add_css_class("aegis-kind");
-            titles.append(kind);
+            page.append(kind);
             headline = new Label("");
-            headline.xalign = 0;
+            headline.add_css_class("title-1");
             headline.wrap = true;
-            headline.max_width_chars = 22;
-            headline.add_css_class("aegis-headline");
-            titles.append(headline);
+            headline.max_width_chars = 26;
+            headline.justify = Justification.CENTER;
+            page.append(headline);
             meta = new Label("");
-            meta.xalign = 0;
-            meta.wrap = true;
-            meta.max_width_chars = 34;
             meta.add_css_class("dim-label");
-            titles.append(meta);
-            head.append(titles);
-            page.append(head);
+            meta.wrap = true;
+            meta.max_width_chars = 44;
+            meta.justify = Justification.CENTER;
+            page.append(meta);
 
             instruction = new Label("");
-            instruction.xalign = 0;
             instruction.wrap = true;
-            instruction.max_width_chars = 36;
+            instruction.max_width_chars = 40;
+            instruction.justify = Justification.CENTER;
+            instruction.halign = Align.CENTER;
             instruction.add_css_class("aegis-instruction");
             page.append(instruction);
 
             description = new Label("");
-            description.xalign = 0;
+            description.add_css_class("dim-label");
+            description.add_css_class("body");
             description.wrap = true;
-            description.max_width_chars = 44;
+            description.wrap_mode = Pango.WrapMode.WORD_CHAR;
+            description.max_width_chars = 48;
+            description.justify = Justification.CENTER;
             var scroller = new ScrolledWindow();
             scroller.hscrollbar_policy = PolicyType.NEVER;
-            scroller.max_content_height = 220;
+            scroller.max_content_height = 200;
             scroller.propagate_natural_height = true;
+            scroller.propagate_natural_width = true;
             scroller.set_child(description);
             page.append(scroller);
 
+            var main_row = new Box(Orientation.HORIZONTAL, 12);
+            main_row.halign = Align.CENTER;
+            main_row.margin_top = 6;
+            dismiss = new Button.with_label(_("Dismiss"));
+            dismiss.add_css_class("pill");
+            dismiss.width_request = 150;
+            dismiss.clicked.connect(() => {
+                AegisClient.get_default().dismiss.begin(current, (o, r) => {
+                    if (AegisClient.get_default().dismiss.end(r)) close_dialog();
+                });
+            });
+            main_row.append(dismiss);
             var keep = new Button.with_label(_("Continue Working"));
             keep.add_css_class("suggested-action");
             keep.add_css_class("pill");
-            keep.margin_top = 6;
+            keep.width_request = 150;
             keep.clicked.connect(() => close_dialog());
-            page.append(keep);
+            main_row.append(keep);
+            page.append(main_row);
 
-            var actions = new Box(Orientation.HORIZONTAL, 8);
-            actions.homogeneous = true;
+            var more_row = new Box(Orientation.HORIZONTAL, 12);
+            more_row.halign = Align.CENTER;
             var sos = new Button.with_label(_("Emergency Call"));
             sos.add_css_class("destructive-action");
             sos.add_css_class("pill");
+            sos.width_request = 150;
             sos.clicked.connect(() => show_sos());
-            actions.append(sos);
+            more_row.append(sos);
             weather = new Button.with_label(_("Open Weather"));
             weather.add_css_class("pill");
+            weather.width_request = 150;
             weather.clicked.connect(() => {
                 var info = new DesktopAppInfo("dev.sinty.weather.desktop");
                 if (info == null) return;
@@ -107,29 +126,31 @@ namespace Singularity {
                 } catch (Error e) {
                 }
             });
-            actions.append(weather);
-            dismiss = new Button.with_label(_("Dismiss"));
-            dismiss.add_css_class("pill");
-            dismiss.clicked.connect(() => {
-                AegisClient.get_default().dismiss.begin(current, (o, r) => {
-                    if (AegisClient.get_default().dismiss.end(r)) close_dialog();
-                });
-            });
-            actions.append(dismiss);
-            page.append(actions);
+            more_row.append(weather);
+            page.append(more_row);
             stack.add_named(page, "alert");
 
             var sos_page = new Box(Orientation.VERTICAL, 14);
-            sos_page.add_css_class("aegis-page");
+            sos_page.halign = Align.CENTER;
+            sos_page.valign = Align.CENTER;
+            sos_page.add_css_class("power-card");
+            sos_page.margin_top = 28;
+            sos_page.margin_bottom = 28;
+            sos_page.margin_start = 40;
+            sos_page.margin_end = 40;
+            var sos_icon = new Image.from_icon_name("call-start-symbolic");
+            sos_icon.pixel_size = 56;
+            sos_page.append(sos_icon);
             var sos_title = new Label(_("Emergency Call"));
-            sos_title.xalign = 0;
-            sos_title.add_css_class("aegis-headline");
+            sos_title.add_css_class("title-1");
             sos_page.append(sos_title);
             sos_box = new Box(Orientation.VERTICAL, 12);
             sos_page.append(sos_box);
             var back = new Button.with_label(_("Back"));
             back.add_css_class("pill");
-            back.halign = Align.END;
+            back.halign = Align.CENTER;
+            back.width_request = 128;
+            back.margin_top = 4;
             back.clicked.connect(() => {
                 if (AegisClient.get_default().top != null) stack.visible_child_name = "alert";
                 else close_dialog();
@@ -229,7 +250,8 @@ namespace Singularity {
             }
             if (o == null || !o.has_member("numbers")) {
                 var missing = new Label(_("Sinty Aegis is not running. In most countries 112 reaches the emergency services."));
-                missing.xalign = 0;
+                missing.justify = Justification.CENTER;
+                missing.max_width_chars = 44;
                 missing.wrap = true;
                 sos_box.append(missing);
                 return;
@@ -238,11 +260,13 @@ namespace Singularity {
             var note = new Label(line
                 ? _("Choose a number to call it from this computer.")
                 : _("This computer has no phone line. Call one of these numbers from a phone."));
-            note.xalign = 0;
+            note.justify = Justification.CENTER;
+            note.max_width_chars = 44;
             note.wrap = true;
             note.add_css_class("dim-label");
             sos_box.append(note);
             var row = new Box(Orientation.HORIZONTAL, 12);
+            row.halign = Align.CENTER;
             foreach (var n in o.get_array_member("numbers").get_elements()) {
                 string number = n.get_string();
                 if (line) {
@@ -266,7 +290,6 @@ namespace Singularity {
             sos_box.append(row);
             if (o.get_boolean_member("located")) {
                 var where = new Label(_("Your position: %.4f, %.4f").printf(o.get_double_member("lat"), o.get_double_member("lon")));
-                where.xalign = 0;
                 where.selectable = true;
                 sos_box.append(where);
             }
@@ -274,7 +297,6 @@ namespace Singularity {
                 foreach (var n in o.get_array_member("contacts").get_elements()) {
                     var contact = n.get_object();
                     var l = new Label("%s  ·  %s".printf(member(contact, "name"), member(contact, "number")));
-                    l.xalign = 0;
                     l.selectable = true;
                     sos_box.append(l);
                 }
@@ -292,7 +314,7 @@ namespace Singularity {
                 }
                 if (lines.length > 0) {
                     var card = new Label(string.joinv("\n", lines));
-                    card.xalign = 0;
+                    card.halign = Align.CENTER;
                     card.wrap = true;
                     card.selectable = true;
                     card.add_css_class("aegis-medical");
@@ -312,15 +334,13 @@ namespace Singularity {
         }
 
         private const string CSS = """
-            .aegis-page { padding: 24px; }
             .aegis-kind { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; opacity: 0.7; }
             .aegis-danger .aegis-kind { color: #ff6b6b; opacity: 1; }
-            .aegis-headline { font-size: 24px; font-weight: 800; }
-            .aegis-instruction { font-size: 16px; font-weight: 700; padding: 12px 14px; border-radius: 14px; background-color: alpha(currentColor, 0.07); }
+            .aegis-instruction { font-weight: 700; padding: 10px 16px; border-radius: 14px; background-color: alpha(currentColor, 0.07); }
             .aegis-danger .aegis-instruction { background-color: alpha(#e01b24, 0.2); }
-            .aegis-number { font-size: 34px; font-weight: 800; padding: 10px 26px; border-radius: 18px; }
+            .aegis-number { font-size: 30px; font-weight: 800; padding: 8px 22px; border-radius: 16px; }
             label.aegis-number { background-color: alpha(currentColor, 0.08); }
-            .aegis-medical { padding: 12px 16px; border-radius: 14px; background-color: alpha(currentColor, 0.06); }
+            .aegis-medical { padding: 10px 16px; border-radius: 14px; background-color: alpha(currentColor, 0.06); }
         """;
     }
 }

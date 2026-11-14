@@ -57,11 +57,16 @@ namespace Singularity {
             styled = true;
             var provider = new Gtk.CssProvider();
             provider.load_from_data(CSS.data);
-            StyleContext.add_provider_for_display(display, provider, STYLE_PROVIDER_PRIORITY_APPLICATION + 2);
+            StyleContext.add_provider_for_display(display, provider, STYLE_PROVIDER_PRIORITY_USER + 20);
         }
 
         private const string CSS = """
-            .panel.aegis-active {
+            .panel.aegis-active,
+            .singularity-blur .panel.aegis-active,
+            .singularity-glass .panel.aegis-active,
+            .singularity-liquid .panel.aegis-active,
+            window.singularity-glass .panel.aegis-active,
+            window.singularity-blur .panel.aegis-active {
                 background-color: #5a0d12;
                 background-image: none;
                 color: #ffffff;
