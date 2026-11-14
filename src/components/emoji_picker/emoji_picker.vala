@@ -215,6 +215,10 @@ namespace Singularity {
                 var child = current_child();
                 if (child != null) pick_child(child);
             });
+            search.margin_top = 12;
+            search.margin_start = 12;
+            search.margin_end = 12;
+            search.margin_bottom = 8;
             content_box.append(search);
 
             grid = new FlowBox();
@@ -255,12 +259,16 @@ namespace Singularity {
             scroller.max_content_height = 420;
             scroller.set_child(grid);
             scroller.add_css_class("emoji-scroller");
+            scroller.margin_start = 8;
+            scroller.margin_end = 8;
             content_box.append(scroller);
 
             hint = new Label(_("Enter or click to copy, then paste with Ctrl+V. Esc to close."));
             hint.add_css_class("dim-label");
             hint.add_css_class("emoji-hint");
             hint.halign = Align.CENTER;
+            hint.margin_top = 8;
+            hint.margin_bottom = 12;
             content_box.append(hint);
         }
 
