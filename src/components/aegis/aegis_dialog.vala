@@ -6,7 +6,6 @@ namespace Singularity {
         private static bool styled = false;
         private Stack stack;
         private Image icon;
-        private Label kind;
         private Label headline;
         private Label meta;
         private Label description;
@@ -47,27 +46,24 @@ namespace Singularity {
             icon = new Image();
             icon.pixel_size = 64;
             page.append(icon);
-            kind = new Label("");
-            kind.add_css_class("aegis-kind");
-            page.append(kind);
             headline = new Label("");
             headline.add_css_class("title-1");
             headline.wrap = true;
-            headline.max_width_chars = 26;
+            headline.max_width_chars = 36;
             headline.justify = Justification.CENTER;
             page.append(headline);
             meta = new Label("");
             meta.add_css_class("dim-label");
             meta.wrap = true;
-            meta.max_width_chars = 44;
+            meta.max_width_chars = 60;
             meta.justify = Justification.CENTER;
             page.append(meta);
 
             instruction = new Label("");
             instruction.wrap = true;
-            instruction.max_width_chars = 40;
+            instruction.max_width_chars = 60;
             instruction.justify = Justification.CENTER;
-            instruction.halign = Align.CENTER;
+            instruction.halign = Align.FILL;
             instruction.add_css_class("aegis-instruction");
             page.append(instruction);
 
@@ -76,7 +72,7 @@ namespace Singularity {
             description.add_css_class("body");
             description.wrap = true;
             description.wrap_mode = Pango.WrapMode.WORD_CHAR;
-            description.max_width_chars = 48;
+            description.max_width_chars = 64;
             description.justify = Justification.CENTER;
             var scroller = new ScrolledWindow();
             scroller.hscrollbar_policy = PolicyType.NEVER;
@@ -86,37 +82,16 @@ namespace Singularity {
             scroller.set_child(description);
             page.append(scroller);
 
-            var main_row = new Box(Orientation.HORIZONTAL, 12);
-            main_row.halign = Align.CENTER;
-            main_row.margin_top = 6;
-            dismiss = new Button.with_label(_("Dismiss"));
-            dismiss.add_css_class("pill");
-            dismiss.width_request = 150;
-            dismiss.clicked.connect(() => {
-                AegisClient.get_default().dismiss.begin(current, (o, r) => {
-                    if (AegisClient.get_default().dismiss.end(r)) close_dialog();
-                });
-            });
-            main_row.append(dismiss);
-            var keep = new Button.with_label(_("Continue Working"));
-            keep.add_css_class("suggested-action");
-            keep.add_css_class("pill");
-            keep.width_request = 150;
-            keep.clicked.connect(() => close_dialog());
-            main_row.append(keep);
-            page.append(main_row);
-
-            var more_row = new Box(Orientation.HORIZONTAL, 12);
-            more_row.halign = Align.CENTER;
+            var row = new Box(Orientation.HORIZONTAL, 12);
+            row.halign = Align.CENTER;
+            row.margin_top = 6;
             var sos = new Button.with_label(_("Emergency Call"));
             sos.add_css_class("destructive-action");
             sos.add_css_class("pill");
-            sos.width_request = 150;
             sos.clicked.connect(() => show_sos());
-            more_row.append(sos);
+            row.append(sos);
             weather = new Button.with_label(_("Open Weather"));
             weather.add_css_class("pill");
-            weather.width_request = 150;
             weather.clicked.connect(() => {
                 var info = new DesktopAppInfo("dev.sinty.weather.desktop");
                 if (info == null) return;
@@ -126,8 +101,21 @@ namespace Singularity {
                 } catch (Error e) {
                 }
             });
-            more_row.append(weather);
-            page.append(more_row);
+            row.append(weather);
+            dismiss = new Button.with_label(_("Dismiss"));
+            dismiss.add_css_class("pill");
+            dismiss.clicked.connect(() => {
+                AegisClient.get_default().dismiss.begin(current, (o, r) => {
+                    if (AegisClient.get_default().dismiss.end(r)) close_dialog();
+                });
+            });
+            row.append(dismiss);
+            var keep = new Button.with_label(_("Continue Working"));
+            keep.add_css_class("suggested-action");
+            keep.add_css_class("pill");
+            keep.clicked.connect(() => close_dialog());
+            row.append(keep);
+            page.append(row);
             stack.add_named(page, "alert");
 
             var sos_page = new Box(Orientation.VERTICAL, 14);
@@ -211,12 +199,11 @@ namespace Singularity {
             var theme = IconTheme.get_for_display(get_display());
             string colour = "aegis-%s".printf(a.kind);
             icon.icon_name = theme.has_icon(colour) ? colour : "dialog-warning";
-            string label = AegisClient.kind_label(a.kind).up();
-            kind.label = a.test ? "%s  ·  %s".printf(label, _("TEST")) : label;
             headline.label = a.headline;
             var when = new DateTime.from_unix_local(a.sent > 0 ? a.sent : a.raised);
             string[] parts = {};
-            if (a.area != "") parts += a.area;
+            if (a.test) parts += _("Test");
+            if (a.area != "" && !a.test) parts += a.area;
             if (a.source != "") parts += a.source;
             parts += when.format("%H:%M");
             meta.label = string.joinv("  ·  ", parts);
@@ -251,7 +238,7 @@ namespace Singularity {
             if (o == null || !o.has_member("numbers")) {
                 var missing = new Label(_("Sinty Aegis is not running. In most countries 112 reaches the emergency services."));
                 missing.justify = Justification.CENTER;
-                missing.max_width_chars = 44;
+                missing.max_width_chars = 64;
                 missing.wrap = true;
                 sos_box.append(missing);
                 return;
@@ -261,7 +248,7 @@ namespace Singularity {
                 ? _("Choose a number to call it from this computer.")
                 : _("This computer has no phone line. Call one of these numbers from a phone."));
             note.justify = Justification.CENTER;
-            note.max_width_chars = 44;
+            note.max_width_chars = 72;
             note.wrap = true;
             note.add_css_class("dim-label");
             sos_box.append(note);
@@ -314,7 +301,8 @@ namespace Singularity {
                 }
                 if (lines.length > 0) {
                     var card = new Label(string.joinv("\n", lines));
-                    card.halign = Align.CENTER;
+                    card.halign = Align.FILL;
+                    card.justify = Justification.CENTER;
                     card.wrap = true;
                     card.selectable = true;
                     card.add_css_class("aegis-medical");
@@ -334,8 +322,6 @@ namespace Singularity {
         }
 
         private const string CSS = """
-            .aegis-kind { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; opacity: 0.7; }
-            .aegis-danger .aegis-kind { color: #ff6b6b; opacity: 1; }
             .aegis-instruction { font-weight: 700; padding: 10px 16px; border-radius: 14px; background-color: alpha(currentColor, 0.07); }
             .aegis-danger .aegis-instruction { background-color: alpha(#e01b24, 0.2); }
             .aegis-number { font-size: 30px; font-weight: 800; padding: 8px 22px; border-radius: 16px; }
