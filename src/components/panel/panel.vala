@@ -783,6 +783,7 @@ namespace Singularity {
             system_area.append(new SidebarWaitIndicator());
             system_area.append(new MicrophoneIndicator());
             system_area.append(new InputIndicator());
+            system_area.append(new AegisIndicator(main_box));
             system_area.append(new RecordingIndicator());
             system_area.append(new ScreenSharingIndicator());
             system_area.append(new CollaborationIndicator());

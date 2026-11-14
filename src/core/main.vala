@@ -69,6 +69,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     private Singularity.DriveHealthAlerts? drive_alerts = null;
     private Singularity.RunDialog? run_dialog = null;
     private Singularity.EmojiPicker? emoji_picker = null;
+    private Singularity.AegisDialog? aegis_dialog = null;
     private Singularity.ClipboardPopup? clipboard_popup = null;
     private Singularity.OnScreenKeyboard? screen_keyboard = null;
     private Singularity.SettingsWindow? settings_window = null;
@@ -481,6 +482,14 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             ensure_emoji_picker();
             emoji_picker.toggle();
         });
+        Singularity.AegisClient.get_default().raised.connect((alert) => {
+            ensure_aegis_dialog();
+            aegis_dialog.show_alert();
+        });
+        Singularity.AegisClient.get_default().open_requested.connect(() => {
+            ensure_aegis_dialog();
+            aegis_dialog.show_alert();
+        });
         Singularity.SystemMonitor.get_default().shortcuts.retile_triggered.connect(() => {
             if (tiling_manager != null) {
                 tiling_manager.apply_layout();
@@ -651,6 +660,12 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         } else if (screen_keyboard != null) {
             screen_keyboard.destroy();
             screen_keyboard = null;
+        }
+    }
+
+    private void ensure_aegis_dialog() {
+        if (aegis_dialog == null) {
+            aegis_dialog = new Singularity.AegisDialog(this);
         }
     }
 
