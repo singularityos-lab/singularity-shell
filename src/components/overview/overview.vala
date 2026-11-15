@@ -206,7 +206,7 @@ namespace Singularity {
             results_scrolled = new ScrolledWindow();
             results_scrolled.hscrollbar_policy = PolicyType.NEVER;
             results_scrolled.vscrollbar_policy = PolicyType.AUTOMATIC;
-            results_scrolled.width_request = 640;
+            results_scrolled.width_request = RESULTS_WIDTH;
             results_scrolled.hexpand = true;
             results_scrolled.vexpand = true;
             results_scrolled.halign = Align.CENTER;
@@ -378,6 +378,15 @@ namespace Singularity {
             if (!launcher_grid.is_populated()) launcher_grid.populate();
         }
 
+        private const int GRID_COLUMN_SLOT = 232;
+        private const int GRID_CELL = 200;
+        private const int GRID_SPACING = 16;
+        private const int SEARCH_WIDTH = 400;
+        private const int RESULTS_WIDTH = 640;
+        private const int PHONE_GRID_COLUMNS = 4;
+        private const int PHONE_GRID_SPACING = 8;
+        private const int PHONE_CELL_HEIGHT = 104;
+
         private void update_grid_columns() {
             Gdk.Monitor? grid_mon = GtkLayerShell.get_monitor(this);
             if (grid_mon == null) {
@@ -394,6 +403,16 @@ namespace Singularity {
                 int isz = Singularity.FormShell.dock_icon_size(desktop_settings);
                 if (isz <= 0) isz = 48;
                 avail -= isz + desktop_settings.get_int("dock-gap") + 28;
+            }
+            if (Singularity.FormFactor.current() == Singularity.FormFactorKind.PHONE) {
+                int slot = avail / PHONE_GRID_COLUMNS;
+                launcher_grid.set_cell_metrics(slot, slot - PHONE_GRID_SPACING, PHONE_CELL_HEIGHT, PHONE_GRID_SPACING, PHONE_GRID_COLUMNS);
+                search_entry.width_request = avail;
+                results_scrolled.width_request = avail;
+            } else {
+                launcher_grid.set_cell_metrics(GRID_COLUMN_SLOT, GRID_CELL, GRID_CELL, GRID_SPACING, 0);
+                search_entry.width_request = SEARCH_WIDTH;
+                results_scrolled.width_request = RESULTS_WIDTH;
             }
             launcher_grid.set_columns_for_width(avail);
             launcher_grid.viewport_hint = gg.height;

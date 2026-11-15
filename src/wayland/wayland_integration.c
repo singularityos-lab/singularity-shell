@@ -1653,6 +1653,8 @@ void singularity_wayland_config_head_v2(void *head_handle, int enabled, int x, i
             }
             if (matching_mode) {
                 zwlr_output_configuration_head_v1_set_mode(config_head, matching_mode);
+            } else {
+                zwlr_output_configuration_head_v1_set_custom_mode(config_head, mode_width, mode_height, mode_refresh);
             }
         }
     } else {

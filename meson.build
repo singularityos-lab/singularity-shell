@@ -470,6 +470,8 @@ singularity_core_sources = files(
     'src/components/sidebar/widgets/fan_widgets.vala',
     'src/components/sidebar/widgets/developer_page.vala',
     'src/components/form/form_shell.vala',
+    'src/components/form/phone_nav.vala',
+    'src/components/form/recents_switcher.vala',
     'src/core/proc_stat.vala',
     'src/components/sidebar/widgets/settings_subpages.vala',
     'src/components/sidebar/pages/dev_settings_editor_page.vala',

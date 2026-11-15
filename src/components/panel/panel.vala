@@ -489,6 +489,7 @@ namespace Singularity {
         public signal void activities_clicked();
         public signal void clock_clicked();
         public signal void notifications_clicked();
+        private const double SHADE_PULL = 24.0;
         public signal void system_clicked();
         public signal void workspace_clicked();
 
@@ -534,6 +535,23 @@ namespace Singularity {
             intro_motion = new Singularity.Animation.MotionBin(main_box);
             overlay.set_child(intro_motion);
             if (is_primary && !is_greeter_mode) main_box.opacity = 0;
+            if (!is_greeter_mode) {
+                var pull = new GestureDrag();
+                pull.propagation_phase = PropagationPhase.CAPTURE;
+                pull.drag_update.connect((dx, dy) => {
+                    if (Singularity.FormFactor.current() != Singularity.FormFactorKind.PHONE) return;
+                    if (dy < SHADE_PULL || Math.fabs(dx) > dy) return;
+                    pull.set_state(EventSequenceState.CLAIMED);
+                    pull.reset();
+                    system_clicked();
+                });
+                main_box.add_controller(pull);
+                var tap = new GestureClick();
+                tap.released.connect(() => {
+                    if (Singularity.FormFactor.current() == Singularity.FormFactorKind.PHONE) system_clicked();
+                });
+                main_box.add_controller(tap);
+            }
 
             _sig_background_effect = _settings.changed["background-effect"].connect(
                 update_background_effect);

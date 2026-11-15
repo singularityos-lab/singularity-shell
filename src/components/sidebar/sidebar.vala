@@ -108,6 +108,8 @@ namespace Singularity {
             desktop_settings.changed["dock-position"].connect(() => update_vertical_anchor());
             main_stack.notify["visible-child-name"].connect(() => update_vertical_anchor());
             update_vertical_anchor();
+            apply_form();
+            Singularity.FormFactor.get_default().changed.connect(() => apply_form());
 
             close_layer_window (this);
 
@@ -253,11 +255,52 @@ namespace Singularity {
             base.dispose();
         }
 
+        private bool _phone = false;
+        private const int SHADE_MARGIN = 8;
+        private const double SHADE_DROP = 48.0;
+
+        private string slide_property() {
+            return _phone ? "translate-y" : "translate-x";
+        }
+
+        private double slide_distance() {
+            return _phone ? -SHADE_DROP : SLIDE_DISTANCE;
+        }
+
+        private void apply_form() {
+            _phone = Singularity.FormFactor.current() == Singularity.FormFactorKind.PHONE;
+            set_anchor(this, GtkLayerShell.Edge.LEFT, _phone);
+            int margin = _phone ? SHADE_MARGIN : 20;
+            main_box.margin_top = _phone ? SHADE_MARGIN : 20;
+            main_box.margin_bottom = margin;
+            main_box.margin_start = margin;
+            main_box.margin_end = _phone ? SHADE_MARGIN : 20 + EDGE_GAP;
+            set_css_class(main_box, "phone-shade", _phone);
+            int width = -1;
+            var display = Gdk.Display.get_default();
+            if (_phone && display != null) {
+                var monitor = display.get_monitors().get_item(0) as Gdk.Monitor;
+                if (monitor != null) {
+                    width = monitor.geometry.width - SHADE_MARGIN * 2;
+                    sidebar_scroll.max_content_height = monitor.geometry.height - 140;
+                }
+            }
+            SidebarWidth.override_width = width > 0 ? width - 26 : -1;
+            main_box.width_request = width > 0 ? width : SidebarWidth.CARD;
+            set_default_size(width > 0 ? width : SidebarWidth.CARD, -1);
+            main_box.queue_resize();
+        }
+
+        private static void set_css_class(Gtk.Widget widget, string name, bool on) {
+            if (on) widget.add_css_class(name);
+            else widget.remove_css_class(name);
+        }
+
         private void animated_close() {
             if (!visible) return;
             _is_closing = true;
             if (!Singularity.Motion.reduced()) {
-                Singularity.Motion.spring_to(_content_bin, "translate-x", SLIDE_DISTANCE,
+                Singularity.Motion.spring_to(_content_bin, slide_property(), slide_distance(),
                     Singularity.Motion.Spring.GENTLE);
             }
             var fade = Singularity.Motion.tween(_content_bin, "opacity", 0.0,
@@ -269,6 +312,7 @@ namespace Singularity {
 
         private void finish_close() {
             Singularity.Motion.cancel(_content_bin, "translate-x");
+            Singularity.Motion.cancel(_content_bin, "translate-y");
             Singularity.Motion.cancel(_content_bin, "opacity");
             _is_closing = false;
             _can_close_on_focus_loss = false;
@@ -284,16 +328,19 @@ namespace Singularity {
             _can_close_on_focus_loss = false;
             if (!visible) {
                 _content_bin.opacity = 0.0;
-                _content_bin.translate_x = Singularity.Motion.reduced() ? 0.0 : SLIDE_DISTANCE;
+                double start = Singularity.Motion.reduced() ? 0.0 : slide_distance();
+                if (_phone) _content_bin.translate_y = start;
+                else _content_bin.translate_x = start;
             }
             present();
             if (entering) {
                 if (Singularity.Motion.reduced()) {
-                    Singularity.Motion.cancel(_content_bin, "translate-x");
+                    Singularity.Motion.cancel(_content_bin, slide_property());
                     _content_bin.translate_x = 0.0;
+                    _content_bin.translate_y = 0.0;
                 } else {
-                    Singularity.Motion.spring_to(_content_bin, "translate-x", 0.0,
-                        Singularity.Motion.Spring.GENTLE);
+                    Singularity.Motion.spring_to(_content_bin, slide_property(), 0.0,
+                        _phone ? Singularity.Motion.Spring.SNAPPY : Singularity.Motion.Spring.GENTLE);
                 }
                 Singularity.Motion.tween(_content_bin, "opacity", 1.0,
                     Singularity.Motion.Duration.SMALL, Singularity.Motion.Curve.ENTER);

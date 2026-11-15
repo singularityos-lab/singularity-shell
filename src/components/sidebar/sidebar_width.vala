@@ -5,6 +5,7 @@ namespace Singularity {
     public class SidebarWidth : Widget {
         public const int CARD = 416;
         public const int CONTENT = 390;
+        public static int override_width = -1;
 
         private Widget? _child = null;
         private Gee.HashSet<string> _reported = new Gee.HashSet<string>();
@@ -39,9 +40,10 @@ namespace Singularity {
                                      out int minimum_baseline, out int natural_baseline) {
             minimum_baseline = -1;
             natural_baseline = -1;
+            int content = override_width > 0 ? override_width : CONTENT;
             if (orientation == Orientation.HORIZONTAL) {
-                minimum = CONTENT;
-                natural = CONTENT;
+                minimum = content;
+                natural = content;
                 return;
             }
             minimum = 0;
@@ -49,7 +51,7 @@ namespace Singularity {
             if (_child == null || !_child.visible) return;
             int child_min_w, child_nat_w;
             _child.measure(Orientation.HORIZONTAL, -1, out child_min_w, out child_nat_w, null, null);
-            int width = int.max(for_size >= 0 ? for_size : CONTENT, child_min_w);
+            int width = int.max(for_size >= 0 ? for_size : content, child_min_w);
             _child.measure(Orientation.VERTICAL, width, out minimum, out natural, null, null);
         }
 

@@ -15,9 +15,9 @@ namespace Singularity {
         }
 
         construct {
-            enabled = settings.get_boolean("dock-magnification");
+            enabled = Singularity.FormShell.dock_magnifies(settings);
             settings.changed["dock-magnification"].connect(() => {
-                enabled = settings.get_boolean("dock-magnification");
+                enabled = Singularity.FormShell.dock_magnifies(settings);
                 rest(true);
                 changed();
             });

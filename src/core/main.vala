@@ -722,8 +722,8 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         // panel / dock may be null when a plugin has claimed that surface.
         if (panel != null) {
             panel.activities_clicked.connect(() => toggle_overview());
-            panel.clock_clicked.connect(() => { ensure_sidebar(); sidebar.toggle_calendar(); });
-            panel.notifications_clicked.connect(() => { ensure_sidebar(); sidebar.toggle_notifications(); });
+            panel.clock_clicked.connect(() => { ensure_sidebar(); if (phone_shade()) sidebar.toggle_system(); else sidebar.toggle_calendar(); });
+            panel.notifications_clicked.connect(() => { ensure_sidebar(); if (phone_shade()) sidebar.toggle_system(); else sidebar.toggle_notifications(); });
             panel.system_clicked.connect(() => { ensure_sidebar(); sidebar.toggle_system(); });
             panel.workspace_clicked.connect(() => toggle_workspace_overview());
         }
@@ -771,7 +771,12 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     private void setup_form_shell() {
         form_shell = new Singularity.FormShell(this);
         form_shell.home_requested.connect(() => toggle_overview());
-        form_shell.recents_requested.connect(() => toggle_workspace_overview());
+        form_shell.next_requested.connect(() => {
+            try { switch_windows_next(); } catch (IOError e) { warning("switch next: %s", e.message); }
+        });
+        form_shell.previous_requested.connect(() => {
+            try { switch_windows_prev(); } catch (IOError e) { warning("switch previous: %s", e.message); }
+        });
         Singularity.FormFactor.get_default().changed.connect(() => {
             if (_shell_monitor_update_pending) return;
             _shell_monitor_update_pending = true;
@@ -1022,6 +1027,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     }
 
     private void toggle_overview() {
+        if (form_shell != null && form_shell.go_home()) return;
         // A plugin can claim the overview / launcher role and handle the
         // toggle itself (built-in overview is never constructed).
         var surfaces = Singularity.ShellSurfaceRegistry.get_default();
@@ -1208,7 +1214,15 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         }
     }
 
+    private static bool phone_shade() {
+        return Singularity.FormFactor.current() == Singularity.FormFactorKind.PHONE;
+    }
+
     private void toggle_workspace_overview() {
+        if (!Singularity.FormShell.wants_workspaces() && form_shell != null) {
+            form_shell.show_recents();
+            return;
+        }
         var ws_claim = Singularity.ShellSurfaceRegistry.get_default()
                        .claimant(Singularity.ShellRole.WORKSPACES);
         if (ws_claim != null) { ws_claim.toggle(); return; }

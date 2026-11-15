@@ -197,6 +197,18 @@ namespace Singularity {
             add_controller(key);
         }
 
+        public void set_cell_metrics(int slot, int width, int height, int spacing, int max_cols) {
+            if (column_slot == slot && cell_w == width && cell_h == height
+                    && (int) grid.column_spacing == spacing && max_columns == max_cols) return;
+            column_slot = slot;
+            cell_w = width;
+            cell_h = height;
+            grid.column_spacing = spacing;
+            grid.row_spacing = spacing;
+            max_columns = max_cols;
+            columns = -1;
+        }
+
         public void set_columns_for_width(int avail) {
             if (avail <= 0) return;
             _last_avail = avail;

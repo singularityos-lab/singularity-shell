@@ -464,6 +464,17 @@ namespace Singularity {
             Singularity.wayland_finish_output_config();
         }
 
+        public bool resize_nested_output(int width, int height) {
+            foreach (var m in monitors) {
+                if (!m.enabled || !m.name.has_prefix("WL-")) continue;
+                Singularity.wayland_begin_output_config(serial);
+                Singularity.wayland_config_head_v2(m.head_handle, 1, m.x, m.y, m.scale, m.transform, width, height, 0, 2);
+                Singularity.wayland_finish_output_config();
+                return true;
+            }
+            return false;
+        }
+
         public Monitor? get_shell_monitor() {
             if (shell_monitor_name == "") return null;
             foreach (var m in monitors) {

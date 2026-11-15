@@ -612,13 +612,50 @@ namespace Singularity {
             var background_apps = new BackgroundAppsGroup();
             background_apps.margin_top = 10;
             background_apps.margin_bottom = 0;
+            _background_apps = background_apps;
             content.append(background_apps);
             var media_player = new MediaPlayerCard();
             media_player.margin_top = 10;
             content.append(media_player);
+            _shade_notifications = build_shade_notifications();
+            content.append(_shade_notifications);
             _inactive_tile_grid.visible = false;
             _quick_settings_preferences.visible = false;
             append(content);
+            Singularity.FormFactor.get_default().changed.connect(() => sync_form());
+            sync_form();
+        }
+
+        private Widget _background_apps;
+        private Box _shade_notifications;
+
+        private Box build_shade_notifications() {
+            var box = new Box(Orientation.VERTICAL, 6);
+            box.add_css_class("shade-notifications");
+            box.margin_top = 14;
+            var head = new Box(Orientation.HORIZONTAL, 0);
+            var title = new Label(_("Notifications"));
+            title.add_css_class("heading");
+            title.xalign = 0;
+            title.hexpand = true;
+            var clear = new Button.with_label(_("Clear All"));
+            clear.add_css_class("flat");
+            var manager = SystemMonitor.get_default().notifications;
+            clear.clicked.connect(() => manager.clear_history());
+            clear.sensitive = manager.get_history().length() > 0;
+            manager.history_changed.connect(() => clear.sensitive = manager.get_history().length() > 0);
+            head.append(title);
+            head.append(clear);
+            box.append(head);
+            box.append(new NotificationCenter());
+            return box;
+        }
+
+        private void sync_form() {
+            bool phone = Singularity.FormFactor.current() == Singularity.FormFactorKind.PHONE;
+            _shade_notifications.visible = phone;
+            _background_apps.visible = !phone;
+            update_compact_mode();
         }
 
         private void confirm_session_action(string title, string icon, string description,
@@ -872,14 +909,18 @@ namespace Singularity {
             rebuild_quick_tiles();
         }
 
+        private const uint PHONE_PILLS_PER_LINE = 5;
+
         private void update_compact_mode() {
-            bool compact = _settings.get_boolean("quick-settings-compact");
+            bool phone = Singularity.FormFactor.current() == Singularity.FormFactorKind.PHONE;
+            bool compact = _settings.get_boolean("quick-settings-compact") || phone;
+            uint per_line = compact ? (phone ? PHONE_PILLS_PER_LINE : 6) : 2;
             set_css_class(_tile_grid, "compact", compact);
             set_css_class(_inactive_tile_grid, "compact", compact);
-            _tile_grid.min_children_per_line = compact ? 6 : 2;
-            _tile_grid.max_children_per_line = compact ? 6 : 2;
-            _inactive_tile_grid.min_children_per_line = compact ? 6 : 2;
-            _inactive_tile_grid.max_children_per_line = compact ? 6 : 2;
+            _tile_grid.min_children_per_line = per_line;
+            _tile_grid.max_children_per_line = per_line;
+            _inactive_tile_grid.min_children_per_line = per_line;
+            _inactive_tile_grid.max_children_per_line = per_line;
             foreach (var item in _quick_tiles) {
                 item.wrapper.hexpand = !compact;
                 item.wrapper.halign = compact ? Align.CENTER : Align.FILL;

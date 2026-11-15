@@ -586,23 +586,22 @@ namespace Singularity {
             var ff = FormFactor.get_default ();
             var group = new PreferencesGroup (_("Form Factor"));
             var kinds = FormFactorKind.all ();
-            string[] labels = { _("Automatic") };
-            foreach (var k in kinds) labels += form_factor_label (k);
-            var choice = new ChoiceButton.from_strings (labels);
-            choice.valign = Gtk.Align.CENTER;
-            choice.sensitive = ff.configurable;
-            uint current = 0;
-            for (uint i = 0; i < kinds.length; i++) {
-                if (ff.preference == kinds[i].to_id ()) current = i + 1;
+            var options = new Gee.ArrayList<Singularity.Core.AppSettingOption> ();
+            var automatic = new Singularity.Core.AppSettingOption ();
+            automatic.id = FormFactor.AUTO;
+            automatic.label = _("Automatic");
+            options.add (automatic);
+            foreach (var k in kinds) {
+                var option = new Singularity.Core.AppSettingOption ();
+                option.id = k.to_id ();
+                option.label = form_factor_label (k);
+                options.add (option);
             }
-            choice.selected = current;
-            choice.notify["selected"].connect (() => {
-                uint i = choice.selected;
-                ff.choose (i == 0 ? FormFactor.AUTO : kinds[i - 1].to_id ());
-            });
-            var live = new ActionRow (_("This Session"),
-                ff.forced ? _("Fixed by the session that started this shell") : _("Switch the running shell and watch it adapt"));
-            live.add_suffix (choice);
+            var live = new SelectionRow.with_options (_("This Session"), options, ff.preference);
+            live.subtitle = ff.forced ? _("Fixed by the session that started this shell") : _("Switch the running shell and watch it adapt");
+            live.sensitive = ff.configurable;
+            live.selected.connect ((id) => ff.choose (id));
+            ff.changed.connect (() => live.current_value = ff.preference);
             group.add_row (live);
             for (int i = 0; i < kinds.length; i++) {
                 var kind = kinds[i];

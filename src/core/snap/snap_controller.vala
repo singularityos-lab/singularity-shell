@@ -133,6 +133,18 @@ namespace Singularity {
             }
         }
 
+        public void dismiss_assist() {
+            if (_assist != null && _assist.is_open) _assist.dismiss();
+        }
+
+        public bool assist_split(void* toplevel, SnapRect area) {
+            if (toplevel == null || area.width <= 0 || area.height <= 0) return false;
+            var layouts = SnapLayoutModel.layouts_for(area.width, area.height);
+            if (layouts.length == 0 || layouts[0].zones.length == 0) return false;
+            snap(toplevel, area, layouts[0], layouts[0].zones[0]);
+            return true;
+        }
+
         private void send_zone(void* handle, SnapRect area, SnapZone zone) {
             SnapBridge.snap_to_zone(handle, area.x + area.width / 2, area.y + area.height / 2,
                 zone.x, zone.y, zone.width, zone.height);
