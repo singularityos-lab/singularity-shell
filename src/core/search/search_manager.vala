@@ -46,7 +46,7 @@ namespace Singularity {
             load_script_providers();
             if (desktop_settings.settings_schema.has_key("search-provider-overrides")) {
                 desktop_settings.changed["search-provider-overrides"].connect(reload_remote_providers);
-                desktop_settings.get_value("search-provider-overrides");
+                SettingsGuard.value(desktop_settings, "search-provider-overrides", "a{sb}");
             }
             AppSystem.get_default().apps_changed.connect(schedule_remote_reload);
             load_remote_providers();
@@ -63,7 +63,7 @@ namespace Singularity {
         public bool is_remote_provider_enabled(RemoteSearchProviderInfo info) {
             if (!desktop_settings.settings_schema.has_key("search-provider-overrides"))
                 return !info.default_disabled;
-            var iter = desktop_settings.get_value("search-provider-overrides").iterator();
+            var iter = SettingsGuard.value(desktop_settings, "search-provider-overrides", "a{sb}").iterator();
             string id;
             bool enabled;
             while (iter.next("{sb}", out id, out enabled)) {
@@ -75,14 +75,14 @@ namespace Singularity {
         public void set_remote_provider_enabled(string id, bool enabled) {
             if (!desktop_settings.settings_schema.has_key("search-provider-overrides")) return;
             var builder = new VariantBuilder(new VariantType("a{sb}"));
-            var iter = desktop_settings.get_value("search-provider-overrides").iterator();
+            var iter = SettingsGuard.value(desktop_settings, "search-provider-overrides", "a{sb}").iterator();
             string key;
             bool value;
             while (iter.next("{sb}", out key, out value)) {
                 if (key != id) builder.add("{sb}", key, value);
             }
             builder.add("{sb}", id, enabled);
-            desktop_settings.set_value("search-provider-overrides", builder.end());
+            SettingsGuard.store(desktop_settings, "search-provider-overrides", builder.end());
         }
 
         private void load_remote_providers() {

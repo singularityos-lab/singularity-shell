@@ -45,7 +45,7 @@ namespace Singularity {
         public static int placed_count (string widget_id) {
             var settings = AppPluginHost.desktop_settings ();
             if (settings == null) return 0;
-            var v = settings.get_value ("overview-widgets");
+            var v = SettingsGuard.value(settings, "overview-widgets", "a(ssiis)");
             int n = 0;
             for (size_t i = 0; i < v.n_children (); i++) {
                 if (v.get_child_value (i).get_child_value (1).get_string () == widget_id) n++;

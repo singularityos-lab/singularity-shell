@@ -133,10 +133,11 @@ namespace Singularity.SidebarPages {
             background_group.description = _("Apps you cannot see keep running, but give way to the one you are using.");
             var background_row = new SwitchRow(_("Lighter Background Apps"),
                 _("When all the windows of an app are minimized or covered, it gets less processor, disk and memory, and its windows stop drawing. On battery this always happens, and an app left hidden and idle for ten minutes is paused until you open it again. Apps playing audio or video, keeping a connection open or holding off sleep are left alone."),
-                _settings.get_boolean("background-apps"));
-            _settings.bind("background-apps", background_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+                SettingsGuard.has(_settings, "background-apps") && _settings.get_boolean("background-apps"));
+            if (SettingsGuard.has(_settings, "background-apps"))
+                _settings.bind("background-apps", background_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
             background_group.add_row(background_row);
-            background_group.visible = AppPause.get_default().available;
+            background_group.visible = AppPause.get_default().available && SettingsGuard.has(_settings, "background-apps");
             add_group(background_group);
 
             build_scheduler();

@@ -633,7 +633,7 @@ namespace Singularity {
             var source = SettingsSchemaSource.get_default();
             if (source.lookup("org.gnome.desktop.input-sources", true) != null) {
                 var settings = new GLib.Settings("org.gnome.desktop.input-sources");
-                var sources = settings.get_value("sources");
+                var sources = SettingsGuard.value(settings, "sources", "a(ss)");
                 if (sources.is_of_type(new VariantType("a(ss)"))) {
                     int source_count = 0;
                     var iter_count = sources.iterator();
@@ -689,7 +689,7 @@ namespace Singularity {
         private void add_input_source(string type, string id) {
             try {
                 var settings = new GLib.Settings("org.gnome.desktop.input-sources");
-                var current = settings.get_value("sources");
+                var current = SettingsGuard.value(settings, "sources", "a(ss)");
                 var builder = new VariantBuilder(new VariantType("a(ss)"));
 
                 builder.add("(ss)", type, id);
@@ -700,7 +700,7 @@ namespace Singularity {
                     builder.add("(ss)", current_type, current_id);
                 }
                 var sources = builder.end();
-                settings.set_value("sources", sources);
+                SettingsGuard.store(settings, "sources", sources);
                 sync_to_singularity_schema(sources);
             } catch (Error e) {
                 warning("Failed to add input source: %s", e.message);
@@ -710,7 +710,7 @@ namespace Singularity {
         private void remove_input_source(string type, string id) {
             try {
                 var settings = new GLib.Settings("org.gnome.desktop.input-sources");
-                var current = settings.get_value("sources");
+                var current = SettingsGuard.value(settings, "sources", "a(ss)");
                 var builder = new VariantBuilder(new VariantType("a(ss)"));
                 var iter = current.iterator();
                 string current_type, current_id;
@@ -719,7 +719,7 @@ namespace Singularity {
                     builder.add("(ss)", current_type, current_id);
                 }
                 var sources = builder.end();
-                settings.set_value("sources", sources);
+                SettingsGuard.store(settings, "sources", sources);
                 sync_to_singularity_schema(sources);
             } catch (Error e) {
                 warning("Failed to remove input source: %s", e.message);

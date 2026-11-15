@@ -784,7 +784,7 @@ namespace Singularity {
 
         private void rebuild_quick() {
             for (Widget? c = quick_grid.get_first_child(); c != null; c = quick_grid.get_first_child()) quick_grid.remove(c);
-            var usage = _desktop_settings.get_value("settings-page-usage");
+            var usage = SettingsGuard.value(_desktop_settings, "settings-page-usage", "a{si}");
             var counts = new Gee.HashMap<string, int>();
             var available = new Gee.HashSet<string>();
             foreach (string page in nav_pages()) available.add(page);
@@ -816,7 +816,7 @@ namespace Singularity {
         private void count_use(string page) {
             if (!is_top_level_page(page)) return;
             var builder = new VariantBuilder(new VariantType("a{si}"));
-            var iter = _desktop_settings.get_value("settings-page-usage").iterator();
+            var iter = SettingsGuard.value(_desktop_settings, "settings-page-usage", "a{si}").iterator();
             string name;
             int count;
             bool found = false;
@@ -828,7 +828,7 @@ namespace Singularity {
                 builder.add("{si}", name, count);
             }
             if (!found) builder.add("{si}", page, 1);
-            _desktop_settings.set_value("settings-page-usage", builder.end());
+            SettingsGuard.store(_desktop_settings, "settings-page-usage", builder.end());
         }
 
         private Widget create_settings_row(string label, string icon_name, string target_page) {

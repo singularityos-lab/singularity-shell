@@ -99,41 +99,41 @@ namespace Singularity {
         }
 
         public bool has_hdr_choice(string key) {
-            return settings.get_value("output-hdr").lookup_value(key, VariantType.BOOLEAN) != null;
+            return SettingsGuard.value(settings, "output-hdr", "a{sb}").lookup_value(key, VariantType.BOOLEAN) != null;
         }
 
         public bool hdr_enabled(string key) {
-            var v = settings.get_value("output-hdr").lookup_value(key, VariantType.BOOLEAN);
+            var v = SettingsGuard.value(settings, "output-hdr", "a{sb}").lookup_value(key, VariantType.BOOLEAN);
             return v != null && v.get_boolean();
         }
 
         public void set_hdr(string key, bool enabled) {
             var builder = new VariantBuilder(new VariantType("a{sb}"));
-            var iter = settings.get_value("output-hdr").iterator();
+            var iter = SettingsGuard.value(settings, "output-hdr", "a{sb}").iterator();
             string k;
             bool b;
             while (iter.next("{sb}", out k, out b)) {
                 if (k != key) builder.add("{sb}", k, b);
             }
             builder.add("{sb}", key, enabled);
-            settings.set_value("output-hdr", builder.end());
+            SettingsGuard.store(settings, "output-hdr", builder.end());
         }
 
         public int sdr_brightness(string key) {
-            var v = settings.get_value("output-sdr-brightness").lookup_value(key, VariantType.INT32);
+            var v = SettingsGuard.value(settings, "output-sdr-brightness", "a{si}").lookup_value(key, VariantType.INT32);
             return v != null ? v.get_int32().clamp(SDR_MIN, SDR_MAX) : SDR_DEFAULT;
         }
 
         public void set_sdr_brightness(string key, int nits) {
             var builder = new VariantBuilder(new VariantType("a{si}"));
-            var iter = settings.get_value("output-sdr-brightness").iterator();
+            var iter = SettingsGuard.value(settings, "output-sdr-brightness", "a{si}").iterator();
             string k;
             int n;
             while (iter.next("{si}", out k, out n)) {
                 if (k != key) builder.add("{si}", k, n);
             }
             builder.add("{si}", key, nits.clamp(SDR_MIN, SDR_MAX));
-            settings.set_value("output-sdr-brightness", builder.end());
+            SettingsGuard.store(settings, "output-sdr-brightness", builder.end());
         }
 
         public string? profile_path(string key) {

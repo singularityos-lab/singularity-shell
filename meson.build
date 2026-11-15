@@ -564,6 +564,7 @@ singularity_core_sources = files(
     'src/core/updates_scheduler.vala',
     'src/core/display_manager.vala',
     'src/core/display_color.vala',
+    'src/core/settings_guard.vala',
     'src/core/tablet/tablet_model.vala',
     'src/core/tablet/tablet_manager.vala',
     'src/components/sidebar/pages/tablet_page.vala',

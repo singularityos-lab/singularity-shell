@@ -120,7 +120,7 @@ namespace Singularity {
         }
 
         private void update() {
-            bool want = settings.get_boolean("background-apps") || saving;
+            bool want = (SettingsGuard.has(settings, "background-apps") && settings.get_boolean("background-apps")) || saving;
             if (want) {
                 try {
                     FileUtils.set_contents(flag, "");

@@ -522,7 +522,7 @@ namespace Singularity {
             string xkb_variant = settings.get_string("xkb-variant");
             try {
                 var input_settings = new GLib.Settings("org.gnome.desktop.input-sources");
-                var sources = input_settings.get_value("sources");
+                var sources = SettingsGuard.value(input_settings, "sources", "a(ss)");
                 var iter = sources.iterator();
                 string t, i;
                 while (iter.next("(ss)", out t, out i)) {
@@ -736,7 +736,7 @@ namespace Singularity {
                     key, dbus_shorts, pk.key);
             }
             if (settings.settings_schema.has_key("portal-global-shortcuts")) {
-                var portal_iter = settings.get_value("portal-global-shortcuts").iterator();
+                var portal_iter = SettingsGuard.value(settings, "portal-global-shortcuts", "a(ssss)").iterator();
                 string p_app, p_id, p_desc, p_accel;
                 while (portal_iter.next("(ssss)", out p_app, out p_id, out p_desc, out p_accel)) {
                     string key = accel_to_labwc(p_accel);
@@ -879,7 +879,7 @@ namespace Singularity {
         private void load_custom_keybindings() {
             custom_keybindings = new List<CustomKeybinding>();
             if (!settings.settings_schema.has_key("custom-keybindings")) return;
-            var list = settings.get_value("custom-keybindings");
+            var list = SettingsGuard.value(settings, "custom-keybindings", "a(ssssss)");
             var iter = list.iterator();
             string id, name, accel, command, app_id, action;
             while (iter.next("(ssssss)", out id, out name, out accel, out command, out app_id, out action))
@@ -890,7 +890,7 @@ namespace Singularity {
             var builder = new VariantBuilder(new VariantType("a(ssssss)"));
             foreach (var k in custom_keybindings)
                 builder.add("(ssssss)", k.id, k.name, k.accelerator, k.command, k.app_id, k.action);
-            settings.set_value("custom-keybindings", builder.end());
+            SettingsGuard.store(settings, "custom-keybindings", builder.end());
         }
 
         [DBus (visible = false)]
@@ -983,7 +983,7 @@ namespace Singularity {
         }
 
         private void load_custom_shortcuts() {
-            var custom = settings.get_value("custom-shortcuts");
+            var custom = SettingsGuard.value(settings, "custom-shortcuts", "a{ss}");
             if (custom.is_of_type(new VariantType("a{ss}"))) {
                 var iter = custom.iterator();
                 string action;
@@ -1022,7 +1022,7 @@ namespace Singularity {
                     builder.add("{ss}", s.id, s.accelerator);
                 }
             }
-            settings.set_value("custom-shortcuts", builder.end());
+            SettingsGuard.store(settings, "custom-shortcuts", builder.end());
             write_labwc_rc_xml();
         }
 

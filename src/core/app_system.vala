@@ -2046,7 +2046,7 @@ namespace Singularity {
         }
 
         public OverviewWidgetInstance[] get_overview_widgets() {
-            var v = settings.get_value("overview-widgets");
+            var v = SettingsGuard.value(settings, "overview-widgets", "a(ssiis)");
             int n = (int) v.n_children();
             var result = new OverviewWidgetInstance[n];
             for (int i = 0; i < n; i++) {
@@ -2078,7 +2078,7 @@ namespace Singularity {
                             existing.w, existing.h, existing.config_json);
             }
             builder.add("(ssiis)", iid, provider_id, w, h, config_json);
-            settings.set_value("overview-widgets", builder.end());
+            SettingsGuard.store(settings, "overview-widgets", builder.end());
 
             // Add to grid order too.
             string[] order = get_grid_order();
@@ -2093,7 +2093,7 @@ namespace Singularity {
                 builder.add("(ssiis)", existing.instance_id, existing.provider_id,
                             existing.w, existing.h, existing.config_json);
             }
-            settings.set_value("overview-widgets", builder.end());
+            SettingsGuard.store(settings, "overview-widgets", builder.end());
             string[] new_order = {};
             string key = "widget:" + instance_id;
             foreach (var k in get_grid_order())
@@ -2112,7 +2112,7 @@ namespace Singularity {
                                 existing.w, existing.h, existing.config_json);
                 }
             }
-            settings.set_value("overview-widgets", builder.end());
+            SettingsGuard.store(settings, "overview-widgets", builder.end());
             apps_changed();
         }
 
@@ -2127,7 +2127,7 @@ namespace Singularity {
                                 existing.w, existing.h, existing.config_json);
                 }
             }
-            settings.set_value("overview-widgets", builder.end());
+            SettingsGuard.store(settings, "overview-widgets", builder.end());
         }
 
         public Variant? get_overview_widget_config(string instance_id) {
