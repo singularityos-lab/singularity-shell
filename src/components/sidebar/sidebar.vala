@@ -53,6 +53,10 @@ namespace Singularity {
                 if (shift != _blur_shift) update_background_effect();
             });
             set_child(_content_bin);
+            var shade_drag = new GestureDrag();
+            shade_drag.drag_update.connect((dx, dy) => shade_drag_update(shade_drag, dx, dy));
+            shade_drag.drag_end.connect((dx, dy) => shade_drag_end(dy));
+            _content_bin.add_controller(shade_drag);
 
             var sidebar_scroll = new ScrolledWindow();
             this.sidebar_scroll = sidebar_scroll;
@@ -415,6 +419,80 @@ namespace Singularity {
 
         private const double SLIDE_DISTANCE = 96.0;
         private const int EDGE_GAP = 40;
+        private const double PULL_SLOP = 10.0;
+        private const double PULL_COMMIT = 0.3;
+        private bool _shade_tracking = false;
+        private bool _shade_pulling = false;
+
+        private double shade_height() {
+            int h = main_box.get_height();
+            return h > 0 ? h + SHADE_MARGIN : 640.0;
+        }
+
+        private bool scrolled_to_end() {
+            var adj = sidebar_scroll.vadjustment;
+            return adj.value >= adj.upper - adj.page_size - 1.0;
+        }
+
+        private void shade_drag_update(GestureDrag drag, double dx, double dy) {
+            if (!_phone || _is_closing) return;
+            if (!_shade_tracking) {
+                if (Math.fabs(dy) < PULL_SLOP || dy > 0 || Math.fabs(dx) > Math.fabs(dy) || !scrolled_to_end()) return;
+                _shade_tracking = true;
+                drag.set_state(EventSequenceState.CLAIMED);
+                Singularity.Motion.cancel(_content_bin, "translate-y");
+            }
+            _content_bin.translate_y = double.min(0.0, dy);
+        }
+
+        private void shade_drag_end(double dy) {
+            if (!_shade_tracking) return;
+            _shade_tracking = false;
+            if (-dy > shade_height() * PULL_COMMIT) gesture_close();
+            else Singularity.Motion.spring_to(_content_bin, "translate-y", 0.0, Singularity.Motion.Spring.SNAPPY);
+        }
+
+        private void gesture_close() {
+            _is_closing = true;
+            var slide = Singularity.Motion.tween(_content_bin, "translate-y", -shade_height(),
+                Singularity.Motion.Duration.SMALL.exit_ms(), Singularity.Motion.Curve.EXIT);
+            slide.done.connect(() => {
+                if (_is_closing) finish_close();
+            });
+        }
+
+        public bool pull_begin() {
+            if (!_phone) return false;
+            if (visible && !_is_closing) return false;
+            Singularity.Motion.cancel(_content_bin, "translate-y");
+            Singularity.Motion.cancel(_content_bin, "opacity");
+            _is_closing = false;
+            _shade_pulling = true;
+            main_stack.visible_child_name = "system";
+            _can_close_on_focus_loss = false;
+            _content_bin.opacity = 1.0;
+            _content_bin.translate_y = -shade_height();
+            present();
+            return true;
+        }
+
+        public void pull_update(double dy) {
+            if (!_shade_pulling) return;
+            double h = shade_height();
+            _content_bin.translate_y = double.max(-h, double.min(0.0, dy - h));
+        }
+
+        public void pull_end(double dy) {
+            if (!_shade_pulling) return;
+            _shade_pulling = false;
+            if (dy > shade_height() * PULL_COMMIT) {
+                Singularity.Motion.spring_to(_content_bin, "translate-y", 0.0, Singularity.Motion.Spring.SNAPPY);
+                Timeout.add(400, () => { _can_close_on_focus_loss = true; return false; });
+            } else {
+                gesture_close();
+            }
+        }
+
         private Singularity.Animation.MotionBin _content_bin;
         private int _blur_shift = 0;
         private bool _can_close_on_focus_loss = false;

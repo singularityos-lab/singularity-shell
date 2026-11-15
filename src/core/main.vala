@@ -719,6 +719,24 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     }
 
     private void connect_panel_sidebar(Singularity.Panel p) {
+        var pull = new Gtk.GestureDrag();
+        bool pulling = false;
+        pull.drag_begin.connect(() => pulling = false);
+        pull.drag_update.connect((dx, dy) => {
+            if (!pulling) {
+                if (dy < 10 || Math.fabs(dx) > dy || !phone_shade(p.get_target_monitor())) return;
+                sidebar_on(p.get_target_monitor());
+                if (!sidebar.pull_begin()) return;
+                pulling = true;
+                pull.set_state(Gtk.EventSequenceState.CLAIMED);
+            }
+            sidebar.pull_update(dy);
+        });
+        pull.drag_end.connect((dx, dy) => {
+            if (pulling) sidebar.pull_end(dy);
+            pulling = false;
+        });
+        ((Gtk.Widget) p).add_controller(pull);
         p.clock_clicked.connect(() => {
             sidebar_on(p.get_target_monitor());
             if (phone_shade(p.get_target_monitor())) sidebar.toggle_system(); else sidebar.toggle_calendar();
