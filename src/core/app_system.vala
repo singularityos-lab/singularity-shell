@@ -1161,6 +1161,7 @@ namespace Singularity {
         private void emit_menu(int gen, MenuModel? app_model, SimpleActionGroup group) {
             if (menu_generation != gen) return;
             var final_menu = new GLib.Menu();
+            bool window_merged = false;
             if (app_model != null) {
                 int n = app_model.get_n_items();
                 int file_index = -1;
@@ -1180,7 +1181,14 @@ namespace Singularity {
                     app_model.get_item_attribute(i, Menu.ATTRIBUTE_LABEL, "s", out lbl);
                     var mi = new MenuItem(lbl, null);
                     MenuModel? sub = app_model.get_item_link(i, Menu.LINK_SUBMENU);
-                    if (sub != null && i == file_index && entry_section != null) {
+                    string plain = lbl != null ? lbl.replace("_", "") : "";
+                    if (sub != null && !window_merged && (plain == "Window" || plain == _("Window"))) {
+                        var merged = new GLib.Menu();
+                        merged.append_section(null, sub);
+                        merged.append_section(null, window_section());
+                        mi.set_submenu(merged);
+                        window_merged = true;
+                    } else if (sub != null && i == file_index && entry_section != null) {
                         var merged = new GLib.Menu();
                         merged.append_section(null, entry_section);
                         merged.append_section(null, sub);
@@ -1207,14 +1215,18 @@ namespace Singularity {
                 file_menu.append("Quit", "dbusmenu.quit");
                 final_menu.append_submenu("File", file_menu);
             }
+            if (!window_merged) final_menu.append_submenu("Window", window_section());
+            current_menu_model = final_menu;
+            menu_model_changed(final_menu);
+        }
+
+        private static GLib.Menu window_section() {
             var win_menu = new GLib.Menu();
             win_menu.append("Minimize", "dbusmenu.minimize");
             win_menu.append("Maximize", "dbusmenu.maximize");
             win_menu.append("Snap Left", "dbusmenu.snap-left");
             win_menu.append("Snap Right", "dbusmenu.snap-right");
-            final_menu.append_submenu("Window", win_menu);
-            current_menu_model = final_menu;
-            menu_model_changed(final_menu);
+            return win_menu;
         }
 
         private GLib.Menu? desktop_entry_actions(SimpleActionGroup group) {
