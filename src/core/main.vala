@@ -807,6 +807,13 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     private void setup_form_shell() {
         form_shell = new Singularity.FormShell(this);
         form_shell.home_requested.connect((monitor) => toggle_overview_on_monitor(monitor));
+        form_shell.launcher_pull_begin.connect((monitor) => {
+            if (overview == null || (monitor != null && !Singularity.FormFactor.is_main(monitor))) return false;
+            close_workspace_overviews();
+            return overview.pull_open_begin();
+        });
+        form_shell.launcher_pull_update.connect((monitor, dy) => { if (overview != null) overview.pull_open_update(dy); });
+        form_shell.launcher_pull_end.connect((monitor, dy) => { if (overview != null) overview.pull_open_end(dy); });
         form_shell.next_requested.connect(() => {
             try { switch_windows_next(); } catch (IOError e) { warning("switch next: %s", e.message); }
         });

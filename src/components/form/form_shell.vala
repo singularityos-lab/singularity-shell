@@ -403,8 +403,10 @@ namespace Singularity {
             public PhoneNavBar? nav = null;
             public TvHome? tv = null;
             public WatchFace? watch = null;
+            public SplitDivider? split = null;
 
             public void destroy_surfaces() {
+                if (split != null) { split.destroy(); split = null; }
                 if (nav != null) { nav.destroy(); nav = null; }
                 if (tv != null) { tv.destroy(); tv = null; }
                 if (watch != null) { watch.destroy(); watch = null; }
@@ -421,6 +423,9 @@ namespace Singularity {
         private bool _keymap_ready = false;
 
         public signal void home_requested(Gdk.Monitor? monitor);
+        public signal bool launcher_pull_begin(Gdk.Monitor? monitor);
+        public signal void launcher_pull_update(Gdk.Monitor? monitor, double dy);
+        public signal void launcher_pull_end(Gdk.Monitor? monitor, double dy);
         public signal void next_requested();
         public signal void previous_requested();
 
@@ -429,7 +434,13 @@ namespace Singularity {
             var app_system = AppSystem.get_default();
             app_system.app_opened.connect((handle, app_id) => on_app_opened(handle));
             app_system.window_output_changed.connect((handle) => apply_window(handle));
-            app_system.app_closed.connect((handle) => _form_maximized.remove(handle));
+            app_system.app_closed.connect((handle) => {
+                _form_maximized.remove(handle);
+                Idle.add(() => {
+                    fill_after_close(handle);
+                    return Source.REMOVE;
+                });
+            });
             var ff = Singularity.FormFactor.get_default();
             ff.changed.connect(() => sync());
             ff.outputs_changed.connect(() => sync());
@@ -446,6 +457,73 @@ namespace Singularity {
                 }));
             }
             sync();
+            Timeout.add(SPLIT_POLL_MS, () => {
+                update_splits();
+                return Source.CONTINUE;
+            });
+        }
+
+        private const uint SPLIT_POLL_MS = 400;
+        private const int SPLIT_MAX_GAP = 40;
+        private const double SPLIT_MIN_HEIGHT = 0.6;
+
+        private struct PaneGeometry {
+            void* handle;
+            int x;
+            int y;
+            int width;
+            int height;
+        }
+
+        private void update_splits() {
+            foreach (var screen in _screens) {
+                if (screen.kind != Singularity.FormFactorKind.TABLET) continue;
+                if (screen.split != null && screen.split.dragging) continue;
+                PaneGeometry left, right;
+                if (!find_split(screen.monitor, out left, out right)) {
+                    if (screen.split != null) {
+                        screen.split.destroy();
+                        screen.split = null;
+                    }
+                    continue;
+                }
+                if (screen.split == null) {
+                    screen.split = new SplitDivider(_app, screen.monitor, TABLET_TOP_RESERVE, TABLET_BOTTOM_RESERVE);
+                    screen.split.dismissed_side.connect((gone, kept) => {
+                        Singularity.minimize_window(gone);
+                        Singularity.wayland_set_maximized(kept, true);
+                        _form_maximized.insert(kept, true);
+                    });
+                    screen.split.present();
+                }
+                int gap = right.x - (left.x + left.width);
+                screen.split.track(left.handle, right.handle, left.x + left.width + gap / 2, gap);
+            }
+        }
+
+        private bool find_split(Gdk.Monitor monitor, out PaneGeometry left, out PaneGeometry right) {
+            left = PaneGeometry();
+            right = PaneGeometry();
+            PaneGeometry[] panes = {};
+            foreach (var win in AppSystem.get_default().get_windows()) {
+                if (win.is_minimized || win.is_fullscreen || !on_monitor(win.handle, monitor)) continue;
+                int x, y, w, h, maximized, fullscreen;
+                string? connector;
+                if (!Singularity.wayland_get_window_geometry(win.handle, out x, out y, out w, out h,
+                        out maximized, out fullscreen, out connector)) continue;
+                if (maximized != 0 || fullscreen != 0) return false;
+                panes += PaneGeometry() { handle = win.handle, x = x, y = y, width = w, height = h };
+                if (panes.length > 2) return false;
+            }
+            if (panes.length != 2) return false;
+            var a = panes[0].x <= panes[1].x ? panes[0] : panes[1];
+            var b = panes[0].x <= panes[1].x ? panes[1] : panes[0];
+            int gap = b.x - (a.x + a.width);
+            int min_height = (int) ((monitor.geometry.height - TABLET_TOP_RESERVE - TABLET_BOTTOM_RESERVE) * SPLIT_MIN_HEIGHT);
+            if (gap < 0 || gap > SPLIT_MAX_GAP || a.height < min_height || b.height < min_height) return false;
+            left = a;
+            right = b;
+            return true;
         }
 
         private static string connector_of(Gdk.Monitor monitor) {
@@ -619,6 +697,9 @@ namespace Singularity {
                     screen.nav = new PhoneNavBar(_app, monitor);
                     screen.nav.back_requested.connect(() => go_back());
                     screen.nav.home_requested.connect(() => home_requested(monitor));
+                    screen.nav.pull_begin.connect(() => launcher_pull_begin(monitor));
+                    screen.nav.pull_update.connect((dy) => launcher_pull_update(monitor, dy));
+                    screen.nav.pull_end.connect((dy) => launcher_pull_end(monitor, dy));
                     screen.nav.recents_requested.connect(() => show_recents(monitor));
                     screen.nav.next_requested.connect(() => next_requested());
                     screen.nav.previous_requested.connect(() => previous_requested());
@@ -663,6 +744,23 @@ namespace Singularity {
             } else if (_form_maximized.contains(handle)) {
                 _form_maximized.remove(handle);
                 if (win.is_maximized) Singularity.wayland_set_maximized(handle, false);
+            }
+        }
+
+        private void fill_after_close(void* closed) {
+            foreach (var monitor in monitors()) {
+                var kind = kind_on(monitor);
+                if (kind != Singularity.FormFactorKind.TABLET && kind != Singularity.FormFactorKind.TV) continue;
+                AppSystem.Window? last = null;
+                int count = 0;
+                foreach (var win in AppSystem.get_default().get_windows()) {
+                    if (win.handle == closed || win.is_minimized || !on_monitor(win.handle, monitor)) continue;
+                    last = win;
+                    count++;
+                }
+                if (count != 1 || last.is_maximized || last.is_fullscreen) continue;
+                Singularity.wayland_set_maximized(last.handle, true);
+                _form_maximized.insert(last.handle, true);
             }
         }
 

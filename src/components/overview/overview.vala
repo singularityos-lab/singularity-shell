@@ -191,6 +191,11 @@ namespace Singularity {
             grid_container.append(launcher_grid);
 
             // Right-click on empty grid area -> Add widget…
+            var pull_close = new GestureDrag();
+            pull_close.drag_update.connect((dx, dy) => pull_close_update(pull_close, dx, dy));
+            pull_close.drag_end.connect((dx, dy) => pull_close_end(dy));
+            main_box.add_controller(pull_close);
+
             var grid_rc = new GestureClick();
             grid_rc.button = Gdk.BUTTON_SECONDARY;
             grid_rc.pressed.connect((n, x, y) => {
@@ -478,11 +483,107 @@ namespace Singularity {
             stop_gesture_spring();
             stage.opacity = 0.0;
             stage.reset_transform();
+            Singularity.Motion.cancel(this, "opacity");
+            opacity = 1.0;
             launcher_grid.close_folder_overlays();
             close_layer_window (this);
             PreviewCache.get_default().clear();
             hidden();
             Singularity.trim_heap();
+        }
+
+        private const double PULL_COMMIT = 0.25;
+        private const double PULL_FADE = 0.6;
+        private bool _pull_active = false;
+        private bool _pull_tracking = false;
+
+        private double pull_height() {
+            int h = get_height();
+            return h > 0 ? h : 800.0;
+        }
+
+        private void pull_place(double offset) {
+            double h = pull_height();
+            double clamped = offset.clamp(0.0, h);
+            stage.translate_y = clamped;
+            opacity = 1.0 - PULL_FADE * clamped / h;
+        }
+
+        private void pull_stop_motion() {
+            cancel_hide();
+            _stage_fade = null;
+            Singularity.Motion.cancel(stage, "opacity");
+            Singularity.Motion.cancel(stage, "scale");
+            Singularity.Motion.cancel(stage, "translate-y");
+            Singularity.Motion.cancel(this, "opacity");
+            stop_gesture_spring();
+            stage.scale = 1.0;
+            stage.opacity = 1.0;
+        }
+
+        public bool pull_open_begin() {
+            if (is_showing && !_closing) return false;
+            if (!is_showing) toggle();
+            if (!is_showing) return false;
+            pull_stop_motion();
+            _pull_active = true;
+            pull_place(pull_height());
+            return true;
+        }
+
+        public void pull_open_update(double dy) {
+            if (!_pull_active) return;
+            pull_place(pull_height() + dy);
+        }
+
+        public void pull_open_end(double dy) {
+            if (!_pull_active) return;
+            _pull_active = false;
+            if (-dy > pull_height() * PULL_COMMIT) pull_settle_open();
+            else pull_settle_closed();
+        }
+
+        private void pull_settle_open() {
+            Singularity.Motion.spring_to(stage, "translate-y", 0.0, Singularity.Motion.Spring.SNAPPY);
+            Singularity.Motion.tween(this, "opacity", 1.0, Singularity.Motion.Duration.SMALL, Singularity.Motion.Curve.ENTER);
+        }
+
+        private void pull_settle_closed() {
+            is_showing = false;
+            showing = false;
+            set_keyboard_mode(this, GtkLayerShell.KeyboardMode.NONE);
+            hiding();
+            launcher_grid.close_folder_overlays();
+            begin_hide();
+            Singularity.Motion.tween(this, "opacity", 1.0 - PULL_FADE, Singularity.Motion.Duration.SMALL.exit_ms(), Singularity.Motion.Curve.EXIT);
+            var slide = Singularity.Motion.tween(stage, "translate-y", pull_height(),
+                Singularity.Motion.Duration.SMALL.exit_ms(), Singularity.Motion.Curve.EXIT);
+            slide.done.connect(() => {
+                if (!is_showing) finish_hide();
+            });
+        }
+
+        private bool grid_at_top() {
+            return content_stack.visible_child_name != "grid" || scrolled_window.vadjustment.value <= 0.5;
+        }
+
+        private void pull_close_update(GestureDrag drag, double dx, double dy) {
+            if (!is_showing || _gesture_active) return;
+            if (Singularity.FormFactor.at(GtkLayerShell.get_monitor(this)) != Singularity.FormFactorKind.PHONE) return;
+            if (!_pull_tracking) {
+                if (dy < 10 || Math.fabs(dx) > dy || !grid_at_top()) return;
+                _pull_tracking = true;
+                drag.set_state(EventSequenceState.CLAIMED);
+                pull_stop_motion();
+            }
+            pull_place(dy);
+        }
+
+        private void pull_close_end(double dy) {
+            if (!_pull_tracking) return;
+            _pull_tracking = false;
+            if (dy > pull_height() * PULL_COMMIT) pull_settle_closed();
+            else pull_settle_open();
         }
 
         public void begin_gesture(bool opening) {
