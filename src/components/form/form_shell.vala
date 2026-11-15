@@ -568,6 +568,10 @@ namespace Singularity {
             return true;
         }
 
+        public void hide_recents() {
+            if (_switcher != null) _switcher.dismiss();
+        }
+
         public void show_recents(Gdk.Monitor? monitor = null) {
             SnapController.get_default().dismiss_assist();
             if (_switcher == null) {

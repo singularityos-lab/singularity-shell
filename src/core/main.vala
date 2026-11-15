@@ -1232,6 +1232,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     private void close_workspace_overviews() {
         if (workspace_overviews_closing) return;
         workspace_overviews_closing = true;
+        if (form_shell != null) form_shell.hide_recents();
         foreach (var ws_overview in visible_workspace_overviews()) {
             if (!ws_overview.closing) ws_overview.toggle();
         }
