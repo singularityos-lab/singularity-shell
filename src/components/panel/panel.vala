@@ -522,6 +522,7 @@ namespace Singularity {
             add_css_class("singularity-shell");
             add_css_class("panel-window");
             if (is_greeter_mode) add_css_class("greeter-panel");
+            else Singularity.FormFactor.apply_css_class(this);
 
             var overlay = new Overlay();
             overlay.overflow = Overflow.VISIBLE;
@@ -1097,7 +1098,9 @@ namespace Singularity {
         }
 
         private bool update_clock() {
-            clock_label.label = new DateTime.now_local().format(_clock_format_str);
+            string format = Singularity.FormFactor.current() == Singularity.FormFactorKind.PHONE
+                ? (_settings.get_boolean("clock-use-12h") ? "%I:%M" : "%H:%M") : _clock_format_str;
+            clock_label.label = new DateTime.now_local().format(format);
             return true;
         }
 
@@ -1258,10 +1261,26 @@ namespace Singularity {
             if (bar_layout == null) return;
             layout_editor?.detach_controls();
             foreach (Gtk.Widget widget in layout_items.values) detach_layout_item(widget);
-            append_section(left_box, bar_layout.get_items(BarSection.LEFT));
-            append_section(center_box, bar_layout.get_items(BarSection.CENTER));
-            append_section(right_box, bar_layout.get_items(BarSection.RIGHT));
+            append_section(left_box, form_items(BarSection.LEFT));
+            append_section(center_box, form_items(BarSection.CENTER));
+            append_section(right_box, form_items(BarSection.RIGHT));
             layout_editor?.sync();
+        }
+
+        private string[] form_items(BarSection section) {
+            var kind = Singularity.FormFactor.current();
+            if (kind == Singularity.FormFactorKind.PHONE) {
+                if (section == BarSection.LEFT) return { "clock" };
+                if (section == BarSection.RIGHT) return { "notifications", "system" };
+                return {};
+            }
+            string[] items = bar_layout.get_items(section);
+            if (kind == Singularity.FormFactorKind.DESKTOP) return items;
+            string[] kept = {};
+            foreach (string id in items) {
+                if (id != "global-menu" && id != "workspaces" && id != "tiling-position") kept += id;
+            }
+            return kept;
         }
 
         private void save_bar_layout() {

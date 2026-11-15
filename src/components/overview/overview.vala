@@ -391,7 +391,7 @@ namespace Singularity {
             string dock_pos = desktop_settings.get_string("dock-position");
             if ((dock_pos == "left" || dock_pos == "right")
                     && !desktop_settings.get_boolean("dock-autohide")) {
-                int isz = desktop_settings.get_int("dock-icon-size");
+                int isz = Singularity.FormShell.dock_icon_size(desktop_settings);
                 if (isz <= 0) isz = 48;
                 avail -= isz + desktop_settings.get_int("dock-gap") + 28;
             }

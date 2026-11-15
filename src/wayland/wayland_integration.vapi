@@ -33,6 +33,8 @@ namespace Singularity {
 
     [CCode (cname = "singularity_wayland_activate_window", cheader_filename = "wayland_integration.h")]
     public void wayland_activate_window(void* handle);
+    [CCode (cname = "singularity_wayland_set_maximized", cheader_filename = "wayland_integration.h")]
+    public void wayland_set_maximized(void* handle, bool maximized);
 
     [CCode (cname = "singularity_wayland_show_window_pip", cheader_filename = "wayland_integration.h")]
     public bool wayland_show_window_pip(void* handle);

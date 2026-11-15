@@ -469,6 +469,7 @@ singularity_core_sources = files(
     'src/components/sidebar/widgets/hearing_risk_row.vala',
     'src/components/sidebar/widgets/fan_widgets.vala',
     'src/components/sidebar/widgets/developer_page.vala',
+    'src/components/form/form_shell.vala',
     'src/core/proc_stat.vala',
     'src/components/sidebar/widgets/settings_subpages.vala',
     'src/components/sidebar/pages/dev_settings_editor_page.vala',

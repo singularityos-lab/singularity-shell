@@ -324,20 +324,23 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         hot_corner_manager.settings_triggered.connect(() => { ensure_sidebar(); sidebar.toggle_system(); });
         var surfaces = Singularity.ShellSurfaceRegistry.get_default();
         // A plugin can claim the panel / dock role and replace the built-in.
-        if (!surfaces.is_claimed(Singularity.ShellRole.PANEL)) {
+        bool want_panel = Singularity.FormShell.wants_panel();
+        if (want_panel && !surfaces.is_claimed(Singularity.ShellRole.PANEL)) {
             panel = new Singularity.Panel(this);
             hot_corner_manager.attach_to_panel(panel);
-        } else {
+        } else if (want_panel) {
             activate_shell_surface(Singularity.ShellRole.PANEL);
         }
-        if (!surfaces.is_claimed(Singularity.ShellRole.DOCK)) {
+        bool want_dock = Singularity.FormShell.wants_dock();
+        if (want_dock && !surfaces.is_claimed(Singularity.ShellRole.DOCK)) {
             dock = new Singularity.Dock(this);
             hot_corner_manager.attach_to_dock(dock);
             Singularity.DebugManager.get_default().dock_inspect = dock;
-        } else {
+        } else if (want_dock) {
             activate_shell_surface(Singularity.ShellRole.DOCK);
         }
         notification_display = new Singularity.NotificationDisplay(this);
+        setup_form_shell();
         sync_workspace_switch_feedbacks();
         settings.changed["screen-keyboard-enabled"].connect(sync_screen_keyboard);
         settings.changed["mono-audio"].connect(() => {
@@ -763,6 +766,22 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     }
 
     private bool _shell_monitor_update_pending = false;
+    private Singularity.FormShell? form_shell = null;
+
+    private void setup_form_shell() {
+        form_shell = new Singularity.FormShell(this);
+        form_shell.home_requested.connect(() => toggle_overview());
+        form_shell.recents_requested.connect(() => toggle_workspace_overview());
+        Singularity.FormFactor.get_default().changed.connect(() => {
+            if (_shell_monitor_update_pending) return;
+            _shell_monitor_update_pending = true;
+            GLib.Idle.add(() => {
+                _shell_monitor_update_pending = false;
+                recreate_shell_surfaces();
+                return GLib.Source.REMOVE;
+            });
+        });
+    }
 
     private void setup_shell_monitor_listener() {
         settings.changed.connect((key) => {
@@ -801,20 +820,26 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         var surfaces = Singularity.ShellSurfaceRegistry.get_default();
         panel = null;
         dock = null;
-        if (surfaces.is_claimed(Singularity.ShellRole.PANEL)) {
+        bool want_panel = Singularity.FormShell.wants_panel();
+        if (want_panel && surfaces.is_claimed(Singularity.ShellRole.PANEL)) {
             activate_shell_surface(Singularity.ShellRole.PANEL);
-        } else {
+        } else if (want_panel) {
             panel = new Singularity.Panel(this);
         }
-        if (surfaces.is_claimed(Singularity.ShellRole.DOCK)) {
+        bool want_dock = Singularity.FormShell.wants_dock();
+        if (want_dock && surfaces.is_claimed(Singularity.ShellRole.DOCK)) {
             activate_shell_surface(Singularity.ShellRole.DOCK);
-        } else {
+        } else if (want_dock) {
             dock = new Singularity.Dock(this);
         }
         connect_shell_signals();
         if (hot_corner_manager != null) {
             if (panel != null) hot_corner_manager.attach_to_panel(panel);
             if (dock != null) hot_corner_manager.attach_to_dock(dock);
+        }
+        if (_entrance_played) {
+            if (panel != null) panel.play_intro();
+            if (dock != null) dock.play_intro();
         }
         setup_secondary_surfaces();
         _recreating = false;
@@ -840,8 +865,8 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     }
 
     private void setup_secondary_surfaces() {
-        bool dock_multi = settings.get_boolean("dock-multi-monitor");
-        bool panel_multi = settings.get_boolean("panel-multi-monitor");
+        bool dock_multi = settings.get_boolean("dock-multi-monitor") && Singularity.FormShell.wants_dock();
+        bool panel_multi = settings.get_boolean("panel-multi-monitor") && Singularity.FormShell.wants_panel();
         if (!dock_multi && !panel_multi) return;
 
         var primary_mon = Singularity.Panel.find_primary_monitor();

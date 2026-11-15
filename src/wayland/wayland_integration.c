@@ -1425,6 +1425,14 @@ void singularity_wayland_activate_window(void *handle) {
     wl_display_flush(ctx.display);
 }
 
+void singularity_wayland_set_maximized(void *handle, int maximized) {
+    if (!ctx.valid_handles || !g_hash_table_contains(ctx.valid_handles, handle)) return;
+    struct zwlr_foreign_toplevel_handle_v1 *toplevel = (struct zwlr_foreign_toplevel_handle_v1 *)handle;
+    if (maximized) zwlr_foreign_toplevel_handle_v1_maximize(toplevel);
+    else zwlr_foreign_toplevel_handle_v1_unset_maximize(toplevel);
+    wl_display_flush(ctx.display);
+}
+
 int singularity_wayland_show_window_pip(void *handle) {
     if (!ctx.pip_manager || !ctx.valid_handles ||
             !g_hash_table_contains(ctx.valid_handles, handle)) {

@@ -30,7 +30,7 @@ namespace Singularity {
 
         public int headroom(bool allowed) {
             if (!enabled || !allowed) return 0;
-            int size = settings.get_int("dock-icon-size");
+            int size = Singularity.FormShell.dock_icon_size(settings);
             return (int) Math.ceil(size * (MAX_SCALE - 1.0)) + 4;
         }
 
@@ -98,7 +98,7 @@ namespace Singularity {
             if (!enabled || settings.get_boolean("bar-layout-edit-mode")) return;
             bool vertical = box.orientation == Gtk.Orientation.VERTICAL;
             double cursor = vertical ? y : x;
-            double size = double.max(1.0, settings.get_int("dock-icon-size"));
+            double size = double.max(1.0, Singularity.FormShell.dock_icon_size(settings));
             double range = size * RANGE;
 
             Singularity.Animation.MotionBin[] bins = {};

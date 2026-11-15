@@ -18,5 +18,18 @@
     <key name="wallpaper-rotation-min-height" type="i"><range min="1" max="16384"/><default>720</default></key>
     <key name="wallpaper-rotation-match-aspect" type="b"><default>false</default></key>
     <key name="wallpaper-rotation-favor-favorites" type="b"><default>true</default></key>
+    <key name="form-factor" type="s">
+      <choices>
+        <choice value="auto"/>
+        <choice value="desktop"/>
+        <choice value="tablet"/>
+        <choice value="phone"/>
+        <choice value="tv"/>
+        <choice value="watch"/>
+      </choices>
+      <default>'auto'</default>
+      <summary>Form factor</summary>
+      <description>How the shell and Singularity apps present themselves: desktop, tablet, phone, TV or watch. Auto keeps the desktop.</description>
+    </key>
   </schema>
 </schemalist>

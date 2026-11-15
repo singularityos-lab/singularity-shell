@@ -126,6 +126,7 @@ namespace Singularity {
             shell_group.add_row (make_nav_row (_("Test Triggers"), _("Hot corners, notifications, portals and previews"),
                 "media-playback-start-symbolic", _test_triggers_page, "dev-test-triggers"));
             add_group (shell_group);
+            add_group (build_form_factor_group ());
 
             dsh_group = new PreferencesGroup (_("Developer Shell"));
             dsh_group.visible = false;
@@ -568,6 +569,75 @@ namespace Singularity {
         }
 
         // Helpers
+
+        private const string[] FORM_PREVIEW_SIZES = { "1280x800", "1180x820", "412x915", "1600x900", "396x396" };
+
+        private static string form_factor_label (FormFactorKind kind) {
+            switch (kind) {
+                case FormFactorKind.TABLET: return _("Tablet");
+                case FormFactorKind.PHONE: return _("Phone");
+                case FormFactorKind.TV: return _("TV");
+                case FormFactorKind.WATCH: return _("Watch");
+                default: return _("Desktop");
+            }
+        }
+
+        private PreferencesGroup build_form_factor_group () {
+            var ff = FormFactor.get_default ();
+            var group = new PreferencesGroup (_("Form Factor"));
+            var kinds = FormFactorKind.all ();
+            string[] labels = { _("Automatic") };
+            foreach (var k in kinds) labels += form_factor_label (k);
+            var choice = new ChoiceButton.from_strings (labels);
+            choice.valign = Gtk.Align.CENTER;
+            choice.sensitive = ff.configurable;
+            uint current = 0;
+            for (uint i = 0; i < kinds.length; i++) {
+                if (ff.preference == kinds[i].to_id ()) current = i + 1;
+            }
+            choice.selected = current;
+            choice.notify["selected"].connect (() => {
+                uint i = choice.selected;
+                ff.choose (i == 0 ? FormFactor.AUTO : kinds[i - 1].to_id ());
+            });
+            var live = new ActionRow (_("This Session"),
+                ff.forced ? _("Fixed by the session that started this shell") : _("Switch the running shell and watch it adapt"));
+            live.add_suffix (choice);
+            group.add_row (live);
+            for (int i = 0; i < kinds.length; i++) {
+                var kind = kinds[i];
+                string size = FORM_PREVIEW_SIZES[i];
+                var row = new ActionRow (_("%s Preview").printf (form_factor_label (kind)),
+                    _("Open a nested session at %s").printf (size.replace ("x", " × ")), null);
+                var open = new Button.with_label (_("Open"));
+                open.valign = Gtk.Align.CENTER;
+                open.clicked.connect (() => open_form_preview (kind, size));
+                row.add_suffix (open);
+                group.add_row (row);
+            }
+            return group;
+        }
+
+        private void open_form_preview (FormFactorKind kind, string size) {
+            string? labwc = Environment.find_program_in_path ("labwc");
+            string? session = Environment.find_program_in_path ("dbus-run-session");
+            string shell = FileUtils.read_link ("/proc/self/exe") ?? "singularity-desktop";
+            if (labwc == null || session == null) {
+                warning ("form preview: labwc or dbus-run-session not found");
+                return;
+            }
+            string[] env = Environ.get ();
+            env = Environ.set_variable (env, FormFactor.ENV, kind.to_id (), true);
+            env = Environ.set_variable (env, "LABWC_NESTED_MODE", size, true);
+            env = Environ.unset_variable (env, "DBUS_SESSION_BUS_ADDRESS");
+            env = Environ.unset_variable (env, "WLR_BACKENDS");
+            string[] argv = { session, "--", labwc, "-t", _("%s Preview").printf (form_factor_label (kind)), "-s", shell };
+            try {
+                Process.spawn_async (null, argv, env, SpawnFlags.SEARCH_PATH, null, null);
+            } catch (SpawnError e) {
+                warning ("form preview: %s", e.message);
+            }
+        }
 
         private SettingsPage make_subpage (string title) {
             var page = new SettingsPage (title);

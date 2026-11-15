@@ -549,7 +549,7 @@ namespace Singularity {
         }
 
         private void update_layout_surface_size() {
-            int body_extent = _settings.get_int("dock-icon-size") + 20;
+            int body_extent = Singularity.FormShell.dock_icon_size(_settings) + 20;
             if (is_dock_vertical()) {
                 layout_surface.set_size_request(body_extent, -1);
             } else {
@@ -793,7 +793,7 @@ namespace Singularity {
                     logo.icon_name = "emblem-singularity";
                 }
 
-                int icon_size = _settings.get_int("dock-icon-size");
+                int icon_size = Singularity.FormShell.dock_icon_size(_settings);
                 logo.pixel_size = icon_size;
                 start_btn.set_child(logo);
 
@@ -1378,7 +1378,7 @@ namespace Singularity {
                     if (wid != null && (app_id == "" || dock_matches(wid, app_id))) {
                         var info = child.get_data<GLib.AppInfo?>("app_info_ref");
                         int sz = child.get_data<int>("icon_size");
-                        apply_extensions_to_item(child, wid, info, sz > 0 ? sz : _settings.get_int("dock-icon-size"));
+                        apply_extensions_to_item(child, wid, info, sz > 0 ? sz : Singularity.FormShell.dock_icon_size(_settings));
                     }
                     child = child.get_next_sibling();
                 }
@@ -1391,7 +1391,7 @@ namespace Singularity {
                 if (wid != null) {
                     var info = child.get_data<GLib.AppInfo?>("app_info_ref");
                     int sz = child.get_data<int>("icon_size");
-                    apply_extensions_to_item(child, wid, info, sz > 0 ? sz : _settings.get_int("dock-icon-size"));
+                    apply_extensions_to_item(child, wid, info, sz > 0 ? sz : Singularity.FormShell.dock_icon_size(_settings));
                 }
                 child = child.get_next_sibling();
             }
@@ -1410,7 +1410,7 @@ namespace Singularity {
                 if (wid != null) {
                     var info = child.get_data<GLib.AppInfo?>("app_info_ref");
                     int sz = child.get_data<int>("icon_size");
-                    apply_extensions_to_item(child, wid, info, sz > 0 ? sz : _settings.get_int("dock-icon-size"));
+                    apply_extensions_to_item(child, wid, info, sz > 0 ? sz : Singularity.FormShell.dock_icon_size(_settings));
                 }
                 child = child.get_next_sibling();
             }
@@ -1540,7 +1540,7 @@ namespace Singularity {
                 if (wid != null && dock_matches(wid, app_id)) {
                     var info = child.get_data<GLib.AppInfo?>("app_info_ref");
                     int sz = child.get_data<int>("icon_size");
-                    apply_extensions_to_item(child, wid, info, sz > 0 ? sz : _settings.get_int("dock-icon-size"));
+                    apply_extensions_to_item(child, wid, info, sz > 0 ? sz : Singularity.FormShell.dock_icon_size(_settings));
                 }
                 child = child.get_next_sibling();
             }
@@ -1548,7 +1548,7 @@ namespace Singularity {
 
         private void refresh() {
             dismiss_window_previews();
-            int icon_size = _settings.get_int("dock-icon-size");
+            int icon_size = Singularity.FormShell.dock_icon_size(_settings);
             bool extended = _settings.get_boolean("dock-extended-mode") && (dock_style == "panel");
 
             if (_app_items_dirty) {
@@ -2984,7 +2984,7 @@ namespace Singularity {
 
             drop_motion.enter.connect((x, y) => {
                 if (placeholder == null) {
-                    int i_size = _settings.get_int("dock-icon-size");
+                    int i_size = Singularity.FormShell.dock_icon_size(_settings);
                     placeholder = new Button();
                     placeholder.add_css_class("dock-item");
                     placeholder.add_css_class("placeholder");
