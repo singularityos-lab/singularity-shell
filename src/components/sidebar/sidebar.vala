@@ -300,7 +300,7 @@ namespace Singularity {
             var monitor = form_monitor();
             watch_geometry(monitor);
             var kind = Singularity.FormFactor.at(monitor);
-            _phone = kind == Singularity.FormFactorKind.PHONE;
+            _phone = kind == Singularity.FormFactorKind.PHONE || kind == Singularity.FormFactorKind.WATCH;
             system_view.set_form(kind);
             set_anchor(this, GtkLayerShell.Edge.LEFT, _phone);
             set_exclusive_zone(this, _phone ? -1 : 0);

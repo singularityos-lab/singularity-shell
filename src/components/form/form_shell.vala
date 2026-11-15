@@ -207,190 +207,6 @@ namespace Singularity {
         }
     }
 
-    public class WatchFace : Gtk.Window {
-        private const int WATCH_ICON = 56;
-        private const uint WATCH_APPS_PER_ROW = 3;
-
-        private Stack _stack;
-        private Label _time;
-        private Label _date;
-        private Label _notice;
-        private FlowBox _apps;
-        private Singularity.Animation.MotionBin _face_motion;
-        private Singularity.Animation.MotionBin _apps_motion;
-        private ulong _sig_clock = 0;
-        private ulong _sig_history = 0;
-
-        public WatchFace(Gtk.Application app, Gdk.Monitor monitor) {
-            Object(application: app);
-            init_for_window(this);
-            set_monitor(this, monitor);
-            set_namespace(this, "singularity-watch-face");
-            set_layer(this, GtkLayerShell.Layer.BOTTOM);
-            foreach (var edge in new GtkLayerShell.Edge[] { Edge.TOP, Edge.BOTTOM, Edge.LEFT, Edge.RIGHT }) set_anchor(this, edge, true);
-            set_exclusive_zone(this, -1);
-            set_keyboard_mode(this, GtkLayerShell.KeyboardMode.ON_DEMAND);
-            add_css_class("singularity");
-            add_css_class("singularity-shell");
-            add_css_class("watch-face");
-
-            _stack = new Stack();
-            _stack.transition_type = StackTransitionType.CROSSFADE;
-            _stack.transition_duration = Singularity.Motion.Duration.MEDIUM;
-            _stack.add_named(build_face(), "face");
-            _stack.add_named(build_apps(), "apps");
-            set_child(_stack);
-
-            var keys = new EventControllerKey();
-            keys.key_pressed.connect((keyval, code, state) => {
-                if (keyval == Gdk.Key.Escape && _stack.visible_child_name == "apps") {
-                    show_face();
-                    return true;
-                }
-                return false;
-            });
-            ((Widget) this).add_controller(keys);
-
-            _sig_clock = SharedClock.get_default().minute_changed.connect(() => update_clock());
-            var notifications = SystemMonitor.get_default().notifications;
-            _sig_history = notifications.history_changed.connect(() => update_notice());
-            update_clock();
-            update_notice();
-        }
-
-        public override void dispose() {
-            if (_sig_clock != 0) { SharedClock.get_default().disconnect(_sig_clock); _sig_clock = 0; }
-            if (_sig_history != 0) { SystemMonitor.get_default().notifications.disconnect(_sig_history); _sig_history = 0; }
-            base.dispose();
-        }
-
-        private Widget build_face() {
-            var face = new Box(Orientation.VERTICAL, 0);
-            face.add_css_class("watch-face-dial");
-            face.halign = Align.CENTER;
-            face.valign = Align.CENTER;
-            _date = new Label("");
-            _date.add_css_class("watch-face-date");
-            _time = new Label("");
-            _time.add_css_class("watch-face-time");
-            _notice = new Label("");
-            _notice.add_css_class("watch-face-notice");
-            _notice.ellipsize = Pango.EllipsizeMode.END;
-            _notice.max_width_chars = 22;
-            var hint = new Image.from_icon_name("view-app-grid-symbolic");
-            hint.add_css_class("watch-face-hint");
-            hint.margin_top = 14;
-            face.append(_date);
-            face.append(_time);
-            face.append(_notice);
-            face.append(hint);
-            _face_motion = new Singularity.Animation.MotionBin(face);
-            var tap = new GestureClick();
-            tap.released.connect(() => show_apps());
-            _face_motion.add_controller(tap);
-            return _face_motion;
-        }
-
-        private Widget build_apps() {
-            _apps = new FlowBox();
-            _apps.add_css_class("watch-apps");
-            _apps.selection_mode = SelectionMode.NONE;
-            _apps.homogeneous = true;
-            _apps.min_children_per_line = WATCH_APPS_PER_ROW;
-            _apps.max_children_per_line = WATCH_APPS_PER_ROW;
-            _apps.column_spacing = 10;
-            _apps.row_spacing = 10;
-            _apps.halign = Align.CENTER;
-            _apps.valign = Align.CENTER;
-            _apps.activate_on_single_click = true;
-            _apps.child_activated.connect((child) => {
-                var id = child.get_data<string>("watch-app");
-                var info = id != null ? new GLib.DesktopAppInfo(id) : null;
-                if (info != null) AppSystem.launch_app(info);
-                show_face();
-            });
-            var back = new Button.from_icon_name("go-previous-symbolic");
-            back.add_css_class("watch-back");
-            back.halign = Align.CENTER;
-            back.tooltip_text = _("Watch Face");
-            back.clicked.connect(() => show_face());
-            var column = new Box(Orientation.VERTICAL, 8);
-            column.valign = Align.CENTER;
-            column.append(back);
-            column.append(_apps);
-            var scroll = new ScrolledWindow();
-            scroll.hscrollbar_policy = PolicyType.NEVER;
-            scroll.child = column;
-            _apps_motion = new Singularity.Animation.MotionBin(scroll);
-            return _apps_motion;
-        }
-
-        private void fill_apps() {
-            Widget? w;
-            while ((w = _apps.get_first_child()) != null) _apps.remove(w);
-            var settings = new GLib.Settings("dev.sinty.desktop");
-            foreach (string id in settings.get_strv("pinned-apps")) {
-                var info = new GLib.DesktopAppInfo(id);
-                if (info == null || info.get_nodisplay()) continue;
-                var img = new Image.from_gicon(info.get_icon() ?? new ThemedIcon("application-x-executable"));
-                img.pixel_size = WATCH_ICON;
-                img.add_css_class("watch-app-icon");
-                var motion = new Singularity.Animation.MotionBin(img);
-                var child = new FlowBoxChild();
-                child.child = motion;
-                child.focusable = true;
-                child.update_property(Gtk.AccessibleProperty.LABEL, info.get_display_name(), -1);
-                child.tooltip_text = info.get_display_name();
-                child.set_data<string>("watch-app", id);
-                _apps.append(child);
-            }
-        }
-
-        private void show_apps() {
-            fill_apps();
-            _stack.visible_child_name = "apps";
-            if (Singularity.Motion.reduced()) return;
-            _apps_motion.scale = 1.12;
-            Singularity.Motion.spring_to(_apps_motion, "scale", 1.0, Singularity.Motion.Spring.SNAPPY);
-            Widget[] icons = {};
-            for (var c = _apps.get_first_child(); c != null; c = c.get_next_sibling()) {
-                var flow_child = c as FlowBoxChild;
-                if (flow_child != null && flow_child.child != null) icons += flow_child.child;
-            }
-            Singularity.Motion.cascade(icons, Singularity.Motion.Preset.SCALE_FADE);
-            foreach (var icon in icons) {
-                var bin = icon as Singularity.Animation.MotionBin;
-                if (bin == null) continue;
-                bin.scale = 0.6;
-                Singularity.Motion.spring_to(bin, "scale", 1.0, Singularity.Motion.Spring.BOUNCY);
-            }
-        }
-
-        public void show_face() {
-            _stack.visible_child_name = "face";
-            if (Singularity.Motion.reduced()) return;
-            _face_motion.scale = 0.9;
-            Singularity.Motion.spring_to(_face_motion, "scale", 1.0, Singularity.Motion.Spring.BOUNCY);
-        }
-
-        private void update_clock() {
-            var now = new DateTime.now_local();
-            _time.label = now.format("%H:%M");
-            _date.label = now.format("%a %e").up();
-        }
-
-        private void update_notice() {
-            unowned List<Notification> history = SystemMonitor.get_default().notifications.get_history();
-            uint count = history.length();
-            if (count == 0) {
-                _notice.label = _("No notifications");
-                return;
-            }
-            var last = history.last().data;
-            _notice.label = count == 1 ? last.summary : ngettext("%s and %u more", "%s and %u more", count - 1).printf(last.summary, count - 1);
-        }
-    }
-
     public class FormShell : Object {
         private const uint ESCAPE_KEYCODE = 1;
         private const int TABLET_DOCK_ICON_SIZE = 64;
@@ -429,6 +245,9 @@ namespace Singularity {
         public signal void wallpaper_requested();
         public signal void launcher_pull_update(Gdk.Monitor? monitor, double dy);
         public signal void launcher_pull_end(Gdk.Monitor? monitor, double dy);
+        public signal bool shade_pull_begin(Gdk.Monitor? monitor);
+        public signal void shade_pull_update(Gdk.Monitor? monitor, double dy);
+        public signal void shade_pull_end(Gdk.Monitor? monitor, double dy);
         public signal void next_requested();
         public signal void previous_requested();
 
@@ -733,6 +552,9 @@ namespace Singularity {
                     break;
                 case Singularity.FormFactorKind.WATCH:
                     screen.watch = new WatchFace(_app, monitor);
+                    screen.watch.pull_begin.connect(() => shade_pull_begin(monitor));
+                    screen.watch.pull_update.connect((dy) => shade_pull_update(monitor, dy));
+                    screen.watch.pull_end.connect((dy) => shade_pull_end(monitor, dy));
                     screen.watch.present();
                     break;
                 default:

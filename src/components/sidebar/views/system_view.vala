@@ -658,8 +658,12 @@ namespace Singularity {
             sync_form();
         }
 
+        private bool shade_form() {
+            return _form == Singularity.FormFactorKind.PHONE || _form == Singularity.FormFactorKind.WATCH;
+        }
+
         private void sync_form() {
-            bool phone = _form == Singularity.FormFactorKind.PHONE;
+            bool phone = shade_form();
             _shade_notifications.visible = phone;
             _background_apps.visible = !phone;
             update_compact_mode();
@@ -917,11 +921,12 @@ namespace Singularity {
         }
 
         private const uint PHONE_PILLS_PER_LINE = 5;
+        private const uint WATCH_PILLS_PER_LINE = 4;
 
         private void update_compact_mode() {
-            bool phone = _form == Singularity.FormFactorKind.PHONE;
+            bool phone = shade_form();
             bool compact = _settings.get_boolean("quick-settings-compact") || phone;
-            uint per_line = compact ? (phone ? PHONE_PILLS_PER_LINE : 6) : 2;
+            uint per_line = compact ? (phone ? (_form == Singularity.FormFactorKind.WATCH ? WATCH_PILLS_PER_LINE : PHONE_PILLS_PER_LINE) : 6) : 2;
             set_css_class(_tile_grid, "compact", compact);
             set_css_class(_inactive_tile_grid, "compact", compact);
             _tile_grid.min_children_per_line = per_line;

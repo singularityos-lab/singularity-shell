@@ -816,6 +816,12 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             close_workspace_overviews();
             return overview.pull_open_begin();
         });
+        form_shell.shade_pull_begin.connect((monitor) => {
+            sidebar_on(monitor);
+            return sidebar.pull_begin();
+        });
+        form_shell.shade_pull_update.connect((monitor, dy) => { if (sidebar != null) sidebar.pull_update(dy); });
+        form_shell.shade_pull_end.connect((monitor, dy) => { if (sidebar != null) sidebar.pull_end(dy); });
         form_shell.launcher_pull_update.connect((monitor, dy) => { if (overview != null) overview.pull_open_update(dy); });
         form_shell.launcher_pull_end.connect((monitor, dy) => { if (overview != null) overview.pull_open_end(dy); });
         form_shell.next_requested.connect(() => {
@@ -1289,7 +1295,8 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     }
 
     private static bool phone_shade(Gdk.Monitor? monitor) {
-        return Singularity.FormFactor.at(monitor ?? Singularity.FormFactor.main_monitor()) == Singularity.FormFactorKind.PHONE;
+        var kind = Singularity.FormFactor.at(monitor ?? Singularity.FormFactor.main_monitor());
+        return kind == Singularity.FormFactorKind.PHONE || kind == Singularity.FormFactorKind.WATCH;
     }
 
     private void toggle_workspace_overview() {
