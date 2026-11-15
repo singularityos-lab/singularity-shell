@@ -10,13 +10,17 @@ namespace Singularity {
         private FlowBox _resume;
         private Label _resume_title;
         private Label _clock;
+        private unowned Gdk.Monitor _monitor;
+        private TvSettings? _settings_screen = null;
         private ulong _sig_clock = 0;
         private ulong _sig_running = 0;
         private ulong _sig_apps = 0;
 
-        public TvHome(Gtk.Application app) {
+        public TvHome(Gtk.Application app, Gdk.Monitor monitor) {
             Object(application: app);
             init_for_window(this);
+            set_monitor(this, monitor);
+            _monitor = monitor;
             set_namespace(this, "singularity-tv-home");
             set_layer(this, GtkLayerShell.Layer.BOTTOM);
             foreach (var edge in new GtkLayerShell.Edge[] { Edge.TOP, Edge.BOTTOM, Edge.LEFT, Edge.RIGHT }) set_anchor(this, edge, true);
@@ -36,8 +40,15 @@ namespace Singularity {
             title.xalign = 0;
             _clock = new Label("");
             _clock.add_css_class("tv-home-clock");
+            var gear = new Button.from_icon_name("emblem-system-symbolic");
+            gear.add_css_class("tv-home-gear");
+            gear.tooltip_text = _("Settings");
+            gear.update_property(Gtk.AccessibleProperty.LABEL, _("Settings"), -1);
+            gear.valign = Align.CENTER;
+            gear.clicked.connect(() => open_settings());
             head.append(title);
             head.append(_clock);
+            head.append(gear);
             page.append(head);
 
             _resume_title = section_label(_("Resume"));
@@ -63,7 +74,18 @@ namespace Singularity {
             if (_sig_running != 0) { app_system.disconnect(_sig_running); _sig_running = 0; }
             if (_sig_apps != 0) { app_system.disconnect(_sig_apps); _sig_apps = 0; }
             if (_sig_clock != 0) { SharedClock.get_default().disconnect(_sig_clock); _sig_clock = 0; }
+            if (_settings_screen != null) { _settings_screen.destroy(); _settings_screen = null; }
             base.dispose();
+        }
+
+        public void open_settings() {
+            var shell = application as SingularityApp;
+            if (shell == null) return;
+            if (_settings_screen == null) {
+                _settings_screen = new TvSettings(shell, _monitor);
+                _settings_screen.dismissed.connect(() => focus_first());
+            }
+            _settings_screen.open();
         }
 
         public void play_enter() {
@@ -196,9 +218,10 @@ namespace Singularity {
         private ulong _sig_clock = 0;
         private ulong _sig_history = 0;
 
-        public WatchFace(Gtk.Application app) {
+        public WatchFace(Gtk.Application app, Gdk.Monitor monitor) {
             Object(application: app);
             init_for_window(this);
+            set_monitor(this, monitor);
             set_namespace(this, "singularity-watch-face");
             set_layer(this, GtkLayerShell.Layer.BOTTOM);
             foreach (var edge in new GtkLayerShell.Edge[] { Edge.TOP, Edge.BOTTOM, Edge.LEFT, Edge.RIGHT }) set_anchor(this, edge, true);
@@ -371,24 +394,59 @@ namespace Singularity {
         private const int TABLET_TOP_RESERVE = 36;
         private const int TABLET_BOTTOM_RESERVE = 104;
 
-        private unowned Gtk.Application _app;
-        private PhoneNavBar? _nav = null;
-        private TvHome? _tv = null;
-        private WatchFace? _watch = null;
-        private RecentsSwitcher? _switcher = null;
-        private bool _keymap_ready = false;
-        private Singularity.FormFactorKind _last_kind;
+        private class Screen : Object {
+            public unowned Gdk.Monitor monitor;
+            public Singularity.FormFactorKind kind;
+            public PhoneNavBar? nav = null;
+            public TvHome? tv = null;
+            public WatchFace? watch = null;
 
-        public signal void home_requested();
+            public void destroy_surfaces() {
+                if (nav != null) { nav.destroy(); nav = null; }
+                if (tv != null) { tv.destroy(); tv = null; }
+                if (watch != null) { watch.destroy(); watch = null; }
+            }
+        }
+
+        private unowned Gtk.Application _app;
+        private Gee.ArrayList<Screen> _screens = new Gee.ArrayList<Screen>();
+        private HashTable<void*, bool> _form_maximized = new HashTable<void*, bool>(direct_hash, direct_equal);
+        private Gee.HashSet<string> _known_outputs = new Gee.HashSet<string>();
+        private RecentsSwitcher? _switcher = null;
+        private CompanionPad? _pad = null;
+        private ScreenChooser? _chooser = null;
+        private bool _keymap_ready = false;
+
+        public signal void home_requested(Gdk.Monitor? monitor);
         public signal void next_requested();
         public signal void previous_requested();
 
         public FormShell(Gtk.Application app) {
             _app = app;
-            _last_kind = Singularity.FormFactor.current();
-            AppSystem.get_default().app_opened.connect((handle, app_id) => on_app_opened(handle));
-            Singularity.FormFactor.get_default().changed.connect(() => sync());
+            var app_system = AppSystem.get_default();
+            app_system.app_opened.connect((handle, app_id) => on_app_opened(handle));
+            app_system.window_output_changed.connect((handle) => apply_window(handle));
+            app_system.app_closed.connect((handle) => _form_maximized.remove(handle));
+            var ff = Singularity.FormFactor.get_default();
+            ff.changed.connect(() => sync());
+            ff.outputs_changed.connect(() => sync());
+            var display = Gdk.Display.get_default();
+            if (display != null) {
+                var monitors = display.get_monitors();
+                for (uint i = 0; i < monitors.get_n_items(); i++) {
+                    _known_outputs.add(connector_of((Gdk.Monitor) monitors.get_item(i)));
+                }
+                monitors.items_changed.connect(() => Idle.add(() => {
+                    sync();
+                    offer_new_outputs();
+                    return Source.REMOVE;
+                }));
+            }
             sync();
+        }
+
+        private static string connector_of(Gdk.Monitor monitor) {
+            return monitor.get_connector() ?? "";
         }
 
         public static string device_size(Singularity.FormFactorKind kind) {
@@ -401,45 +459,99 @@ namespace Singularity {
             }
         }
 
-        public static bool wants_panel() {
-            var kind = Singularity.FormFactor.current();
+        public static string kind_icon(Singularity.FormFactorKind kind) {
+            switch (kind) {
+                case Singularity.FormFactorKind.TABLET: return "tablet";
+                case Singularity.FormFactorKind.PHONE: return "phone";
+                case Singularity.FormFactorKind.TV: return "video-television";
+                case Singularity.FormFactorKind.WATCH: return "watch";
+                default: return "computer";
+            }
+        }
+
+        public static string kind_label(Singularity.FormFactorKind kind) {
+            switch (kind) {
+                case Singularity.FormFactorKind.TABLET: return _("Tablet");
+                case Singularity.FormFactorKind.PHONE: return _("Phone");
+                case Singularity.FormFactorKind.TV: return _("TV");
+                case Singularity.FormFactorKind.WATCH: return _("Watch");
+                default: return _("Desktop");
+            }
+        }
+
+        private static Singularity.FormFactorKind kind_on(Gdk.Monitor? monitor) {
+            return Singularity.FormFactor.at(monitor ?? Singularity.FormFactor.main_monitor());
+        }
+
+        public static bool wants_panel(Gdk.Monitor? monitor = null) {
+            var kind = kind_on(monitor);
             return kind != Singularity.FormFactorKind.TV && kind != Singularity.FormFactorKind.WATCH;
         }
 
-        public static bool wants_dock() {
-            var kind = Singularity.FormFactor.current();
+        public static bool wants_dock(Gdk.Monitor? monitor = null) {
+            var kind = kind_on(monitor);
             return kind == Singularity.FormFactorKind.DESKTOP || kind == Singularity.FormFactorKind.TABLET;
         }
 
-        public static bool wants_workspaces() {
-            return wants_dock();
+        public static bool wants_workspaces(Gdk.Monitor? monitor = null) {
+            return wants_dock(monitor);
         }
 
-        public static int dock_icon_size(GLib.Settings settings) {
+        public static int dock_icon_size(GLib.Settings settings, Gdk.Monitor? monitor = null) {
             int size = settings.get_int("dock-icon-size");
-            if (Singularity.FormFactor.current() == Singularity.FormFactorKind.TABLET) return int.max(size, TABLET_DOCK_ICON_SIZE);
+            if (kind_on(monitor) == Singularity.FormFactorKind.TABLET) return int.max(size, TABLET_DOCK_ICON_SIZE);
             return size;
         }
 
-        public static bool dock_magnifies(GLib.Settings settings) {
-            return settings.get_boolean("dock-magnification") && !Singularity.FormFactor.current().is_touch_first();
+        public static bool dock_magnifies(GLib.Settings settings, Gdk.Monitor? monitor = null) {
+            return settings.get_boolean("dock-magnification") && !kind_on(monitor).is_touch_first();
         }
 
-        public bool go_home() {
-            var kind = Singularity.FormFactor.current();
+        private static Gee.ArrayList<Gdk.Monitor> monitors() {
+            var list = new Gee.ArrayList<Gdk.Monitor>();
+            var display = Gdk.Display.get_default();
+            if (display == null) return list;
+            var model = display.get_monitors();
+            for (uint i = 0; i < model.get_n_items(); i++) list.add((Gdk.Monitor) model.get_item(i));
+            return list;
+        }
+
+        private Screen? screen_for(Gdk.Monitor? monitor) {
+            foreach (var screen in _screens) {
+                if (screen.monitor == monitor) return screen;
+            }
+            return null;
+        }
+
+        private static bool on_monitor(void* handle, Gdk.Monitor? monitor) {
+            if (monitor == null || monitors().size < 2) return true;
+            var wm = Singularity.wayland_get_window_monitor(handle);
+            return wm == null ? Singularity.FormFactor.is_main(monitor) : wm == monitor;
+        }
+
+        private static Gdk.Monitor? active_monitor() {
+            return AppSystem.get_default().get_active_monitor() ?? Singularity.FormFactor.main_monitor();
+        }
+
+        public bool go_home(Gdk.Monitor? monitor = null) {
+            var target = monitor ?? active_monitor();
+            var kind = kind_on(target);
             if (kind != Singularity.FormFactorKind.TV && kind != Singularity.FormFactorKind.WATCH) return false;
             if (_switcher != null) _switcher.dismiss();
             SnapController.get_default().dismiss_assist();
-            minimize_all();
-            if (_tv != null) {
-                _tv.play_enter();
-                _tv.focus_first();
+            foreach (var win in AppSystem.get_default().get_windows()) {
+                if (on_monitor(win.handle, target)) Singularity.minimize_window(win.handle);
             }
-            if (_watch != null) _watch.show_face();
+            var screen = screen_for(target);
+            if (screen != null && screen.tv != null) {
+                screen.tv.play_enter();
+                screen.tv.focus_first();
+            }
+            if (screen != null && screen.watch != null) screen.watch.show_face();
             return true;
         }
 
-        public void show_recents() {
+        public void show_recents(Gdk.Monitor? monitor = null) {
             SnapController.get_default().dismiss_assist();
             if (_switcher == null) {
                 _switcher = new RecentsSwitcher(_app);
@@ -452,79 +564,189 @@ namespace Singularity {
                     });
                 });
             }
-            _switcher.open();
+            _switcher.open(monitor ?? active_monitor());
         }
 
         public void sync() {
-            var kind = Singularity.FormFactor.current();
-            bool changed = kind != _last_kind;
-            _last_kind = kind;
-            resize_nested(kind);
             if (_switcher != null) _switcher.dismiss();
-            if (kind == Singularity.FormFactorKind.PHONE) {
-                if (_nav == null) {
-                    _nav = new PhoneNavBar(_app);
-                    _nav.back_requested.connect(() => go_back());
-                    _nav.home_requested.connect(() => home_requested());
-                    _nav.recents_requested.connect(() => show_recents());
-                    _nav.next_requested.connect(() => next_requested());
-                    _nav.previous_requested.connect(() => previous_requested());
-                }
-                _nav.present();
-            } else if (_nav != null) {
-                _nav.destroy();
-                _nav = null;
+            var current = monitors();
+            var stale = new Gee.ArrayList<Screen>();
+            foreach (var screen in _screens) {
+                if (!current.contains(screen.monitor) || kind_on(screen.monitor) != screen.kind) stale.add(screen);
             }
-            if (kind == Singularity.FormFactorKind.TV) {
-                if (_tv == null) _tv = new TvHome(_app);
-                if (changed) minimize_all();
-                _tv.present();
-                _tv.play_enter();
-                _tv.focus_first();
-            } else if (_tv != null) {
-                _tv.destroy();
-                _tv = null;
+            foreach (var screen in stale) {
+                screen.destroy_surfaces();
+                _screens.remove(screen);
             }
-            if (kind == Singularity.FormFactorKind.WATCH) {
-                if (_watch == null) _watch = new WatchFace(_app);
-                _watch.present();
-            } else if (_watch != null) {
-                _watch.destroy();
-                _watch = null;
+            foreach (var monitor in current) {
+                if (screen_for(monitor) != null) continue;
+                var screen = new Screen();
+                screen.monitor = monitor;
+                screen.kind = kind_on(monitor);
+                build_surfaces(screen);
+                _screens.add(screen);
             }
-            bool maximize = kind.is_full_screen();
+            if (current.size == 1) resize_nested(kind_on(current[0]));
+            foreach (var win in AppSystem.get_default().get_windows()) apply_window(win.handle);
+            update_companion();
+        }
+
+        private void build_surfaces(Screen screen) {
+            var monitor = screen.monitor;
+            switch (screen.kind) {
+                case Singularity.FormFactorKind.PHONE:
+                    screen.nav = new PhoneNavBar(_app, monitor);
+                    screen.nav.back_requested.connect(() => go_back());
+                    screen.nav.home_requested.connect(() => home_requested(monitor));
+                    screen.nav.recents_requested.connect(() => show_recents(monitor));
+                    screen.nav.next_requested.connect(() => next_requested());
+                    screen.nav.previous_requested.connect(() => previous_requested());
+                    screen.nav.companion_requested.connect(() => open_companion(monitor));
+                    screen.nav.present();
+                    break;
+                case Singularity.FormFactorKind.TV:
+                    screen.tv = new TvHome(_app, monitor);
+                    foreach (var win in AppSystem.get_default().get_windows()) {
+                        if (on_monitor(win.handle, monitor)) Singularity.minimize_window(win.handle);
+                    }
+                    screen.tv.present();
+                    screen.tv.play_enter();
+                    screen.tv.focus_first();
+                    break;
+                case Singularity.FormFactorKind.WATCH:
+                    screen.watch = new WatchFace(_app, monitor);
+                    screen.watch.present();
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        private AppSystem.Window? window_for(void* handle) {
             foreach (var win in AppSystem.get_default().get_windows()) {
-                if (maximize != win.is_maximized) Singularity.wayland_set_maximized(win.handle, maximize);
+                if (win.handle == handle) return win;
+            }
+            return null;
+        }
+
+        private void apply_window(void* handle) {
+            var win = window_for(handle);
+            if (win == null || win.is_fullscreen) return;
+            var monitor = Singularity.wayland_get_window_monitor(handle) ?? Singularity.FormFactor.main_monitor();
+            bool full = kind_on(monitor).is_full_screen();
+            if (full) {
+                if (!win.is_maximized) {
+                    Singularity.wayland_set_maximized(handle, true);
+                    _form_maximized.insert(handle, true);
+                }
+            } else if (_form_maximized.contains(handle)) {
+                _form_maximized.remove(handle);
+                if (win.is_maximized) Singularity.wayland_set_maximized(handle, false);
             }
         }
 
         private void on_app_opened(void* handle) {
-            var kind = Singularity.FormFactor.current();
-            if (!kind.is_full_screen()) return;
             Idle.add(() => {
-                Singularity.wayland_set_maximized(handle, true);
+                apply_window(handle);
                 return Source.REMOVE;
             });
+            var monitor = Singularity.wayland_get_window_monitor(handle) ?? Singularity.FormFactor.main_monitor();
+            var kind = kind_on(monitor);
             if (kind != Singularity.FormFactorKind.TABLET && kind != Singularity.FormFactorKind.TV) return;
-            if (AppSystem.get_default().get_windows().length() < 2) return;
+            int others = 0;
+            foreach (var win in AppSystem.get_default().get_windows()) {
+                if (win.handle != handle && !win.is_minimized && on_monitor(win.handle, monitor)) others++;
+            }
+            if (others == 0) return;
             Timeout.add(Singularity.Motion.Duration.LARGE, () => {
-                offer_split(handle, kind);
+                offer_split(handle, monitor, kind);
                 return Source.REMOVE;
             });
         }
 
-        private void offer_split(void* handle, Singularity.FormFactorKind kind) {
-            var display = Gdk.Display.get_default();
-            if (display == null || display.get_monitors().get_n_items() == 0) return;
-            var geo = ((Gdk.Monitor) display.get_monitors().get_item(0)).geometry;
+        private void offer_split(void* handle, Gdk.Monitor? monitor, Singularity.FormFactorKind kind) {
+            if (monitor == null) return;
+            var geo = monitor.geometry;
             int top = kind == Singularity.FormFactorKind.TABLET ? TABLET_TOP_RESERVE : 0;
             int bottom = kind == Singularity.FormFactorKind.TABLET ? TABLET_BOTTOM_RESERVE : 0;
             var area = SnapRect(geo.x, geo.y + top, geo.width, geo.height - top - bottom);
             SnapController.get_default().assist_split(handle, area);
         }
 
-        private void minimize_all() {
-            foreach (var win in AppSystem.get_default().get_windows()) Singularity.minimize_window(win.handle);
+        private Gdk.Monitor? companion_target(Gdk.Monitor phone, out CompanionMode mode) {
+            mode = CompanionMode.TOUCHPAD;
+            foreach (var monitor in monitors()) {
+                if (monitor == phone) continue;
+                var kind = kind_on(monitor);
+                if (kind == Singularity.FormFactorKind.TV) {
+                    mode = CompanionMode.REMOTE;
+                    return monitor;
+                }
+                if (kind == Singularity.FormFactorKind.DESKTOP || kind == Singularity.FormFactorKind.TABLET) return monitor;
+            }
+            return null;
+        }
+
+        private void update_companion() {
+            foreach (var screen in _screens) {
+                if (screen.nav == null) continue;
+                CompanionMode mode;
+                var target = companion_target(screen.monitor, out mode);
+                screen.nav.set_companion(target != null, mode == CompanionMode.REMOTE);
+            }
+            if (_pad != null) {
+                bool keep = false;
+                foreach (var screen in _screens) {
+                    CompanionMode mode;
+                    if (screen.nav != null && companion_target(screen.monitor, out mode) != null) keep = true;
+                }
+                if (!keep) _pad.dismiss();
+            }
+        }
+
+        private void open_companion(Gdk.Monitor phone) {
+            CompanionMode mode;
+            var target = companion_target(phone, out mode);
+            if (target == null) return;
+            if (_pad != null) return;
+            _pad = new CompanionPad(_app, phone, mode);
+            _pad.home_requested.connect(() => {
+                if (!go_home(target)) home_requested(target);
+            });
+            _pad.done.connect(() => {
+                var old = _pad;
+                _pad = null;
+                Idle.add(() => {
+                    old.destroy();
+                    return Source.REMOVE;
+                });
+            });
+            _pad.open();
+        }
+
+        private void offer_new_outputs() {
+            var current = monitors();
+            var seen = new Gee.HashSet<string>();
+            Gdk.Monitor? fresh = null;
+            foreach (var monitor in current) {
+                string connector = connector_of(monitor);
+                seen.add(connector);
+                if (!_known_outputs.contains(connector) && !Singularity.FormFactor.is_main(monitor)) fresh = monitor;
+            }
+            _known_outputs.clear();
+            _known_outputs.add_all(seen);
+            if (fresh == null || !Singularity.FormFactor.get_default().outputs_configurable) return;
+            if (_chooser != null) _chooser.destroy();
+            _chooser = new ScreenChooser(_app, Singularity.FormFactor.main_monitor(), fresh);
+            _chooser.finished.connect(() => {
+                var old = _chooser;
+                _chooser = null;
+                Idle.add(() => {
+                    if (old != null) old.destroy();
+                    return Source.REMOVE;
+                });
+            });
+            _chooser.open();
         }
 
         private void resize_nested(Singularity.FormFactorKind kind) {

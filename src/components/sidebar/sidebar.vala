@@ -110,6 +110,7 @@ namespace Singularity {
             update_vertical_anchor();
             apply_form();
             Singularity.FormFactor.get_default().changed.connect(() => apply_form());
+            Singularity.FormFactor.get_default().outputs_changed.connect(() => apply_form());
 
             close_layer_window (this);
 
@@ -257,6 +258,7 @@ namespace Singularity {
 
         private bool _phone = false;
         private const int SHADE_MARGIN = 8;
+        private const int SHADE_INSET = 26;
         private const double SHADE_DROP = 48.0;
 
         private string slide_property() {
@@ -267,27 +269,44 @@ namespace Singularity {
             return _phone ? -SHADE_DROP : SLIDE_DISTANCE;
         }
 
+        private Gdk.Monitor? _target_monitor = null;
+
+        public void set_target_monitor(Gdk.Monitor? monitor) {
+            if (monitor == _target_monitor) return;
+            _target_monitor = monitor;
+            if (monitor != null) GtkLayerShell.set_monitor(this, monitor);
+            apply_form();
+        }
+
+        private Gdk.Monitor? form_monitor() {
+            return _target_monitor ?? Singularity.FormFactor.main_monitor();
+        }
+
         private void apply_form() {
-            _phone = Singularity.FormFactor.current() == Singularity.FormFactorKind.PHONE;
+            var monitor = form_monitor();
+            var kind = Singularity.FormFactor.at(monitor);
+            _phone = kind == Singularity.FormFactorKind.PHONE;
+            system_view.set_form(kind);
             set_anchor(this, GtkLayerShell.Edge.LEFT, _phone);
-            int margin = _phone ? SHADE_MARGIN : 20;
+            set_exclusive_zone(this, _phone ? -1 : 0);
+            int margin = _phone ? 0 : 20;
             main_box.margin_top = _phone ? SHADE_MARGIN : 20;
             main_box.margin_bottom = margin;
             main_box.margin_start = margin;
-            main_box.margin_end = _phone ? SHADE_MARGIN : 20 + EDGE_GAP;
+            main_box.margin_end = _phone ? 0 : 20 + EDGE_GAP;
+            main_box.vexpand = _phone;
+            sidebar_scroll.vexpand = _phone;
             set_css_class(main_box, "phone-shade", _phone);
             int width = -1;
-            var display = Gdk.Display.get_default();
-            if (_phone && display != null) {
-                var monitor = display.get_monitors().get_item(0) as Gdk.Monitor;
-                if (monitor != null) {
-                    width = monitor.geometry.width - SHADE_MARGIN * 2;
-                    sidebar_scroll.max_content_height = monitor.geometry.height - 140;
-                }
+            if (_phone && monitor != null) {
+                width = monitor.geometry.width;
+                int top = AppSystem.get_default().shell_panel_height;
+                sidebar_scroll.max_content_height = monitor.geometry.height - top - SHADE_MARGIN;
             }
-            SidebarWidth.override_width = width > 0 ? width - 26 : -1;
+            SidebarWidth.override_width = width > 0 ? width - SHADE_INSET : -1;
             main_box.width_request = width > 0 ? width : SidebarWidth.CARD;
             set_default_size(width > 0 ? width : SidebarWidth.CARD, -1);
+            update_vertical_anchor();
             main_box.queue_resize();
         }
 
@@ -432,6 +451,14 @@ namespace Singularity {
         }
 
         private void update_vertical_anchor() {
+            if (_phone) {
+                int top = AppSystem.get_default().shell_panel_height;
+                GtkLayerShell.set_anchor(this, GtkLayerShell.Edge.TOP, true);
+                GtkLayerShell.set_anchor(this, GtkLayerShell.Edge.BOTTOM, true);
+                GtkLayerShell.set_margin(this, GtkLayerShell.Edge.TOP, top);
+                GtkLayerShell.set_margin(this, GtkLayerShell.Edge.BOTTOM, 0);
+                return;
+            }
             bool in_window = desktop_settings.get_boolean("settings-in-window");
             string child = main_stack.visible_child_name;
 

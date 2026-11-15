@@ -18,6 +18,7 @@ namespace Singularity.SidebarPages {
         private SelectionRow orientation_row;
         private SwitchRow enabled_row;
         private SwitchRow vrr_row;
+        private SelectionRow behaves_row;
         private Button apply_btn;
         private Button shell_monitor_btn;
         private bool is_dirty = false;
@@ -160,6 +161,28 @@ namespace Singularity.SidebarPages {
                 }
             });
             settings_group.add_row(orientation_row);
+            var behaviours = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
+            var automatic = new Singularity.Core.AppSettingOption();
+            automatic.id = Singularity.FormFactor.AUTO;
+            automatic.label = _("Automatic");
+            behaviours.add(automatic);
+            foreach (var kind in Singularity.FormFactorKind.all()) {
+                var option = new Singularity.Core.AppSettingOption();
+                option.id = kind.to_id();
+                option.label = FormShell.kind_label(kind);
+                behaviours.add(option);
+            }
+            behaves_row = new SelectionRow.with_options(_("Behaves As"), behaviours, Singularity.FormFactor.AUTO);
+            behaves_row.selected.connect((id) => {
+                if (syncing_controls || selected_monitor == null) return;
+                var gdk = gdk_monitor_for(selected_monitor.name);
+                var ff = Singularity.FormFactor.get_default();
+                if (gdk == null || Singularity.FormFactor.is_main(gdk)) ff.choose(id);
+                else ff.choose_for_output(selected_monitor.name, id);
+            });
+            Singularity.FormFactor.get_default().outputs_changed.connect(() => sync_behaves_row());
+            Singularity.FormFactor.get_default().changed.connect(() => sync_behaves_row());
+            settings_group.add_row(behaves_row);
             vrr_row = new SwitchRow(_("Variable Refresh Rate"), _("Reduce screen tearing for games (requires VRR-capable display)"));
             vrr_row.switch_btn.notify["active"].connect(() => {
                 if (syncing_controls) return;
@@ -189,6 +212,35 @@ namespace Singularity.SidebarPages {
             shell_box.append(shell_monitor_btn);
             shell_row.set_child(shell_box);
             settings_group.add_row(shell_row);
+        }
+
+        private static Gdk.Monitor? gdk_monitor_for(string? connector) {
+            var display = Gdk.Display.get_default();
+            if (display == null || connector == null) return null;
+            var monitors = display.get_monitors();
+            for (uint i = 0; i < monitors.get_n_items(); i++) {
+                var m = (Gdk.Monitor) monitors.get_item(i);
+                if (m.get_connector() == connector) return m;
+            }
+            return null;
+        }
+
+        private void sync_behaves_row() {
+            if (selected_monitor == null || behaves_row == null) return;
+            var ff = Singularity.FormFactor.get_default();
+            var gdk = gdk_monitor_for(selected_monitor.name);
+            bool main = gdk == null || Singularity.FormFactor.is_main(gdk);
+            bool was = syncing_controls;
+            syncing_controls = true;
+            behaves_row.current_value = main ? ff.preference : ff.output_preference(selected_monitor.name);
+            syncing_controls = was;
+            behaves_row.sensitive = main ? ff.configurable : ff.outputs_configurable;
+            if (main) {
+                behaves_row.subtitle = _("Main screen, sets how the whole session starts");
+            } else {
+                var suggested = gdk != null ? Singularity.FormFactor.detect(gdk) : Singularity.FormFactorKind.DESKTOP;
+                behaves_row.subtitle = _("Automatic picks %s for this screen").printf(FormShell.kind_label(suggested));
+            }
         }
 
         private void on_set_shell_monitor_clicked() {
@@ -359,6 +411,7 @@ namespace Singularity.SidebarPages {
                     current_mode_str = s;
                 }
             }
+            sync_behaves_row();
             resolution_row.set_items(modes_arr);
             resolution_row.current_value = current_mode_str;
             if (!applied_scales.contains(selected_monitor.name)) {

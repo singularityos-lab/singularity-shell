@@ -204,6 +204,17 @@ namespace Singularity {
     [CCode (cname = "singularity_type_text_set_layout", cheader_filename = "vkbd.h")]
     public void type_text_set_layout(string layout, string variant);
 
+    [CCode (cname = "singularity_vpointer_available", cheader_filename = "vpointer.h")]
+    public bool vpointer_available();
+    [CCode (cname = "singularity_vpointer_move", cheader_filename = "vpointer.h")]
+    public void vpointer_move(double dx, double dy);
+    [CCode (cname = "singularity_vpointer_button", cheader_filename = "vpointer.h")]
+    public void vpointer_button(uint button, bool pressed);
+    [CCode (cname = "singularity_vpointer_click", cheader_filename = "vpointer.h")]
+    public void vpointer_click(uint button);
+    [CCode (cname = "singularity_vpointer_scroll", cheader_filename = "vpointer.h")]
+    public void vpointer_scroll(double dx, double dy);
+
     [CCode (cname = "singularity_osk_set_layout", cheader_filename = "osk.h")]
     public bool osk_set_layout(string layout, string variant);
     [CCode (cname = "singularity_osk_press", cheader_filename = "osk.h")]

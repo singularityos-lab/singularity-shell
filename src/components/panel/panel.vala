@@ -523,7 +523,7 @@ namespace Singularity {
             add_css_class("singularity-shell");
             add_css_class("panel-window");
             if (is_greeter_mode) add_css_class("greeter-panel");
-            else Singularity.FormFactor.apply_css_class(this);
+            else Singularity.FormFactor.apply_css_class(this, _shell_mon);
 
             var overlay = new Overlay();
             overlay.overflow = Overflow.VISIBLE;
@@ -539,7 +539,7 @@ namespace Singularity {
                 var pull = new GestureDrag();
                 pull.propagation_phase = PropagationPhase.CAPTURE;
                 pull.drag_update.connect((dx, dy) => {
-                    if (Singularity.FormFactor.current() != Singularity.FormFactorKind.PHONE) return;
+                    if (Singularity.FormFactor.at(gdk_monitor) != Singularity.FormFactorKind.PHONE) return;
                     if (dy < SHADE_PULL || Math.fabs(dx) > dy) return;
                     pull.set_state(EventSequenceState.CLAIMED);
                     pull.reset();
@@ -548,7 +548,7 @@ namespace Singularity {
                 main_box.add_controller(pull);
                 var tap = new GestureClick();
                 tap.released.connect(() => {
-                    if (Singularity.FormFactor.current() == Singularity.FormFactorKind.PHONE) system_clicked();
+                    if (Singularity.FormFactor.at(gdk_monitor) == Singularity.FormFactorKind.PHONE) system_clicked();
                 });
                 main_box.add_controller(tap);
             }
@@ -1116,7 +1116,7 @@ namespace Singularity {
         }
 
         private bool update_clock() {
-            string format = Singularity.FormFactor.current() == Singularity.FormFactorKind.PHONE
+            string format = Singularity.FormFactor.at(gdk_monitor) == Singularity.FormFactorKind.PHONE
                 ? (_settings.get_boolean("clock-use-12h") ? "%I:%M" : "%H:%M") : _clock_format_str;
             clock_label.label = new DateTime.now_local().format(format);
             return true;
@@ -1286,7 +1286,7 @@ namespace Singularity {
         }
 
         private string[] form_items(BarSection section) {
-            var kind = Singularity.FormFactor.current();
+            var kind = Singularity.FormFactor.at(gdk_monitor);
             if (kind == Singularity.FormFactorKind.PHONE) {
                 if (section == BarSection.LEFT) return { "clock" };
                 if (section == BarSection.RIGHT) return { "notifications", "system" };

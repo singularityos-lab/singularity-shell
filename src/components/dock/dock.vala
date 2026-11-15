@@ -549,7 +549,7 @@ namespace Singularity {
         }
 
         private void update_layout_surface_size() {
-            int body_extent = Singularity.FormShell.dock_icon_size(_settings) + 20;
+            int body_extent = Singularity.FormShell.dock_icon_size(_settings, get_target_monitor()) + 20;
             if (is_dock_vertical()) {
                 layout_surface.set_size_request(body_extent, -1);
             } else {
@@ -793,7 +793,7 @@ namespace Singularity {
                     logo.icon_name = "emblem-singularity";
                 }
 
-                int icon_size = Singularity.FormShell.dock_icon_size(_settings);
+                int icon_size = Singularity.FormShell.dock_icon_size(_settings, get_target_monitor());
                 logo.pixel_size = icon_size;
                 start_btn.set_child(logo);
 
@@ -1378,7 +1378,7 @@ namespace Singularity {
                     if (wid != null && (app_id == "" || dock_matches(wid, app_id))) {
                         var info = child.get_data<GLib.AppInfo?>("app_info_ref");
                         int sz = child.get_data<int>("icon_size");
-                        apply_extensions_to_item(child, wid, info, sz > 0 ? sz : Singularity.FormShell.dock_icon_size(_settings));
+                        apply_extensions_to_item(child, wid, info, sz > 0 ? sz : Singularity.FormShell.dock_icon_size(_settings, get_target_monitor()));
                     }
                     child = child.get_next_sibling();
                 }
@@ -1391,7 +1391,7 @@ namespace Singularity {
                 if (wid != null) {
                     var info = child.get_data<GLib.AppInfo?>("app_info_ref");
                     int sz = child.get_data<int>("icon_size");
-                    apply_extensions_to_item(child, wid, info, sz > 0 ? sz : Singularity.FormShell.dock_icon_size(_settings));
+                    apply_extensions_to_item(child, wid, info, sz > 0 ? sz : Singularity.FormShell.dock_icon_size(_settings, get_target_monitor()));
                 }
                 child = child.get_next_sibling();
             }
@@ -1410,7 +1410,7 @@ namespace Singularity {
                 if (wid != null) {
                     var info = child.get_data<GLib.AppInfo?>("app_info_ref");
                     int sz = child.get_data<int>("icon_size");
-                    apply_extensions_to_item(child, wid, info, sz > 0 ? sz : Singularity.FormShell.dock_icon_size(_settings));
+                    apply_extensions_to_item(child, wid, info, sz > 0 ? sz : Singularity.FormShell.dock_icon_size(_settings, get_target_monitor()));
                 }
                 child = child.get_next_sibling();
             }
@@ -1540,7 +1540,7 @@ namespace Singularity {
                 if (wid != null && dock_matches(wid, app_id)) {
                     var info = child.get_data<GLib.AppInfo?>("app_info_ref");
                     int sz = child.get_data<int>("icon_size");
-                    apply_extensions_to_item(child, wid, info, sz > 0 ? sz : Singularity.FormShell.dock_icon_size(_settings));
+                    apply_extensions_to_item(child, wid, info, sz > 0 ? sz : Singularity.FormShell.dock_icon_size(_settings, get_target_monitor()));
                 }
                 child = child.get_next_sibling();
             }
@@ -1548,7 +1548,7 @@ namespace Singularity {
 
         private void refresh() {
             dismiss_window_previews();
-            int icon_size = Singularity.FormShell.dock_icon_size(_settings);
+            int icon_size = Singularity.FormShell.dock_icon_size(_settings, get_target_monitor());
             bool extended = _settings.get_boolean("dock-extended-mode") && (dock_style == "panel");
 
             if (_app_items_dirty) {
@@ -1584,6 +1584,8 @@ namespace Singularity {
             // duplicate). In non-fusion modes the activities button isn't
             // shown in the dock at all - the overview is reachable via
             // keyboard shortcut.
+            if (Singularity.FormFactor.at(get_target_monitor() ?? Singularity.FormFactor.main_monitor()) == Singularity.FormFactorKind.TABLET)
+                desired_keys.add("__apps__");
             desired_keys.add("__ws__");
 
             if (extended) {
@@ -2025,6 +2027,23 @@ namespace Singularity {
                         : "view-app-grid-symbolic");
                 logo.pixel_size = icon_size;
                 btn.set_child(logo);
+                btn.clicked.connect(() => { activities_clicked(); });
+                pill.append(btn);
+                return wrapper;
+            }
+            if (key == "__apps__") {
+                Gtk.Box wrapper, pill;
+                build_shell_geometry(out wrapper, out pill, icon_size);
+                var btn = new Button();
+                btn.add_css_class("dock-item");
+                btn.add_css_class("apps-button");
+                btn.has_frame = false;
+                btn.set_size_request(icon_size + 4, icon_size + 4);
+                var apps_icon = new Image.from_icon_name("dev.sinty.apps");
+                apps_icon.pixel_size = icon_size;
+                btn.set_child(apps_icon);
+                btn.tooltip_text = _("Apps");
+                btn.update_property(Gtk.AccessibleProperty.LABEL, _("Apps"), -1);
                 btn.clicked.connect(() => { activities_clicked(); });
                 pill.append(btn);
                 return wrapper;
@@ -2984,7 +3003,7 @@ namespace Singularity {
 
             drop_motion.enter.connect((x, y) => {
                 if (placeholder == null) {
-                    int i_size = Singularity.FormShell.dock_icon_size(_settings);
+                    int i_size = Singularity.FormShell.dock_icon_size(_settings, get_target_monitor());
                     placeholder = new Button();
                     placeholder.add_css_class("dock-item");
                     placeholder.add_css_class("placeholder");

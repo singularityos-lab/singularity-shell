@@ -13,14 +13,17 @@ namespace Singularity {
         public signal void recents_requested();
         public signal void next_requested();
         public signal void previous_requested();
+        public signal void companion_requested();
 
         private Singularity.Animation.MotionBin _pill_motion;
         private Singularity.Animation.MotionBin _bar_motion;
         private bool _gesture_fired = false;
+        private Button _companion;
 
-        public PhoneNavBar(Gtk.Application app) {
+        public PhoneNavBar(Gtk.Application app, Gdk.Monitor monitor) {
             Object(application: app);
             init_for_window(this);
+            set_monitor(this, monitor);
             set_namespace(this, "singularity-phone-nav");
             set_layer(this, GtkLayerShell.Layer.TOP);
             set_anchor(this, GtkLayerShell.Edge.BOTTOM, true);
@@ -49,9 +52,15 @@ namespace Singularity {
             home.clicked.connect(() => home_requested());
             var recents = nav_button("view-grid-symbolic", _("Recent Apps"));
             recents.clicked.connect(() => recents_requested());
+            _companion = nav_button("input-touchpad-symbolic", _("Control Other Screen"));
+            _companion.visible = false;
+            _companion.clicked.connect(() => companion_requested());
+            var end = new Box(Orientation.HORIZONTAL, 4);
+            end.append(_companion);
+            end.append(recents);
             bar.start_widget = back;
             bar.center_widget = home;
-            bar.end_widget = recents;
+            bar.end_widget = end;
 
             var drag = new GestureDrag();
             drag.propagation_phase = PropagationPhase.CAPTURE;
@@ -63,6 +72,15 @@ namespace Singularity {
             _bar_motion = new Singularity.Animation.MotionBin(bar);
             set_child(_bar_motion);
             map.connect(() => play_enter());
+        }
+
+        public void set_companion(bool available, bool remote) {
+            _companion.icon_name = remote ? "input-gaming-symbolic" : "input-touchpad-symbolic";
+            if (_companion.visible == available) return;
+            _companion.visible = available;
+            if (!available || Singularity.Motion.reduced()) return;
+            _companion.opacity = 0.0;
+            Singularity.Motion.tween(_companion, "opacity", 1.0, Singularity.Motion.Duration.MEDIUM, Singularity.Motion.Curve.ENTER);
         }
 
         private void follow_finger(GestureDrag drag, double dx, double dy) {

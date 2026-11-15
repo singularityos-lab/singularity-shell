@@ -718,13 +718,31 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         });
     }
 
+    private void connect_panel_sidebar(Singularity.Panel p) {
+        p.clock_clicked.connect(() => {
+            sidebar_on(p.get_target_monitor());
+            if (phone_shade(p.get_target_monitor())) sidebar.toggle_system(); else sidebar.toggle_calendar();
+        });
+        p.notifications_clicked.connect(() => {
+            sidebar_on(p.get_target_monitor());
+            if (phone_shade(p.get_target_monitor())) sidebar.toggle_system(); else sidebar.toggle_notifications();
+        });
+        p.system_clicked.connect(() => {
+            sidebar_on(p.get_target_monitor());
+            sidebar.toggle_system();
+        });
+    }
+
+    private void sidebar_on(Gdk.Monitor? monitor) {
+        ensure_sidebar();
+        sidebar.set_target_monitor(monitor);
+    }
+
     private void connect_shell_signals() {
         // panel / dock may be null when a plugin has claimed that surface.
         if (panel != null) {
             panel.activities_clicked.connect(() => toggle_overview());
-            panel.clock_clicked.connect(() => { ensure_sidebar(); if (phone_shade()) sidebar.toggle_system(); else sidebar.toggle_calendar(); });
-            panel.notifications_clicked.connect(() => { ensure_sidebar(); if (phone_shade()) sidebar.toggle_system(); else sidebar.toggle_notifications(); });
-            panel.system_clicked.connect(() => { ensure_sidebar(); sidebar.toggle_system(); });
+            connect_panel_sidebar(panel);
             panel.workspace_clicked.connect(() => toggle_workspace_overview());
         }
         if (dock != null) {
@@ -733,7 +751,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             dock.dock_visibility_changed.connect((hidden) => {
                 if (panel != null) panel.set_workspace_btn_visible(hidden);
             });
-            dock.system_clicked.connect(() => { ensure_sidebar(); sidebar.toggle_system(); });
+            dock.system_clicked.connect(() => { sidebar_on(dock.get_target_monitor()); sidebar.toggle_system(); });
         }
     }
 
@@ -770,22 +788,40 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
 
     private void setup_form_shell() {
         form_shell = new Singularity.FormShell(this);
-        form_shell.home_requested.connect(() => toggle_overview());
+        form_shell.home_requested.connect((monitor) => toggle_overview_on_monitor(monitor));
         form_shell.next_requested.connect(() => {
             try { switch_windows_next(); } catch (IOError e) { warning("switch next: %s", e.message); }
         });
         form_shell.previous_requested.connect(() => {
             try { switch_windows_prev(); } catch (IOError e) { warning("switch previous: %s", e.message); }
         });
-        Singularity.FormFactor.get_default().changed.connect(() => {
-            if (_shell_monitor_update_pending) return;
-            _shell_monitor_update_pending = true;
-            GLib.Idle.add(() => {
-                _shell_monitor_update_pending = false;
-                recreate_shell_surfaces();
-                return GLib.Source.REMOVE;
-            });
+        var ff = Singularity.FormFactor.get_default();
+        ff.changed.connect(() => schedule_shell_recreate());
+        ff.outputs_changed.connect(() => schedule_shell_recreate());
+    }
+
+    private void schedule_shell_recreate() {
+        if (_shell_monitor_update_pending) return;
+        _shell_monitor_update_pending = true;
+        GLib.Idle.add(() => {
+            _shell_monitor_update_pending = false;
+            recreate_shell_surfaces();
+            return GLib.Source.REMOVE;
         });
+    }
+
+    private void toggle_overview_on_monitor(Gdk.Monitor? monitor) {
+        if (monitor == null || Singularity.FormFactor.is_main(monitor)) {
+            toggle_overview();
+            return;
+        }
+        foreach (var sp in secondary_panels) {
+            if (sp.get_target_monitor() == monitor) {
+                toggle_overview_on_panel(sp);
+                return;
+            }
+        }
+        toggle_overview();
     }
 
     private void setup_shell_monitor_listener() {
@@ -870,9 +906,8 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     }
 
     private void setup_secondary_surfaces() {
-        bool dock_multi = settings.get_boolean("dock-multi-monitor") && Singularity.FormShell.wants_dock();
-        bool panel_multi = settings.get_boolean("panel-multi-monitor") && Singularity.FormShell.wants_panel();
-        if (!dock_multi && !panel_multi) return;
+        bool dock_multi = settings.get_boolean("dock-multi-monitor");
+        bool panel_multi = settings.get_boolean("panel-multi-monitor");
 
         var primary_mon = Singularity.Panel.find_primary_monitor();
         var display = Gdk.Display.get_default();
@@ -882,22 +917,31 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         for (uint i = 0; i < monitors.get_n_items(); i++) {
             var mon = (Gdk.Monitor)monitors.get_item(i);
             if (mon == primary_mon) continue;
-            if (panel_multi) {
+            var kind = Singularity.FormFactor.at(mon);
+            bool own_form = kind != Singularity.FormFactorKind.DESKTOP;
+            bool want_panel = Singularity.FormShell.wants_panel(mon)
+                && (kind == Singularity.FormFactorKind.PHONE || kind == Singularity.FormFactorKind.TABLET || panel_multi);
+            bool want_dock = Singularity.FormShell.wants_dock(mon)
+                && (kind == Singularity.FormFactorKind.TABLET || dock_multi);
+            if (!own_form && !panel_multi && !dock_multi) continue;
+            if (want_panel) {
                 var sec_panel = new Singularity.Panel(this, false, false, mon);
                 secondary_panels.append(sec_panel);
                 sec_panel.activities_clicked.connect(() => toggle_overview_on_panel(sec_panel));
+                connect_panel_sidebar(sec_panel);
                 if (hot_corner_manager != null) hot_corner_manager.attach_to_panel(sec_panel);
             }
-            if (dock_multi) {
+            if (want_dock) {
                 var sec_dock = new Singularity.Dock(this, false, mon);
                 secondary_docks.append(sec_dock);
                 sec_dock.workspace_clicked.connect(() => toggle_workspace_overview());
+                sec_dock.activities_clicked.connect(() => toggle_overview_on_monitor(mon));
                 if (hot_corner_manager != null) hot_corner_manager.attach_to_dock(sec_dock);
             }
         }
 
         // Tell primary dock which secondary monitors exist so it can filter
-        if (dock_multi) {
+        if (secondary_docks.length() > 0) {
             var sec_mons = new Gee.ArrayList<Gdk.Monitor>();
             foreach (var sd in secondary_docks) {
                 var sm = sd.get_target_monitor();
@@ -1214,13 +1258,14 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         }
     }
 
-    private static bool phone_shade() {
-        return Singularity.FormFactor.current() == Singularity.FormFactorKind.PHONE;
+    private static bool phone_shade(Gdk.Monitor? monitor) {
+        return Singularity.FormFactor.at(monitor ?? Singularity.FormFactor.main_monitor()) == Singularity.FormFactorKind.PHONE;
     }
 
     private void toggle_workspace_overview() {
-        if (!Singularity.FormShell.wants_workspaces() && form_shell != null) {
-            form_shell.show_recents();
+        var active = Singularity.AppSystem.get_default().get_active_monitor();
+        if (!Singularity.FormShell.wants_workspaces(active) && form_shell != null) {
+            form_shell.show_recents(active);
             return;
         }
         var ws_claim = Singularity.ShellSurfaceRegistry.get_default()

@@ -400,11 +400,11 @@ namespace Singularity {
             string dock_pos = desktop_settings.get_string("dock-position");
             if ((dock_pos == "left" || dock_pos == "right")
                     && !desktop_settings.get_boolean("dock-autohide")) {
-                int isz = Singularity.FormShell.dock_icon_size(desktop_settings);
+                int isz = Singularity.FormShell.dock_icon_size(desktop_settings, grid_mon);
                 if (isz <= 0) isz = 48;
                 avail -= isz + desktop_settings.get_int("dock-gap") + 28;
             }
-            if (Singularity.FormFactor.current() == Singularity.FormFactorKind.PHONE) {
+            if (Singularity.FormFactor.at(grid_mon) == Singularity.FormFactorKind.PHONE) {
                 int slot = avail / PHONE_GRID_COLUMNS;
                 launcher_grid.set_cell_metrics(slot, slot - PHONE_GRID_SPACING, PHONE_CELL_HEIGHT, PHONE_GRID_SPACING, PHONE_GRID_COLUMNS);
                 search_entry.width_request = avail;

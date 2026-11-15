@@ -15,9 +15,9 @@ namespace Singularity {
         }
 
         construct {
-            enabled = Singularity.FormShell.dock_magnifies(settings);
+            enabled = Singularity.FormShell.dock_magnifies(settings, Singularity.FormFactor.monitor_of(box));
             settings.changed["dock-magnification"].connect(() => {
-                enabled = Singularity.FormShell.dock_magnifies(settings);
+                enabled = Singularity.FormShell.dock_magnifies(settings, Singularity.FormFactor.monitor_of(box));
                 rest(true);
                 changed();
             });
@@ -30,7 +30,7 @@ namespace Singularity {
 
         public int headroom(bool allowed) {
             if (!enabled || !allowed) return 0;
-            int size = Singularity.FormShell.dock_icon_size(settings);
+            int size = Singularity.FormShell.dock_icon_size(settings, Singularity.FormFactor.monitor_of(box));
             return (int) Math.ceil(size * (MAX_SCALE - 1.0)) + 4;
         }
 
@@ -98,7 +98,7 @@ namespace Singularity {
             if (!enabled || settings.get_boolean("bar-layout-edit-mode")) return;
             bool vertical = box.orientation == Gtk.Orientation.VERTICAL;
             double cursor = vertical ? y : x;
-            double size = double.max(1.0, Singularity.FormShell.dock_icon_size(settings));
+            double size = double.max(1.0, Singularity.FormShell.dock_icon_size(settings, Singularity.FormFactor.monitor_of(box)));
             double range = size * RANGE;
 
             Singularity.Animation.MotionBin[] bins = {};

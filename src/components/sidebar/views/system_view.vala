@@ -622,7 +622,6 @@ namespace Singularity {
             _inactive_tile_grid.visible = false;
             _quick_settings_preferences.visible = false;
             append(content);
-            Singularity.FormFactor.get_default().changed.connect(() => sync_form());
             sync_form();
         }
 
@@ -651,8 +650,16 @@ namespace Singularity {
             return box;
         }
 
+        private Singularity.FormFactorKind _form = Singularity.FormFactor.current();
+
+        public void set_form(Singularity.FormFactorKind kind) {
+            if (kind == _form) return;
+            _form = kind;
+            sync_form();
+        }
+
         private void sync_form() {
-            bool phone = Singularity.FormFactor.current() == Singularity.FormFactorKind.PHONE;
+            bool phone = _form == Singularity.FormFactorKind.PHONE;
             _shade_notifications.visible = phone;
             _background_apps.visible = !phone;
             update_compact_mode();
@@ -912,7 +919,7 @@ namespace Singularity {
         private const uint PHONE_PILLS_PER_LINE = 5;
 
         private void update_compact_mode() {
-            bool phone = Singularity.FormFactor.current() == Singularity.FormFactorKind.PHONE;
+            bool phone = _form == Singularity.FormFactorKind.PHONE;
             bool compact = _settings.get_boolean("quick-settings-compact") || phone;
             uint per_line = compact ? (phone ? PHONE_PILLS_PER_LINE : 6) : 2;
             set_css_class(_tile_grid, "compact", compact);

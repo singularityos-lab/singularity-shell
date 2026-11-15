@@ -614,10 +614,36 @@ namespace Singularity {
                 row.add_suffix (open);
                 group.add_row (row);
             }
+            add_pair_preview (group, FormFactorKind.PHONE, FormFactorKind.TV);
+            add_pair_preview (group, FormFactorKind.PHONE, FormFactorKind.DESKTOP);
+            add_pair_preview (group, FormFactorKind.DESKTOP, FormFactorKind.TABLET);
+            add_pair_preview (group, FormFactorKind.DESKTOP, FormFactorKind.TV);
             return group;
         }
 
+        private static string preview_size (FormFactorKind kind) {
+            return FORM_PREVIEW_SIZES[(int) kind];
+        }
+
+        private void add_pair_preview (PreferencesGroup group, FormFactorKind main, FormFactorKind second) {
+            var row = new ActionRow (_("%s with %s").printf (form_factor_label (main), form_factor_label (second)),
+                _("Two screens, each behaving its own way"), null);
+            var open = new Button.with_label (_("Open"));
+            open.valign = Gtk.Align.CENTER;
+            open.clicked.connect (() => {
+                string sizes = "%s,%s".printf (preview_size (main), preview_size (second));
+                string title = _("%s with %s").printf (form_factor_label (main), form_factor_label (second));
+                spawn_preview (main, sizes, title, "WL-2=" + second.to_id (), 2);
+            });
+            row.add_suffix (open);
+            group.add_row (row);
+        }
+
         private void open_form_preview (FormFactorKind kind, string size) {
+            spawn_preview (kind, size, _("%s Preview").printf (form_factor_label (kind)), null, 1);
+        }
+
+        private void spawn_preview (FormFactorKind kind, string sizes, string title, string? outputs, int count) {
             string? labwc = Environment.find_program_in_path ("labwc");
             string? session = Environment.find_program_in_path ("dbus-run-session");
             string shell = FileUtils.read_link ("/proc/self/exe") ?? "singularity-desktop";
@@ -627,10 +653,13 @@ namespace Singularity {
             }
             string[] env = Environ.get ();
             env = Environ.set_variable (env, FormFactor.ENV, kind.to_id (), true);
-            env = Environ.set_variable (env, "LABWC_NESTED_MODE", size, true);
+            env = Environ.set_variable (env, "LABWC_NESTED_MODE", sizes, true);
+            env = Environ.set_variable (env, "WLR_WL_OUTPUTS", count.to_string (), true);
+            if (outputs != null) env = Environ.set_variable (env, FormFactor.OUTPUTS_ENV, outputs, true);
+            else env = Environ.unset_variable (env, FormFactor.OUTPUTS_ENV);
             env = Environ.unset_variable (env, "DBUS_SESSION_BUS_ADDRESS");
             env = Environ.unset_variable (env, "WLR_BACKENDS");
-            string[] argv = { session, "--", labwc, "-t", _("%s Preview").printf (form_factor_label (kind)), "-s", shell };
+            string[] argv = { session, "--", labwc, "-t", title, "-s", shell };
             try {
                 Process.spawn_async (null, argv, env, SpawnFlags.SEARCH_PATH, null, null);
             } catch (SpawnError e) {

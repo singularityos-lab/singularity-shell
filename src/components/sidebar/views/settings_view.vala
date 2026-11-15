@@ -23,6 +23,7 @@ namespace Singularity {
         private Grid quick_grid;
         private Box nav_list;
         public signal void back_to_system();
+        public signal void page_shown(string name);
         private Gee.ArrayList<string> history = new Gee.ArrayList<string>();
         private int history_index = -1;
         private bool restoring_history = false;
@@ -47,6 +48,7 @@ namespace Singularity {
             settings_stack.hhomogeneous = true; // All pages share one fixed width
             settings_stack.notify["visible-child-name"].connect(() => {
                 string? name = settings_stack.visible_child_name;
+                if (name != null && name != "") page_shown(name);
                 if (restoring_history || name == null || name == ""
                         || (history_index >= 0 && history[history_index] == name)) return;
                 while (history.size > history_index + 1) history.remove_at(history.size - 1);
@@ -723,6 +725,14 @@ namespace Singularity {
                 // Cached pages stay in the stack (hidden) - no need to remove them.
                 settings_stack.visible_child_name = "home";
             }
+        }
+
+        public string page_title(string page) {
+            return nav_title(page);
+        }
+
+        public string page_icon(string page) {
+            return get_page_icon(page);
         }
 
         // Show or hide the Developer nav row to match the developer-mode toggle.

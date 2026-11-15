@@ -66,6 +66,7 @@ namespace Singularity {
         private int _card_width = 260;
         private int _card_height = 460;
         private bool _closing = false;
+        private Gdk.Monitor? _monitor = null;
 
         public signal void dismissed();
 
@@ -131,7 +132,9 @@ namespace Singularity {
             ((Widget) this).add_controller(keys);
         }
 
-        public void open() {
+        public void open(Gdk.Monitor? monitor) {
+            _monitor = monitor;
+            if (monitor != null) set_monitor(this, monitor);
             measure_cards();
             fill();
             _closing = false;
@@ -161,9 +164,9 @@ namespace Singularity {
         private void measure_cards() {
             var display = Gdk.Display.get_default();
             if (display == null || display.get_monitors().get_n_items() == 0) return;
-            var monitor = display.get_monitors().get_item(0) as Gdk.Monitor;
+            var monitor = _monitor ?? display.get_monitors().get_item(0) as Gdk.Monitor;
             var geo = monitor.geometry;
-            bool tv = Singularity.FormFactor.current() == Singularity.FormFactorKind.TV;
+            bool tv = Singularity.FormFactor.at(monitor) == Singularity.FormFactorKind.TV;
             _card_width = tv ? TV_CARD_WIDTH : int.min(CARD_MAX_WIDTH, (int) (geo.width * CARD_RATIO));
             _card_height = (int) (_card_width * (double) geo.height / geo.width);
         }
@@ -172,7 +175,10 @@ namespace Singularity {
             Widget? w;
             while ((w = _cards.get_first_child()) != null) _cards.remove(w);
             int n = 0;
+            var display = Gdk.Display.get_default();
+            bool filter = _monitor != null && display != null && display.get_monitors().get_n_items() > 1;
             foreach (var win in AppSystem.get_default().get_mru_windows()) {
+                if (filter && Singularity.wayland_get_window_monitor(win.handle) != _monitor) continue;
                 _cards.append(card_for(win));
                 n++;
             }
