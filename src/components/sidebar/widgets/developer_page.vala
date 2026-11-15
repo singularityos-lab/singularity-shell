@@ -659,6 +659,9 @@ namespace Singularity {
             else env = Environ.unset_variable (env, FormFactor.OUTPUTS_ENV);
             env = Environ.unset_variable (env, "DBUS_SESSION_BUS_ADDRESS");
             env = Environ.unset_variable (env, "WLR_BACKENDS");
+            env = Environ.unset_variable (env, "LIBGL_ALWAYS_SOFTWARE");
+            env = Environ.unset_variable (env, "GALLIUM_DRIVER");
+            env = Environ.unset_variable (env, "MESA_LOADER_DRIVER_OVERRIDE");
             string[] argv = { session, "--", labwc, "-t", title, "-s", shell };
             try {
                 Process.spawn_async (null, argv, env, SpawnFlags.SEARCH_PATH, null, null);
