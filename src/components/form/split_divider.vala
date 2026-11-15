@@ -143,6 +143,7 @@ namespace Singularity {
 
         private void release(double dx) {
             if (!_dragging) return;
+            follow(dx);
             _dragging = false;
             foreach (var guide in _guides) {
                 guide.remove_css_class("active");
