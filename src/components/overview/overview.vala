@@ -17,6 +17,9 @@ namespace Singularity {
         private ScrolledWindow results_scrolled;
         private Gtk.Window? anchor_window;
         private Box main_box;
+        private Box grid_container;
+        private const int GRID_BOTTOM = 100;
+        private const int DOCK_CLEARANCE = 56;
         private Singularity.Animation.MotionBin stage;
         private GLib.Settings desktop_settings;
         private Singularity.Animation.TimedAnimation? _stage_fade = null;
@@ -175,9 +178,9 @@ namespace Singularity {
             scrolled_window.overlay_scrolling = false;
             content_stack.add_named(scrolled_window, "grid");
 
-            var grid_container = new Box(Orientation.VERTICAL, 0);
+            grid_container = new Box(Orientation.VERTICAL, 0);
             grid_container.margin_top = 40;
-            grid_container.margin_bottom = 100;
+            grid_container.margin_bottom = GRID_BOTTOM;
             grid_container.margin_start = 12;
             grid_container.margin_end = 12;
             scrolled_window.set_child(grid_container);
@@ -353,7 +356,13 @@ namespace Singularity {
                 }
                 update_grid_columns();
 
-                set_layer(this, GtkLayerShell.Layer.OVERLAY);
+                Gdk.Monitor? grid_mon = GtkLayerShell.get_monitor(this) ?? Singularity.FormFactor.main_monitor();
+                bool under_dock = Singularity.FormShell.wants_dock(grid_mon)
+                    && Singularity.FormFactor.at(grid_mon).is_touch_first();
+                grid_container.margin_bottom = under_dock
+                    ? Singularity.FormShell.dock_icon_size(desktop_settings, grid_mon) + DOCK_CLEARANCE + GRID_BOTTOM
+                    : GRID_BOTTOM;
+                set_layer(this, under_dock ? GtkLayerShell.Layer.TOP : GtkLayerShell.Layer.OVERLAY);
                 present();
                 // Populate AFTER present so the empty overview (background +
                 // search bar) paints immediately; the grid then streams in

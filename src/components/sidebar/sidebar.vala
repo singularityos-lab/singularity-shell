@@ -282,8 +282,19 @@ namespace Singularity {
             return _target_monitor ?? Singularity.FormFactor.main_monitor();
         }
 
+        private Gdk.Monitor? _geometry_monitor = null;
+        private ulong _geometry_id = 0;
+
+        private void watch_geometry(Gdk.Monitor? monitor) {
+            if (monitor == _geometry_monitor) return;
+            if (_geometry_monitor != null && _geometry_id != 0) _geometry_monitor.disconnect(_geometry_id);
+            _geometry_monitor = monitor;
+            _geometry_id = monitor != null ? monitor.notify["geometry"].connect(() => apply_form()) : 0;
+        }
+
         private void apply_form() {
             var monitor = form_monitor();
+            watch_geometry(monitor);
             var kind = Singularity.FormFactor.at(monitor);
             _phone = kind == Singularity.FormFactorKind.PHONE;
             system_view.set_form(kind);
