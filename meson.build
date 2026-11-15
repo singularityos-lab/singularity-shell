@@ -487,6 +487,7 @@ singularity_core_sources = files(
     'src/components/form/recents_switcher.vala',
     'src/components/form/companion_pad.vala',
     'src/components/form/split_divider.vala',
+    'src/components/form/phone_home.vala',
     'src/components/form/screen_chooser.vala',
     'src/components/form/tv_settings.vala',
     'src/core/proc_stat.vala',

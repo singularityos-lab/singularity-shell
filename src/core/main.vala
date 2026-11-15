@@ -687,7 +687,8 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     }
 
     private void update_desktop_icons() {
-        if (settings.get_boolean("show-desktop-icons")) {
+        if (settings.get_boolean("show-desktop-icons")
+                && Singularity.FormShell.wants_desktop_icons(Singularity.Panel.find_primary_monitor())) {
             // Recreate so the surface re-anchors to the current primary monitor;
             // this also brings the icons back after a monitor is toggled (#56).
             if (desktop_icons != null) {
@@ -807,6 +808,9 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     private void setup_form_shell() {
         form_shell = new Singularity.FormShell(this);
         form_shell.home_requested.connect((monitor) => toggle_overview_on_monitor(monitor));
+        form_shell.wallpaper_requested.connect(() => open_settings_page("desktop"));
+        Singularity.FormFactor.get_default().changed.connect(() => update_desktop_icons());
+        Singularity.FormFactor.get_default().outputs_changed.connect(() => update_desktop_icons());
         form_shell.launcher_pull_begin.connect((monitor) => {
             if (overview == null || (monitor != null && !Singularity.FormFactor.is_main(monitor))) return false;
             close_workspace_overviews();

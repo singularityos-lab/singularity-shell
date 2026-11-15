@@ -404,8 +404,10 @@ namespace Singularity {
             public TvHome? tv = null;
             public WatchFace? watch = null;
             public SplitDivider? split = null;
+            public PhoneHome? home = null;
 
             public void destroy_surfaces() {
+                if (home != null) { home.destroy(); home = null; }
                 if (split != null) { split.destroy(); split = null; }
                 if (nav != null) { nav.destroy(); nav = null; }
                 if (tv != null) { tv.destroy(); tv = null; }
@@ -424,6 +426,7 @@ namespace Singularity {
 
         public signal void home_requested(Gdk.Monitor? monitor);
         public signal bool launcher_pull_begin(Gdk.Monitor? monitor);
+        public signal void wallpaper_requested();
         public signal void launcher_pull_update(Gdk.Monitor? monitor, double dy);
         public signal void launcher_pull_end(Gdk.Monitor? monitor, double dy);
         public signal void next_requested();
@@ -583,6 +586,10 @@ namespace Singularity {
             return kind != Singularity.FormFactorKind.TV && kind != Singularity.FormFactorKind.WATCH;
         }
 
+        public static bool wants_desktop_icons(Gdk.Monitor? monitor = null) {
+            return kind_on(monitor) != Singularity.FormFactorKind.PHONE;
+        }
+
         public static bool wants_dock(Gdk.Monitor? monitor = null) {
             var kind = kind_on(monitor);
             return kind == Singularity.FormFactorKind.DESKTOP || kind == Singularity.FormFactorKind.TABLET;
@@ -631,7 +638,8 @@ namespace Singularity {
         public bool go_home(Gdk.Monitor? monitor = null) {
             var target = monitor ?? active_monitor();
             var kind = kind_on(target);
-            if (kind != Singularity.FormFactorKind.TV && kind != Singularity.FormFactorKind.WATCH) return false;
+            if (kind != Singularity.FormFactorKind.TV && kind != Singularity.FormFactorKind.WATCH
+                    && kind != Singularity.FormFactorKind.PHONE) return false;
             if (_switcher != null) _switcher.dismiss();
             SnapController.get_default().dismiss_assist();
             foreach (var win in AppSystem.get_default().get_windows()) {
@@ -643,6 +651,10 @@ namespace Singularity {
                 screen.tv.focus_first();
             }
             if (screen != null && screen.watch != null) screen.watch.show_face();
+            if (screen != null && screen.home != null) {
+                screen.home.leave_edit();
+                screen.home.go_to_page(0);
+            }
             return true;
         }
 
@@ -696,8 +708,9 @@ namespace Singularity {
                 case Singularity.FormFactorKind.PHONE:
                     screen.nav = new PhoneNavBar(_app, monitor);
                     screen.nav.back_requested.connect(() => go_back());
-                    screen.nav.home_requested.connect(() => home_requested(monitor));
-                    screen.nav.pull_begin.connect(() => launcher_pull_begin(monitor));
+                    screen.nav.home_requested.connect(() => {
+                        if (!go_home(monitor)) home_requested(monitor);
+                    });
                     screen.nav.pull_update.connect((dy) => launcher_pull_update(monitor, dy));
                     screen.nav.pull_end.connect((dy) => launcher_pull_end(monitor, dy));
                     screen.nav.recents_requested.connect(() => show_recents(monitor));
@@ -705,6 +718,9 @@ namespace Singularity {
                     screen.nav.previous_requested.connect(() => previous_requested());
                     screen.nav.companion_requested.connect(() => open_companion(monitor));
                     screen.nav.present();
+                    screen.home = new PhoneHome(_app, monitor);
+                    screen.home.wallpaper_requested.connect(() => wallpaper_requested());
+                    screen.home.present();
                     break;
                 case Singularity.FormFactorKind.TV:
                     screen.tv = new TvHome(_app, monitor);
@@ -879,6 +895,9 @@ namespace Singularity {
             if (_switcher != null) {
                 _switcher.dismiss();
                 return;
+            }
+            foreach (var screen in _screens) {
+                if (screen.home != null && screen.home.leave_edit()) return;
             }
             if (!_keymap_ready) {
                 var settings = new GLib.Settings("dev.sinty.desktop");

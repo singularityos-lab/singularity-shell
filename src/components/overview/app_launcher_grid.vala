@@ -37,6 +37,11 @@ namespace Singularity {
          */
         public bool fill_horizontally { get; set; default = false; }
 
+        public int page_rows = 0;
+        public bool reorder_enabled = true;
+        public int page_count { get; private set; default = 1; }
+        private int _last_row = 0;
+
         private Gtk.Grid grid;
         // Overlay wrapping the grid, used to float a translucent resize
         // preview frame above the cells without disturbing grid layout.
@@ -284,6 +289,7 @@ namespace Singularity {
             _build_index = 0;
             _occ = new bool[0];
             _occ_rows = 0;
+            _last_row = 0;
             // Build the first batch synchronously (instant content), the rest
             // across idle ticks.
             build_batch(12);
@@ -295,11 +301,20 @@ namespace Singularity {
                     if (_build_index >= _build_keys.length) {
                         _build_source = 0;
                         _reveal_rows = -1;
+                        update_page_count();
                         return GLib.Source.REMOVE;
                     }
                     return GLib.Source.CONTINUE;
                 }, GLib.Priority.DEFAULT_IDLE);
-            else _reveal_rows = -1;
+            else {
+                _reveal_rows = -1;
+                update_page_count();
+            }
+        }
+
+        private void update_page_count() {
+            int pages = page_rows > 0 ? _last_row / page_rows + 1 : 1;
+            if (pages != page_count) page_count = pages;
         }
 
         private int _reveal_rows = -1;
@@ -376,6 +391,7 @@ namespace Singularity {
                 Widget? child = build_item(key, out w, out h);
                 if (child == null) continue;
                 if (w > columns) w = columns;
+                if (page_rows > 0 && h > page_rows) h = page_rows;
 
                 int row = 0, col = 0;
                 bool placed = false;
@@ -388,7 +404,7 @@ namespace Singularity {
                         _occ_rows = new_rows;
                     }
                     for (col = 0; col + w <= columns; col++) {
-                        bool free = true;
+                        bool free = page_rows <= 0 || (row % page_rows) + h <= page_rows;
                         for (int dr = 0; dr < h && free; dr++)
                             for (int dc = 0; dc < w && free; dc++)
                                 if (_occ[(row + dr) * columns + (col + dc)]) free = false;
@@ -409,7 +425,9 @@ namespace Singularity {
                 child.width_request  = fw;
                 child.height_request = fh;
                 if (fill_horizontally) child.hexpand = true;
-                grid.attach(child, col, row, w, h);
+                if (row + h - 1 > _last_row) _last_row = row + h - 1;
+                if (page_rows > 0) grid.attach(child, col + (row / page_rows) * columns, row % page_rows, w, h);
+                else grid.attach(child, col, row, w, h);
                 if (_reveal_rows >= 0 && row < _reveal_rows && row + h > _reveal_first_row)
                     Singularity.Motion.reveal(capped.bin, Singularity.Motion.Preset.FADE_SLIDE,
                         Singularity.Motion.stagger_delay(_reveal_count++));
@@ -573,7 +591,7 @@ namespace Singularity {
             var drag = new DragSource();
             drag.actions = Gdk.DragAction.MOVE;
             string captured = "widget:" + iid;
-            drag.prepare.connect((x, y) => new Gdk.ContentProvider.for_value(captured));
+            drag.prepare.connect((x, y) => !reorder_enabled ? null : new Gdk.ContentProvider.for_value(captured));
             drag.drag_begin.connect((d) => {
                 // Take a live snapshot of the actual widget so the drag
                 // icon mirrors what the user is grabbing, not a placeholder.
@@ -1016,7 +1034,7 @@ namespace Singularity {
             drag.actions = Gdk.DragAction.MOVE;
             string captured_id = app_id.dup();
             unowned DragSource drag_weak = drag;
-            drag.prepare.connect((x, y) => new Gdk.ContentProvider.for_value(captured_id));
+            drag.prepare.connect((x, y) => !reorder_enabled ? null : new Gdk.ContentProvider.for_value(captured_id));
             drag.drag_begin.connect((d) => {
                 // Snapshot the actual button so the drag icon shows the
                 // exact thing the user is dragging (icon + label).
