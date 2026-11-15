@@ -20,7 +20,7 @@ namespace Singularity {
             vol_box.margin_end = 12;
             var vol_icon = new Image.from_icon_name("audio-volume-high-symbolic");
             var vol_scale = new Scale.with_range(Orientation.HORIZONTAL, 0, audio.max_volume, 1);
-            vol_scale.draw_value = true;
+            vol_scale.draw_value = false;
             if (audio.max_volume > 100) vol_scale.add_mark(100, PositionType.BOTTOM, null);
             audio.notify["max-volume"].connect(() => {
                 vol_scale.set_range(0, audio.max_volume);
@@ -39,6 +39,7 @@ namespace Singularity {
             });
             vol_box.append(vol_icon);
             vol_box.append(vol_scale);
+            vol_box.append(value_label(vol_scale));
             vol_row.set_child(vol_box);
             out_group.add_row(vol_row);
             out_group.add_row(new HearingRiskRow(audio));
@@ -65,7 +66,7 @@ namespace Singularity {
             in_vol_box.margin_end = 12;
             var in_vol_icon = new Image.from_icon_name("audio-input-microphone-symbolic");
             var in_vol_scale = new Scale.with_range(Orientation.HORIZONTAL, 0, 100, 1);
-            in_vol_scale.draw_value = true;
+            in_vol_scale.draw_value = false;
             in_vol_scale.value_pos = PositionType.RIGHT;
             in_vol_scale.hexpand = true;
             in_vol_scale.set_value(audio.input_volume);
@@ -78,6 +79,7 @@ namespace Singularity {
             });
             in_vol_box.append(in_vol_icon);
             in_vol_box.append(in_vol_scale);
+            in_vol_box.append(value_label(in_vol_scale));
             in_vol_row.set_child(in_vol_box);
             in_group.add_row(in_vol_row);
             var input_device_rows = new List<Widget>();
@@ -102,6 +104,15 @@ namespace Singularity {
             media_settings.bind("media-exclusive-playback", exclusive_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
             media_group.add_row(exclusive_row);
             add_group(media_group);
+        }
+
+        private static Label value_label(Scale scale) {
+            var label = new Label("%.0f".printf(scale.get_value()));
+            label.width_chars = 4;
+            label.xalign = 1;
+            label.add_css_class("numeric");
+            scale.value_changed.connect(() => label.label = "%.0f".printf(scale.get_value()));
+            return label;
         }
 
         private void update_audio_devices_list(PreferencesGroup group, ref List<Widget> rows, AudioManager audio) {
