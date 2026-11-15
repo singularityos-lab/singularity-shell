@@ -40,7 +40,10 @@ namespace Singularity {
             title.xalign = 0;
             _clock = new Label("");
             _clock.add_css_class("tv-home-clock");
-            var gear = new Button.from_icon_name("emblem-system-symbolic");
+            var gear_icon = new Image.from_icon_name(TvSettings.SETTINGS_ICON);
+            gear_icon.pixel_size = TvSettings.GEAR_SIZE;
+            var gear = new Button();
+            gear.child = gear_icon;
             gear.add_css_class("tv-home-gear");
             gear.tooltip_text = _("Settings");
             gear.update_property(Gtk.AccessibleProperty.LABEL, _("Settings"), -1);
@@ -447,6 +450,20 @@ namespace Singularity {
 
         private static string connector_of(Gdk.Monitor monitor) {
             return monitor.get_connector() ?? "";
+        }
+
+        public static Gee.List<Singularity.FormFactorKind> offered_kinds() {
+            var kinds = new Gee.ArrayList<Singularity.FormFactorKind>();
+            bool developer = false;
+            var schema = SettingsSchemaSource.get_default().lookup("dev.sinty.desktop", true);
+            if (schema != null && schema.has_key("developer-mode")) {
+                developer = new GLib.Settings("dev.sinty.desktop").get_boolean("developer-mode");
+            }
+            foreach (var kind in Singularity.FormFactorKind.all()) {
+                if (kind == Singularity.FormFactorKind.WATCH && !developer) continue;
+                kinds.add(kind);
+            }
+            return kinds;
         }
 
         public static string device_size(Singularity.FormFactorKind kind) {

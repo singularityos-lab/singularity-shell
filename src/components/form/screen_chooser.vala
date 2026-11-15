@@ -73,7 +73,7 @@ namespace Singularity {
             var current = Singularity.FormFactor.at(screen);
             var tiles = new Box(Orientation.HORIZONTAL, _compact ? 4 : 10);
             tiles.homogeneous = true;
-            foreach (var kind in Singularity.FormFactorKind.all()) {
+            foreach (var kind in FormShell.offered_kinds()) {
                 tiles.append(tile(kind, kind == current, kind == suggested));
             }
             card.append(tiles);

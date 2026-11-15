@@ -24,6 +24,7 @@ namespace Singularity {
         private Box nav_list;
         public signal void back_to_system();
         public signal void page_shown(string name);
+        public bool hide_back_buttons { get; set; default = false; }
         private Gee.ArrayList<string> history = new Gee.ArrayList<string>();
         private int history_index = -1;
         private bool restoring_history = false;
@@ -48,6 +49,13 @@ namespace Singularity {
             settings_stack.hhomogeneous = true; // All pages share one fixed width
             settings_stack.notify["visible-child-name"].connect(() => {
                 string? name = settings_stack.visible_child_name;
+                if (hide_back_buttons) {
+                    var shown = settings_stack.visible_child as SettingsPage;
+                    if (shown != null) {
+                        shown.back_btn.visible = false;
+                        shown.adaptive_back_btn.visible = false;
+                    }
+                }
                 if (name != null && name != "") page_shown(name);
                 if (restoring_history || name == null || name == ""
                         || (history_index >= 0 && history[history_index] == name)) return;
@@ -725,6 +733,25 @@ namespace Singularity {
                 // Cached pages stay in the stack (hidden) - no need to remove them.
                 settings_stack.visible_child_name = "home";
             }
+        }
+
+        public string[] all_pages() {
+            return nav_pages();
+        }
+
+        public bool history_back() {
+            int previous = history_index - 1;
+            if (previous < 0 || settings_stack.get_child_by_name(history[previous]) == null) return false;
+            history_index = previous;
+            restoring_history = true;
+            show_page_name(history[previous]);
+            restoring_history = false;
+            return true;
+        }
+
+        public void forget_history() {
+            history.clear();
+            history_index = -1;
         }
 
         public string page_title(string page) {

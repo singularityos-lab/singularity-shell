@@ -166,7 +166,7 @@ namespace Singularity.SidebarPages {
             automatic.id = Singularity.FormFactor.AUTO;
             automatic.label = _("Automatic");
             behaviours.add(automatic);
-            foreach (var kind in Singularity.FormFactorKind.all()) {
+            foreach (var kind in FormShell.offered_kinds()) {
                 var option = new Singularity.Core.AppSettingOption();
                 option.id = kind.to_id();
                 option.label = FormShell.kind_label(kind);
