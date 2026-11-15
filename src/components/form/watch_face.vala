@@ -103,6 +103,30 @@ namespace Singularity {
 
         public Gdk.Monitor monitor { get { return _monitor; } }
 
+        public override void size_allocate(int width, int height, int baseline) {
+            base.size_allocate(width, height, baseline);
+            int side = int.min(width, height);
+            if (side <= 0 || side == _side) return;
+            Idle.add(() => {
+                fit(side);
+                return Source.REMOVE;
+            });
+        }
+
+        private void fit(int side) {
+            _side = side;
+            _card = (int) (_side * CARD_SHARE);
+            _cards.margin_start = (_side - _card) / 2;
+            _cards.margin_end = (_side - _card) / 2;
+            _picker_title.margin_top = (int) (_side * 0.06);
+            _customize.margin_bottom = (int) (_side * 0.07);
+            foreach (var bin in _card_bins) {
+                var view = bin.get_data<WatchFaceView>("watch-view");
+                if (view != null) view.set_size_request(_card, _card);
+            }
+            if (_stack.visible_child_name == "picker") picker_x = _index * (double) (_card + CARD_GAP);
+        }
+
         private void sync_wallpaper() {
             var texture = WallpaperManager.get_default().display_texture;
             _face.wallpaper = texture;
