@@ -39,6 +39,8 @@ namespace Singularity {
 
         public int page_rows = 0;
         public bool reorder_enabled = true;
+        public bool clip_cells = true;
+        public int label_lines = 2;
         public int page_count { get; private set; default = 1; }
         private int _last_row = 0;
 
@@ -420,6 +422,7 @@ namespace Singularity {
                 int fw = cell_w * w + spacing_col * (w - 1);
                 int fh = cell_h * h + spacing_row * (h - 1);
                 var capped = new FixedCell(child, fw, fh);
+                if (!clip_cells) capped.overflow = Gtk.Overflow.VISIBLE;
                 capped.set_data<string>("grid-key", key);
                 child = capped;
                 child.width_request  = fw;
@@ -1003,9 +1006,9 @@ namespace Singularity {
             var label = new Label(app.get_name());
             label.max_width_chars = 14;
             label.ellipsize = Pango.EllipsizeMode.END;
-            label.wrap = true;
+            label.wrap = label_lines > 1;
             label.wrap_mode = Pango.WrapMode.WORD_CHAR;
-            label.lines = 2;
+            label.lines = label_lines;
             label.justify = Justification.CENTER;
             label.xalign = 0.5f;
             box.append(label);

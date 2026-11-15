@@ -46,6 +46,8 @@ namespace Singularity {
 
             _grid = new AppLauncherGrid(app, ICON_SIZE, COLUMNS, SPACING);
             _grid.reorder_enabled = false;
+            _grid.clip_cells = false;
+            _grid.label_lines = 1;
             _grid.halign = Align.START;
             _grid.valign = Align.START;
             _grid.margin_top = TOP_GAP;
