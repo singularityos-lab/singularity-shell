@@ -5,6 +5,11 @@ namespace Singularity {
 
     public class TvHome : Gtk.Window {
         private const double FOCUS_SCALE = 1.08;
+        private const string FOLDER = "::apps";
+        private const string[] TV_CATEGORIES = {
+            "AudioVideo", "Audio", "Video", "Music", "TV", "Player", "Game", "WebBrowser", "Photography", "PackageManager"
+        };
+        private const string[] EDITOR_CATEGORIES = { "AudioVideoEditing", "Recorder", "Sequencer", "Mixer" };
         private delegate void Settle();
 
         private FlowBox _apps;
@@ -13,6 +18,7 @@ namespace Singularity {
         private Label _clock;
         private unowned Gdk.Monitor _monitor;
         private TvSettings? _settings_screen = null;
+        private TvAppsFolder? _folder = null;
         private ulong _sig_clock = 0;
         private ulong _sig_running = 0;
         private ulong _sig_apps = 0;
@@ -58,9 +64,11 @@ namespace Singularity {
             _resume_title = section_label(_("Resume"));
             page.append(_resume_title);
             _resume = new_row();
+            _resume.child_activated.connect((child) => activate_tile(child));
             page.append(_resume);
             page.append(section_label(_("Apps")));
             _apps = new_row();
+            _apps.child_activated.connect((child) => activate_tile(child));
             page.append(_apps);
             set_child(page);
 
@@ -79,6 +87,7 @@ namespace Singularity {
             if (_sig_apps != 0) { app_system.disconnect(_sig_apps); _sig_apps = 0; }
             if (_sig_clock != 0) { SharedClock.get_default().disconnect(_sig_clock); _sig_clock = 0; }
             if (_settings_screen != null) { _settings_screen.destroy(); _settings_screen = null; }
+            if (_folder != null) { _folder.destroy(); _folder = null; }
             base.dispose();
         }
 
@@ -90,6 +99,19 @@ namespace Singularity {
                 _settings_screen.dismissed.connect(() => focus_first());
             }
             _settings_screen.open();
+        }
+
+        public void open_folder() {
+            var app = application;
+            if (app == null) return;
+            if (_folder == null) {
+                _folder = new TvAppsFolder(app, _monitor);
+                _folder.dismissed.connect(() => {
+                    var last = _apps.get_last_child() as FlowBoxChild;
+                    if (last != null) last.grab_focus();
+                });
+            }
+            _folder.open();
         }
 
         public void play_enter() {
@@ -117,7 +139,7 @@ namespace Singularity {
             return l;
         }
 
-        private FlowBox new_row() {
+        internal static FlowBox new_row() {
             var row = new FlowBox();
             row.add_css_class("tv-home-row");
             row.selection_mode = SelectionMode.NONE;
@@ -127,19 +149,24 @@ namespace Singularity {
             row.column_spacing = 32;
             row.row_spacing = 24;
             row.activate_on_single_click = true;
-            row.child_activated.connect((child) => {
-                var action = child.get_data<string>("tv-action");
-                var handle = child.get_data<void*>("tv-window");
-                if (handle != null) {
-                    Singularity.wayland_activate_window(handle);
-                    return;
-                }
-                if (action != null) {
-                    var info = new GLib.DesktopAppInfo(action);
-                    if (info != null) AppSystem.launch_app(info);
-                }
-            });
             return row;
+        }
+
+        private void activate_tile(FlowBoxChild child) {
+            var action = child.get_data<string>("tv-action");
+            var handle = child.get_data<void*>("tv-window");
+            if (handle != null) {
+                Singularity.wayland_activate_window(handle);
+                return;
+            }
+            if (action == FOLDER) {
+                open_folder();
+                return;
+            }
+            if (action != null) {
+                var info = new GLib.DesktopAppInfo(action);
+                if (info != null) AppSystem.launch_app(info);
+            }
         }
 
         private static Singularity.Animation.MotionBin? tile_motion(Widget child) {
@@ -147,7 +174,7 @@ namespace Singularity {
             return flow_child != null ? flow_child.child as Singularity.Animation.MotionBin : null;
         }
 
-        private FlowBoxChild tile(GLib.Icon? icon, string icon_name, string label) {
+        internal static FlowBoxChild tile(GLib.Icon? icon, string icon_name, string label) {
             var box = new Box(Orientation.VERTICAL, 14);
             box.add_css_class("tv-tile");
             var banner = new TvBanner(icon, icon_name);
@@ -186,13 +213,42 @@ namespace Singularity {
             Widget? w;
             while ((w = _apps.get_first_child()) != null) _apps.remove(w);
             var settings = new GLib.Settings("dev.sinty.desktop");
+            var shown = new GenericSet<string>(str_hash, str_equal);
+            var picks = new GLib.List<GLib.DesktopAppInfo>();
             foreach (string id in settings.get_strv("pinned-apps")) {
                 var info = new GLib.DesktopAppInfo(id);
-                if (info == null || info.get_nodisplay()) continue;
+                if (info == null || !info.should_show() || !for_tv(info)) continue;
+                shown.add(id);
+                picks.append(info);
+            }
+            var rest = new GLib.List<GLib.DesktopAppInfo>();
+            foreach (var app in GLib.AppInfo.get_all()) {
+                var info = app as GLib.DesktopAppInfo;
+                if (info == null || info.get_id() == null || shown.contains(info.get_id())) continue;
+                if (!info.should_show() || !for_tv(info)) continue;
+                rest.append(info);
+            }
+            rest.sort((a, b) => a.get_display_name().collate(b.get_display_name()));
+            foreach (var info in rest) picks.append(info);
+            foreach (var info in picks) {
                 var child = tile(info.get_icon(), "application-x-executable", info.get_display_name());
-                child.set_data<string>("tv-action", id);
+                child.set_data<string>("tv-action", info.get_id());
                 _apps.append(child);
             }
+            var folder = tile(new ThemedIcon(TvAppsFolder.ICON), TvAppsFolder.ICON, _("All Apps"));
+            folder.set_data<string>("tv-action", FOLDER);
+            _apps.append(folder);
+        }
+
+        private static bool for_tv(GLib.DesktopAppInfo info) {
+            string? cats = info.get_categories();
+            if (cats == null) return false;
+            bool media = false;
+            foreach (string c in cats.split(";")) {
+                if (c in EDITOR_CATEGORIES) return false;
+                if (c in TV_CATEGORIES) media = true;
+            }
+            return media;
         }
 
         private void fill_resume() {
