@@ -63,16 +63,35 @@ namespace Singularity {
             head.append(gear);
             page.append(head);
 
+            var body = new Box(Orientation.VERTICAL, 0);
+            body.valign = Align.START;
             _resume_title = section_label(_("Resume"));
-            page.append(_resume_title);
+            body.append(_resume_title);
             _resume = new_row();
             _resume.child_activated.connect((child) => activate_tile(child));
-            page.append(_resume);
-            page.append(section_label(_("Apps")));
+            body.append(_resume);
+            body.append(section_label(_("Apps")));
             _apps = new_row();
             _apps.child_activated.connect((child) => activate_tile(child));
-            page.append(_apps);
+            body.append(_apps);
+            var scroll = new ScrolledWindow();
+            scroll.hscrollbar_policy = PolicyType.NEVER;
+            scroll.vscrollbar_policy = PolicyType.EXTERNAL;
+            scroll.vexpand = true;
+            scroll.child = body;
+            page.append(scroll);
             set_child(page);
+            notify["focus-widget"].connect(() => {
+                var focus = get_focus();
+                if (focus == null || !focus.is_ancestor(body)) return;
+                Graphene.Rect b;
+                if (!focus.compute_bounds(body, out b)) return;
+                if (b.origin.y > _apps.get_first_child().get_height() + 160) return;
+                Idle.add(() => {
+                    scroll.vadjustment.value = 0;
+                    return Source.REMOVE;
+                });
+            });
 
             var app_system = AppSystem.get_default();
             _sig_running = app_system.running_apps_changed.connect(() => fill_resume());
