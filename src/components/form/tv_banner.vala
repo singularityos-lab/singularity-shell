@@ -14,12 +14,12 @@ namespace Singularity {
         private Gdk.RGBA _glow;
         private double _tilt_x = 0;
         private double _tilt_y = 0;
-        private bool _lifted = false;
+        private double _lift = 0;
         private double _vivid = 0;
 
-        public bool lifted {
-            get { return _lifted; }
-            set { _lifted = value; queue_draw(); }
+        public double lift {
+            get { return _lift; }
+            set { _lift = value.clamp(0, 1.2); queue_draw(); }
         }
 
         public TvBanner(GLib.Icon? gicon, string fallback) {
@@ -108,6 +108,16 @@ namespace Singularity {
             float tx = (float) _tilt_x;
             float ty = (float) _tilt_y;
 
+            float lift = (float) double.min(_lift, 1.0);
+            if (lift > 0.01f) {
+                var halo = _glow;
+                halo.alpha = 0.55f * lift;
+                snapshot.append_outset_shadow(outline, halo, 0, 6 * lift, 2 * lift, 38);
+                var core = _glow;
+                core.alpha = 0.32f * lift;
+                snapshot.append_outset_shadow(outline, core, 0, 2 * lift, 0, 12);
+            }
+
             snapshot.push_rounded_clip(outline);
             Gsk.ColorStop[] base_stops = { { 0f, _top }, { 1f, _bottom } };
             snapshot.append_linear_gradient(rect, Graphene.Point() { x = 0, y = 0 }, Graphene.Point() { x = w * 0.4f, y = h }, base_stops);
@@ -132,7 +142,7 @@ namespace Singularity {
                 snapshot.restore();
             }
 
-            var sheen_on = Gdk.RGBA() { red = 1, green = 1, blue = 1, alpha = _lifted ? 0.26f : 0.14f };
+            var sheen_on = Gdk.RGBA() { red = 1, green = 1, blue = 1, alpha = 0.14f + 0.12f * lift };
             var sheen_off = Gdk.RGBA() { red = 1, green = 1, blue = 1, alpha = 0 };
             Gsk.ColorStop[] sheen_stops = { { 0f, sheen_on }, { 0.5f, sheen_off }, { 1f, sheen_off } };
             snapshot.append_linear_gradient(rect, Graphene.Point() { x = w * (0.2f + 0.25f * tx), y = 0 },
@@ -148,11 +158,6 @@ namespace Singularity {
                 snapshot.restore();
             }
             snapshot.pop();
-
-            var rim = Gdk.RGBA() { red = 1, green = 1, blue = 1, alpha = _lifted ? 0.28f : 0.12f };
-            float[] widths = { 1, 1, 1, 1 };
-            Gdk.RGBA[] colors = { rim, rim, rim, rim };
-            snapshot.append_border(outline, widths, colors);
         }
     }
 }

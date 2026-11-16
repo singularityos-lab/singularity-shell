@@ -5,6 +5,7 @@ namespace Singularity {
 
     public class TvHome : Gtk.Window {
         private const double FOCUS_SCALE = 1.08;
+        private delegate void Settle();
 
         private FlowBox _apps;
         private FlowBox _resume;
@@ -161,16 +162,23 @@ namespace Singularity {
             child.child = motion;
             child.focusable = true;
             child.update_property(Gtk.AccessibleProperty.LABEL, label, -1);
+            bool focused = false, hovered = false;
+            bool raised = false;
             var focus = new EventControllerFocus();
-            focus.enter.connect(() => {
-                banner.lifted = true;
-                Singularity.Motion.spring_to(motion, "scale", FOCUS_SCALE, Singularity.Motion.Spring.BOUNCY);
-            });
-            focus.leave.connect(() => {
-                banner.lifted = false;
-                Singularity.Motion.spring_to(motion, "scale", 1.0, Singularity.Motion.Spring.SNAPPY);
-            });
+            var hover = new EventControllerMotion();
+            Settle settle = () => {
+                bool up = focused || hovered;
+                if (up == raised) return;
+                raised = up;
+                Singularity.Motion.spring_to(motion, "scale", up ? FOCUS_SCALE : 1.0, Singularity.Motion.Spring.GENTLE);
+                Singularity.Motion.spring_to(banner, "lift", up ? 1.0 : 0.0, Singularity.Motion.Spring.GENTLE, double.NAN, banner);
+            };
+            focus.enter.connect(() => { focused = true; settle(); });
+            focus.leave.connect(() => { focused = false; settle(); });
+            hover.enter.connect(() => { hovered = true; settle(); });
+            hover.leave.connect(() => { hovered = false; settle(); });
             child.add_controller(focus);
+            child.add_controller(hover);
             return child;
         }
 
