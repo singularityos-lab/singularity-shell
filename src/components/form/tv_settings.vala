@@ -11,9 +11,7 @@ namespace Singularity {
         private const int HEAD_ICON = 88;
         private const int HERO_ICON = 200;
         private const double FOCUS_SCALE = 1.12;
-        private const uint GLOW_MS = 5200;
-        private const double GLOW_LOW = 0.35;
-        private const double GLOW_HIGH = 0.9;
+        private const double GLOW_LEVEL = 0.6;
         private const double CARD_TRAVEL = 160.0;
         private const string[] TV_PAGES = {
             "network", "displays", "sound", "bluetooth", "connected-devices", "apps",
@@ -37,7 +35,6 @@ namespace Singularity {
         private string? _root_page = null;
         private string _current = "";
         private bool _closing = false;
-        private bool _glow_up = true;
 
         public signal void dismissed();
 
@@ -59,7 +56,7 @@ namespace Singularity {
             glow.hexpand = true;
             glow.vexpand = true;
             _glow = new Singularity.Animation.MotionBin(glow);
-            _glow.opacity = GLOW_LOW;
+            _glow.opacity = GLOW_LEVEL;
             _glow.can_target = false;
 
             _view = new SettingsView(app, false);
@@ -352,14 +349,6 @@ namespace Singularity {
             dismiss();
         }
 
-        private void breathe() {
-            if (_closing || Singularity.Motion.reduced()) return;
-            _glow_up = !_glow_up;
-            var anim = Singularity.Motion.tween(_glow, "opacity", _glow_up ? GLOW_LOW : GLOW_HIGH,
-                GLOW_MS, Singularity.Motion.Curve.STANDARD);
-            anim.done.connect(() => breathe());
-        }
-
         public void open() {
             _closing = false;
             present();
@@ -376,7 +365,6 @@ namespace Singularity {
                 if (fc != null && fc.child != null) tiles += fc.child;
             }
             Singularity.Motion.cascade(tiles, Singularity.Motion.Preset.SCALE_FADE);
-            breathe();
         }
 
         public void dismiss() {
