@@ -72,6 +72,10 @@ namespace Singularity {
             }
         }
 
+        private bool gaming {
+            get { return GameModeManager.get_default().active; }
+        }
+
         public bool is_lowered(string path) {
             Entry? entry = entries.lookup(path);
             return entry != null && entry.cls == AppState.BACKGROUND_IDLE;
@@ -104,6 +108,7 @@ namespace Singularity {
             settings.changed["background-apps"].connect(update);
             IdleManager.get_default().notify["on-battery"].connect(update);
             SystemMonitor.get_default().power_profiles.profile_changed.connect(update);
+            GameModeManager.get_default().state_changed.connect(update);
             AppPause.get_default().changed.connect((app_id, paused) => {
                 if (!paused) {
                     foreach (var entry in entries.get_values()) {
@@ -124,7 +129,7 @@ namespace Singularity {
         }
 
         private void update() {
-            bool want = (SettingsGuard.has(settings, "background-apps") && settings.get_boolean("background-apps")) || saving;
+            bool want = (SettingsGuard.has(settings, "background-apps") && settings.get_boolean("background-apps")) || saving || gaming;
             if (want) {
                 try {
                     FileUtils.set_contents(flag, "");
@@ -199,13 +204,14 @@ namespace Singularity {
                     any_change = true;
                 }
                 if (group.paused) continue;
-                AppState next = pause.uses_media(group.path) || (entry.measured && entry.quiet == 0)
+                bool working = entry.measured && entry.quiet == 0;
+                AppState next = pause.uses_media(group.path) || (working && !gaming)
                     ? AppState.BACKGROUND_ACTIVE : AppState.BACKGROUND_IDLE;
                 if (next != entry.cls) {
                     set_class(group.path, entry, next);
                     any_change = true;
                 }
-                if (entry.cls == AppState.BACKGROUND_IDLE && !entry.reclaimed && now - entry.hidden_since >= RECLAIM_AFTER_US) {
+                if (entry.cls == AppState.BACKGROUND_IDLE && !working && !entry.reclaimed && now - entry.hidden_since >= RECLAIM_AFTER_US) {
                     entry.reclaimed = true;
                     reclaim(group.path, group.memory / 4);
                 }
