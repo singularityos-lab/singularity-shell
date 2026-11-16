@@ -48,6 +48,8 @@ namespace Singularity {
         private HashTable<string, Entry> entries = new HashTable<string, Entry>(str_hash, str_equal);
         private bool active = false;
 
+        private const string SHARED_SESSION_DIR = "/run/singularity/labwc-session";
+
         public static AppLifecycle get_default() {
             if (instance == null) instance = new AppLifecycle();
             return instance;
@@ -56,7 +58,9 @@ namespace Singularity {
         public AppLifecycle(string cgroup_root = "/sys/fs/cgroup", string proc_root = "/proc") {
             this.cgroup_root = cgroup_root;
             this.proc_root = proc_root;
-            string dir = Path.build_filename(Environment.get_user_runtime_dir(), "singularity");
+            string dir = Singularity.Compositor.LabwcBackend.get_default().shared_session()
+                ? SHARED_SESSION_DIR
+                : Path.build_filename(Environment.get_user_runtime_dir(), "singularity");
             flag = Path.build_filename(dir, "background-apps");
             list = Path.build_filename(dir, "background-apps.list");
         }
