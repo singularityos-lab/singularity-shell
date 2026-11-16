@@ -25,20 +25,21 @@ namespace Singularity {
         private bool _pulling = false;
         private Button _companion;
 
-        public PhoneNavBar(Gtk.Application app, Gdk.Monitor monitor) {
+        public PhoneNavBar(Gtk.Application app, Gdk.Monitor monitor, bool handle_only = false) {
             Object(application: app);
             init_for_window(this);
             set_monitor(this, monitor);
             set_namespace(this, "singularity-phone-nav");
-            set_layer(this, GtkLayerShell.Layer.TOP);
+            set_layer(this, handle_only ? GtkLayerShell.Layer.OVERLAY : GtkLayerShell.Layer.TOP);
             set_anchor(this, GtkLayerShell.Edge.BOTTOM, true);
-            set_anchor(this, GtkLayerShell.Edge.LEFT, true);
-            set_anchor(this, GtkLayerShell.Edge.RIGHT, true);
+            set_anchor(this, GtkLayerShell.Edge.LEFT, !handle_only);
+            set_anchor(this, GtkLayerShell.Edge.RIGHT, !handle_only);
             set_keyboard_mode(this, GtkLayerShell.KeyboardMode.NONE);
-            auto_exclusive_zone_enable(this);
+            if (!handle_only) auto_exclusive_zone_enable(this);
             add_css_class("singularity");
             add_css_class("singularity-shell");
             add_css_class("phone-nav");
+            if (handle_only) add_css_class("handle-only");
 
             var bar = new CenterBox();
             bar.add_css_class("phone-nav-bar");
@@ -63,9 +64,11 @@ namespace Singularity {
             var end = new Box(Orientation.HORIZONTAL, 4);
             end.append(_companion);
             end.append(recents);
-            bar.start_widget = back;
             bar.center_widget = home;
-            bar.end_widget = end;
+            if (!handle_only) {
+                bar.start_widget = back;
+                bar.end_widget = end;
+            }
 
             var drag = new GestureDrag();
             drag.propagation_phase = PropagationPhase.CAPTURE;

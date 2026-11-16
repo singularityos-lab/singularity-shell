@@ -261,16 +261,17 @@ namespace Singularity {
         }
 
         private bool _phone = false;
+        private bool _pull = false;
         private const int SHADE_MARGIN = 8;
         private const int SHADE_INSET = 26;
         private const double SHADE_DROP = 48.0;
 
         private string slide_property() {
-            return _phone ? "translate-y" : "translate-x";
+            return _pull ? "translate-y" : "translate-x";
         }
 
         private double slide_distance() {
-            return _phone ? -SHADE_DROP : SLIDE_DISTANCE;
+            return _pull ? -SHADE_DROP : SLIDE_DISTANCE;
         }
 
         private Gdk.Monitor? _target_monitor = null;
@@ -301,6 +302,7 @@ namespace Singularity {
             watch_geometry(monitor);
             var kind = Singularity.FormFactor.at(monitor);
             _phone = kind == Singularity.FormFactorKind.PHONE || kind == Singularity.FormFactorKind.WATCH;
+            _pull = _phone || kind == Singularity.FormFactorKind.TABLET;
             system_view.set_form(kind);
             set_anchor(this, GtkLayerShell.Edge.LEFT, _phone);
             set_exclusive_zone(this, _phone ? -1 : 0);
@@ -363,7 +365,7 @@ namespace Singularity {
             if (!visible) {
                 _content_bin.opacity = 0.0;
                 double start = Singularity.Motion.reduced() ? 0.0 : slide_distance();
-                if (_phone) _content_bin.translate_y = start;
+                if (_pull) _content_bin.translate_y = start;
                 else _content_bin.translate_x = start;
             }
             present();
@@ -374,7 +376,7 @@ namespace Singularity {
                     _content_bin.translate_y = 0.0;
                 } else {
                     Singularity.Motion.spring_to(_content_bin, slide_property(), 0.0,
-                        _phone ? Singularity.Motion.Spring.SNAPPY : Singularity.Motion.Spring.GENTLE);
+                        _pull ? Singularity.Motion.Spring.SNAPPY : Singularity.Motion.Spring.GENTLE);
                 }
                 Singularity.Motion.tween(_content_bin, "opacity", 1.0,
                     Singularity.Motion.Duration.SMALL, Singularity.Motion.Curve.ENTER);
@@ -435,7 +437,7 @@ namespace Singularity {
         }
 
         private void shade_drag_update(GestureDrag drag, double dx, double dy) {
-            if (!_phone || _is_closing) return;
+            if (!_pull || _is_closing) return;
             if (!_shade_tracking) {
                 if (Math.fabs(dy) < PULL_SLOP || dy > 0 || Math.fabs(dx) > Math.fabs(dy) || !scrolled_to_end()) return;
                 _shade_tracking = true;
@@ -462,7 +464,7 @@ namespace Singularity {
         }
 
         public bool pull_begin() {
-            if (!_phone) return false;
+            if (!_pull) return false;
             if (visible && !_is_closing) return false;
             Singularity.Motion.cancel(_content_bin, "translate-y");
             Singularity.Motion.cancel(_content_bin, "opacity");

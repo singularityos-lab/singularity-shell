@@ -5,6 +5,9 @@ namespace Singularity {
 
     public class PhoneHome : Gtk.Window {
         private const int COLUMNS = 4;
+        private const int WIDE_SLOT = 150;
+        private const int WIDE_MIN_COLUMNS = 6;
+        private const int WIDE_MAX_COLUMNS = 8;
         private const int SPACING = 8;
         private const int CELL_HEIGHT = 104;
         private const int ICON_SIZE = 64;
@@ -25,15 +28,17 @@ namespace Singularity {
         private int _height = 0;
         private int _page = 0;
         private bool _editing = false;
+        private bool _wide = false;
         private bool _swiping = false;
         private double _swipe_origin = 0;
         private double _scroll_x = 0;
 
         public bool editing { get { return _editing; } }
 
-        public PhoneHome(Gtk.Application app, Gdk.Monitor monitor) {
+        public PhoneHome(Gtk.Application app, Gdk.Monitor monitor, bool wide = false) {
             Object(application: app);
             _monitor = monitor;
+            _wide = wide;
             init_for_window(this);
             set_monitor(this, monitor);
             set_namespace(this, "singularity-phone-home");
@@ -137,10 +142,11 @@ namespace Singularity {
 
         private void fit() {
             if (_width <= 0 || _height <= 0) return;
-            int slot = _width / COLUMNS;
+            int columns = _wide ? (_width / WIDE_SLOT).clamp(WIDE_MIN_COLUMNS, WIDE_MAX_COLUMNS) : COLUMNS;
+            int slot = _width / columns;
             int rows = int.max(1, (_height - TOP_GAP - DOTS_HEIGHT) / (CELL_HEIGHT + SPACING));
             _grid.margin_start = SPACING / 2;
-            _grid.set_cell_metrics(slot, slot - SPACING, CELL_HEIGHT, SPACING, COLUMNS);
+            _grid.set_cell_metrics(slot, slot - SPACING, CELL_HEIGHT, SPACING, columns);
             _grid.page_rows = rows;
             _grid.set_columns_for_width(_width);
             _grid.populate();

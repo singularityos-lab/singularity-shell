@@ -725,7 +725,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         pull.drag_begin.connect(() => pulling = false);
         pull.drag_update.connect((dx, dy) => {
             if (!pulling) {
-                if (dy < 10 || Math.fabs(dx) > dy || !phone_shade(p.get_target_monitor())) return;
+                if (dy < 10 || Math.fabs(dx) > dy || !shade_pull(p.get_target_monitor())) return;
                 sidebar_on(p.get_target_monitor());
                 if (!sidebar.pull_begin()) return;
                 pulling = true;
@@ -1292,6 +1292,11 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
                 workspace_switch_feedbacks[monitor] = new Singularity.WorkspaceSwitchFeedback(this, monitor);
             }
         }
+    }
+
+    private static bool shade_pull(Gdk.Monitor? monitor) {
+        var kind = Singularity.FormFactor.at(monitor ?? Singularity.FormFactor.main_monitor());
+        return kind == Singularity.FormFactorKind.TABLET || phone_shade(monitor);
     }
 
     private static bool phone_shade(Gdk.Monitor? monitor) {

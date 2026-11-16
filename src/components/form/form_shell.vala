@@ -7,9 +7,11 @@ namespace Singularity {
         private const double FOCUS_SCALE = 1.08;
         private const string FOLDER = "::apps";
         private const string[] TV_CATEGORIES = {
-            "AudioVideo", "Audio", "Video", "Music", "TV", "Player", "Game", "WebBrowser", "Photography", "PackageManager"
+            "AudioVideo", "Audio", "Video", "Music", "TV", "Player", "Game", "WebBrowser", "Photography", "PackageManager",
+            "Maps", "Calculator", "Documentation", "News", "Feed", "Viewer", "Weather", "Clock", "Education"
         };
-        private const string[] EDITOR_CATEGORIES = { "AudioVideoEditing", "Recorder", "Sequencer", "Mixer" };
+        private const string[] EDITOR_CATEGORIES = { "AudioVideoEditing", "Sequencer", "Mixer" };
+        private const string FORM_FACTORS_KEY = "X-Sinty-FormFactors";
         private delegate void Settle();
 
         private FlowBox _apps;
@@ -241,6 +243,12 @@ namespace Singularity {
         }
 
         private static bool for_tv(GLib.DesktopAppInfo info) {
+            if (info.has_key(FORM_FACTORS_KEY)) {
+                foreach (string id in info.get_string(FORM_FACTORS_KEY).split(";")) {
+                    if (id.strip().down() == "tv") return true;
+                }
+                return false;
+            }
             string? cats = info.get_categories();
             if (cats == null) return false;
             bool media = false;
@@ -526,7 +534,7 @@ namespace Singularity {
             var target = monitor ?? active_monitor();
             var kind = kind_on(target);
             if (kind != Singularity.FormFactorKind.TV && kind != Singularity.FormFactorKind.WATCH
-                    && kind != Singularity.FormFactorKind.PHONE) return false;
+                    && kind != Singularity.FormFactorKind.PHONE && kind != Singularity.FormFactorKind.TABLET) return false;
             if (_switcher != null) _switcher.dismiss();
             SnapController.get_default().dismiss_assist();
             foreach (var win in AppSystem.get_default().get_windows()) {
@@ -606,6 +614,19 @@ namespace Singularity {
                     screen.nav.companion_requested.connect(() => open_companion(monitor));
                     screen.nav.present();
                     screen.home = new PhoneHome(_app, monitor);
+                    screen.home.wallpaper_requested.connect(() => wallpaper_requested());
+                    screen.home.present();
+                    break;
+                case Singularity.FormFactorKind.TABLET:
+                    screen.nav = new PhoneNavBar(_app, monitor, true);
+                    screen.nav.home_requested.connect(() => {
+                        if (!go_home(monitor)) home_requested(monitor);
+                    });
+                    screen.nav.recents_requested.connect(() => show_recents(monitor));
+                    screen.nav.next_requested.connect(() => next_requested());
+                    screen.nav.previous_requested.connect(() => previous_requested());
+                    screen.nav.present();
+                    screen.home = new PhoneHome(_app, monitor, true);
                     screen.home.wallpaper_requested.connect(() => wallpaper_requested());
                     screen.home.present();
                     break;
