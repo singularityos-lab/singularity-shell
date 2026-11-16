@@ -123,8 +123,8 @@ namespace Singularity {
             row.homogeneous = true;
             row.min_children_per_line = 3;
             row.max_children_per_line = 6;
-            row.column_spacing = 28;
-            row.row_spacing = 28;
+            row.column_spacing = 32;
+            row.row_spacing = 24;
             row.activate_on_single_click = true;
             row.child_activated.connect((child) => {
                 var action = child.get_data<string>("tv-action");
@@ -149,14 +149,12 @@ namespace Singularity {
         private FlowBoxChild tile(GLib.Icon? icon, string icon_name, string label) {
             var box = new Box(Orientation.VERTICAL, 14);
             box.add_css_class("tv-tile");
-            var img = icon != null ? new Image.from_gicon(icon) : new Image.from_icon_name(icon_name);
-            img.pixel_size = 112;
-            img.add_css_class("tv-tile-icon");
+            var banner = new TvBanner(icon, icon_name);
             var name = new Label(label);
             name.add_css_class("tv-tile-label");
             name.ellipsize = Pango.EllipsizeMode.END;
-            name.max_width_chars = 14;
-            box.append(img);
+            name.max_width_chars = 18;
+            box.append(banner);
             box.append(name);
             var motion = new Singularity.Animation.MotionBin(box);
             var child = new FlowBoxChild();
@@ -164,8 +162,14 @@ namespace Singularity {
             child.focusable = true;
             child.update_property(Gtk.AccessibleProperty.LABEL, label, -1);
             var focus = new EventControllerFocus();
-            focus.enter.connect(() => Singularity.Motion.spring_to(motion, "scale", FOCUS_SCALE, Singularity.Motion.Spring.BOUNCY));
-            focus.leave.connect(() => Singularity.Motion.spring_to(motion, "scale", 1.0, Singularity.Motion.Spring.SNAPPY));
+            focus.enter.connect(() => {
+                banner.lifted = true;
+                Singularity.Motion.spring_to(motion, "scale", FOCUS_SCALE, Singularity.Motion.Spring.BOUNCY);
+            });
+            focus.leave.connect(() => {
+                banner.lifted = false;
+                Singularity.Motion.spring_to(motion, "scale", 1.0, Singularity.Motion.Spring.SNAPPY);
+            });
             child.add_controller(focus);
             return child;
         }
