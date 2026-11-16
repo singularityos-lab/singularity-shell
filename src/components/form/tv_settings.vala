@@ -11,7 +11,6 @@ namespace Singularity {
         private const int HEAD_ICON = 88;
         private const int HERO_ICON = 200;
         private const double FOCUS_SCALE = 1.12;
-        private const double GLOW_LEVEL = 0.6;
         private const double CARD_TRAVEL = 160.0;
         private const string[] TV_PAGES = {
             "network", "displays", "sound", "bluetooth", "connected-devices", "apps",
@@ -29,7 +28,6 @@ namespace Singularity {
         private Singularity.Animation.MotionBin _hero_motion;
         private Singularity.Animation.MotionBin _hero_text;
         private Singularity.Animation.MotionBin _card;
-        private Singularity.Animation.MotionBin _glow;
         private Singularity.Animation.MotionBin _stage;
         private FlowBoxChild? _active_tile = null;
         private string? _root_page = null;
@@ -51,14 +49,6 @@ namespace Singularity {
             add_css_class("singularity-shell");
             add_css_class("tv-settings");
 
-            var glow = new Box(Orientation.VERTICAL, 0);
-            glow.add_css_class("tv-settings-glow");
-            glow.hexpand = true;
-            glow.vexpand = true;
-            _glow = new Singularity.Animation.MotionBin(glow);
-            _glow.opacity = GLOW_LEVEL;
-            _glow.can_target = false;
-
             _view = new SettingsView(app, false);
             _view.hide_back_buttons = true;
             _view.hexpand = true;
@@ -66,8 +56,7 @@ namespace Singularity {
             _view.page_shown.connect((name) => _current = name);
 
             var overlay = new Overlay();
-            overlay.child = _glow;
-            overlay.add_overlay(build_grid_layer());
+            overlay.child = build_grid_layer();
             overlay.add_overlay(build_page_layer());
             _stage = new Singularity.Animation.MotionBin(overlay);
             set_child(_stage);
