@@ -677,9 +677,18 @@ namespace Singularity {
             return null;
         }
 
+        private bool is_secondary(AppSystem.Window win) {
+            if (win.app_id == null || win.app_id == "") return false;
+            foreach (var other in AppSystem.get_default().get_windows()) {
+                if (other.handle != win.handle && other.app_id == win.app_id && !other.is_minimized) return true;
+            }
+            return false;
+        }
+
         private void apply_window(void* handle) {
             var win = window_for(handle);
             if (win == null || win.is_fullscreen) return;
+            if (!_form_maximized.contains(handle) && is_secondary(win)) return;
             var monitor = Singularity.wayland_get_window_monitor(handle) ?? Singularity.FormFactor.main_monitor();
             bool full = kind_on(monitor).is_full_screen();
             if (full) {
@@ -718,6 +727,8 @@ namespace Singularity {
             var monitor = Singularity.wayland_get_window_monitor(handle) ?? Singularity.FormFactor.main_monitor();
             var kind = kind_on(monitor);
             if (kind != Singularity.FormFactorKind.TABLET && kind != Singularity.FormFactorKind.TV) return;
+            var opened = window_for(handle);
+            if (opened != null && is_secondary(opened)) return;
             int others = 0;
             foreach (var win in AppSystem.get_default().get_windows()) {
                 if (win.handle != handle && !win.is_minimized && on_monitor(win.handle, monitor)) others++;
