@@ -68,7 +68,8 @@ namespace Singularity {
         public bool saving {
             get {
                 return IdleManager.get_default().on_battery
-                    || SystemMonitor.get_default().power_profiles.active_profile == "power-saver";
+                    || SystemMonitor.get_default().power_profiles.active_profile == "power-saver"
+                    || Singularity.FormFactor.current() == Singularity.FormFactorKind.TV;
             }
         }
 
@@ -109,6 +110,7 @@ namespace Singularity {
             IdleManager.get_default().notify["on-battery"].connect(update);
             SystemMonitor.get_default().power_profiles.profile_changed.connect(update);
             GameModeManager.get_default().state_changed.connect(update);
+            Singularity.FormFactor.get_default().changed.connect((previous) => update());
             AppPause.get_default().changed.connect((app_id, paused) => {
                 if (!paused) {
                     foreach (var entry in entries.get_values()) {
