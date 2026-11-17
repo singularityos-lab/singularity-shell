@@ -24,6 +24,8 @@ namespace Singularity {
         private ulong _sig_clock = 0;
         private ulong _sig_running = 0;
         private ulong _sig_apps = 0;
+        private bool _owns_keyboard = false;
+        private int64 _released_at = 0;
 
         public TvHome(Gtk.Application app, Gdk.Monitor monitor) {
             Object(application: app);
@@ -173,8 +175,16 @@ namespace Singularity {
             return row;
         }
 
+        public bool recently_released() {
+            return GLib.get_monotonic_time() - _released_at < 5 * TimeSpan.SECOND;
+        }
+
         private void activate_tile(FlowBoxChild child) {
             var action = child.get_data<string>("tv-action");
+            if (action != FOLDER) {
+                _released_at = GLib.get_monotonic_time();
+                own_keyboard(false);
+            }
             var handle = child.get_data<void*>("tv-window");
             if (handle != null) {
                 Singularity.wayland_activate_window(handle);
@@ -300,6 +310,12 @@ namespace Singularity {
             var first = (_resume.visible ? _resume : _apps).get_child_at_index(0);
             if (first != null) first.grab_focus();
         }
+
+        public void own_keyboard(bool own) {
+            if (_owns_keyboard == own) return;
+            _owns_keyboard = own;
+            set_keyboard_mode(this, own ? GtkLayerShell.KeyboardMode.EXCLUSIVE : GtkLayerShell.KeyboardMode.ON_DEMAND);
+        }
     }
 
     public class FormShell : Object {
@@ -374,8 +390,10 @@ namespace Singularity {
                 }));
             }
             sync();
+            app_system.window_state_changed.connect((handle) => sync_tv_keyboard());
             Timeout.add(SPLIT_POLL_MS, () => {
                 update_splits();
+                sync_tv_keyboard();
                 return Source.CONTINUE;
             });
         }
@@ -561,6 +579,7 @@ namespace Singularity {
             }
             var screen = screen_for(target);
             if (screen != null && screen.tv != null) {
+                screen.tv.own_keyboard(true);
                 screen.tv.play_enter();
                 screen.tv.focus_first();
             }
@@ -657,6 +676,7 @@ namespace Singularity {
                     screen.tv.present();
                     screen.tv.play_enter();
                     screen.tv.focus_first();
+                    sync_tv_keyboard();
                     break;
                 case Singularity.FormFactorKind.WATCH:
                     screen.watch = new WatchFace(_app, monitor);
@@ -667,6 +687,21 @@ namespace Singularity {
                     break;
                 default:
                     break;
+            }
+        }
+
+        private void sync_tv_keyboard() {
+            foreach (var screen in _screens) {
+                if (screen.tv == null) continue;
+                bool covered = false;
+                foreach (var win in AppSystem.get_default().get_windows()) {
+                    if (!win.is_minimized && on_monitor(win.handle, screen.monitor)) {
+                        covered = true;
+                        break;
+                    }
+                }
+                if (!covered && screen.tv.recently_released()) continue;
+                screen.tv.own_keyboard(!covered);
             }
         }
 
