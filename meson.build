@@ -733,6 +733,7 @@ singularity_core_sources = files(
     'src/core/fingerprint_driver.vala',
     'src/core/system_service.vala',
     'src/components/osk/on_screen_keyboard.vala',
+    'src/components/osk/screen_keyboard_service.vala',
     'src/core/crash/crash_report.vala',
     'src/core/crash/crash_config.vala',
     'src/core/crash/crash_sources.vala',

@@ -63,6 +63,16 @@ namespace Singularity {
         private GLib.Settings settings;
         private Box suggestion_bar;
         private Popover? accent_popover = null;
+        private Box rows_box;
+        private Box preview_row;
+        private Label preview_before;
+        private Label preview_after;
+        private Gee.ArrayList<Gee.ArrayList<Button>> key_rows = new Gee.ArrayList<Gee.ArrayList<Button>>();
+        private Button? highlighted = null;
+        private const double REMOTE_SCALE = 1.5;
+
+        public bool remote { get; private set; default = false; }
+        public signal void remote_done(bool accepted);
 
         public OnScreenKeyboard(Gtk.Application app) {
             Object(application: app);
@@ -83,6 +93,25 @@ namespace Singularity {
             var rows = new Box(Orientation.VERTICAL, 6);
             rows.add_css_class("osk");
             rows.halign = Align.CENTER;
+            rows_box = rows;
+            preview_row = new Box(Orientation.HORIZONTAL, 0);
+            preview_row.add_css_class("osk-preview");
+            preview_row.visible = false;
+            preview_before = new Label("");
+            preview_before.ellipsize = Pango.EllipsizeMode.START;
+            preview_before.hexpand = true;
+            preview_before.xalign = 1;
+            var caret = new Box(Orientation.HORIZONTAL, 0);
+            caret.add_css_class("osk-caret");
+            caret.valign = Align.CENTER;
+            preview_after = new Label("");
+            preview_after.ellipsize = Pango.EllipsizeMode.END;
+            preview_after.hexpand = true;
+            preview_after.xalign = 0;
+            preview_row.append(preview_before);
+            preview_row.append(caret);
+            preview_row.append(preview_after);
+            rows.append(preview_row);
             suggestion_bar = new Box(Orientation.HORIZONTAL, 6);
             suggestion_bar.add_css_class("osk-suggestions");
             suggestion_bar.halign = Align.CENTER;
@@ -201,6 +230,8 @@ namespace Singularity {
         private Box build_row(Key[] keys) {
             var row = new Box(Orientation.HORIZONTAL, 6);
             row.halign = Align.CENTER;
+            var buttons = new Gee.ArrayList<Button>();
+            key_rows.add(buttons);
             foreach (var key in keys) {
                 var button = new Button();
                 button.add_css_class("osk-key");
@@ -208,6 +239,8 @@ namespace Singularity {
                 button.can_focus = false;
                 button.set_size_request((int) (54 * key.width), 48);
                 button.set_data<uint>("code", key.code);
+                button.set_data<uint>("width", (uint) Math.round(key.width * 10));
+                buttons.add(button);
                 if (key.icon != null) {
                     button.icon_name = key.icon;
                     button.add_css_class("osk-key-special");
@@ -225,7 +258,15 @@ namespace Singularity {
                     modifier_buttons.add(button);
                     button.clicked.connect(() => toggle_modifier(modifier));
                 } else if (code == 0) {
-                    button.clicked.connect(() => settings.set_boolean("screen-keyboard-enabled", false));
+                    button.clicked.connect(() => {
+                        if (remote) remote_done(false);
+                        else settings.set_boolean("screen-keyboard-enabled", false);
+                    });
+                } else if (code == 28) {
+                    button.clicked.connect(() => {
+                        if (remote) remote_done(true);
+                        else press(code);
+                    });
                 } else if (code == 58) {
                     button.clicked.connect(() => {
                         caps = !caps;
@@ -297,6 +338,114 @@ namespace Singularity {
                 uint code = button.get_data<uint>("code");
                 button.label = Singularity.osk_label(code, shifted != (caps && is_letter(code))) ?? "";
             }
+        }
+    
+        private static bool remote_hidden(uint code) {
+            return code == 1 || code == 15 || code == 103 || code == 105 || code == 106 || code == 108;
+        }
+
+        public void start_remote(string text, int cursor) {
+            remote = true;
+            rows_box.add_css_class("remote");
+            preview_row.visible = true;
+            resize_keys();
+            set_preview(text, cursor);
+            if (highlighted == null) highlight(find_key(16));
+        }
+
+        public void stop_remote() {
+            remote = false;
+            rows_box.remove_css_class("remote");
+            preview_row.visible = false;
+            highlight(null);
+            resize_keys();
+        }
+
+        private void resize_keys() {
+            double scale = remote ? REMOTE_SCALE : 1.0;
+            foreach (var buttons in key_rows) {
+                foreach (var button in buttons) {
+                    button.visible = !(remote && remote_hidden(button.get_data<uint>("code")));
+                    button.set_size_request((int) (5.4 * button.get_data<uint>("width") * scale), (int) (48 * scale));
+                }
+            }
+        }
+
+        public void set_preview(string text, int cursor) {
+            int count = text.char_count();
+            int at = cursor.clamp(0, count);
+            int split = text.index_of_nth_char(at);
+            preview_before.label = text.substring(0, split);
+            preview_after.label = text.substring(split);
+        }
+
+        private Button? find_key(uint code) {
+            foreach (var buttons in key_rows) {
+                foreach (var button in buttons) {
+                    if (button.get_data<uint>("code") == code) return button;
+                }
+            }
+            return null;
+        }
+
+        private void highlight(Button? button) {
+            if (highlighted != null) highlighted.remove_css_class("remote-focus");
+            highlighted = button;
+            if (highlighted != null) highlighted.add_css_class("remote-focus");
+        }
+
+        private double center_x(Button button) {
+            Graphene.Rect bounds;
+            if (!button.compute_bounds(rows_box, out bounds)) return 0;
+            return bounds.origin.x + bounds.size.width / 2;
+        }
+
+        private int row_of(Button button) {
+            for (int i = 0; i < key_rows.size; i++) {
+                if (key_rows[i].contains(button)) return i;
+            }
+            return -1;
+        }
+
+        private Gee.ArrayList<Button> visible_keys(int row) {
+            var list = new Gee.ArrayList<Button>();
+            foreach (var button in key_rows[row]) {
+                if (button.visible) list.add(button);
+            }
+            return list;
+        }
+
+        public void navigate(string direction) {
+            if (!remote) return;
+            if (highlighted == null) {
+                highlight(find_key(16));
+                return;
+            }
+            int row = row_of(highlighted);
+            if (row < 0) return;
+            if (direction == "left" || direction == "right") {
+                var keys = visible_keys(row);
+                int index = keys.index_of(highlighted) + (direction == "left" ? -1 : 1);
+                if (index >= 0 && index < keys.size) highlight(keys[index]);
+                return;
+            }
+            int target = row + (direction == "up" ? -1 : 1);
+            if (target < 0 || target >= key_rows.size) return;
+            double x = center_x(highlighted);
+            Button? best = null;
+            double best_distance = double.MAX;
+            foreach (var button in visible_keys(target)) {
+                double distance = (center_x(button) - x).abs();
+                if (distance < best_distance) {
+                    best_distance = distance;
+                    best = button;
+                }
+            }
+            if (best != null) highlight(best);
+        }
+
+        public void activate_highlighted() {
+            if (remote && highlighted != null) highlighted.clicked();
         }
     }
 }

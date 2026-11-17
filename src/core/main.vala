@@ -72,6 +72,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     private Singularity.AegisDialog? aegis_dialog = null;
     private Singularity.ClipboardPopup? clipboard_popup = null;
     private Singularity.OnScreenKeyboard? screen_keyboard = null;
+    private Singularity.ScreenKeyboardService? screen_keyboard_service = null;
     private Singularity.SettingsWindow? settings_window = null;
     private Singularity.BarLayoutEditOverlay? bar_layout_edit_overlay = null;
     private Singularity.AppSwitcher? app_switcher = null;
@@ -351,6 +352,12 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         Singularity.EqualizerManager.get_default();
         media_guard = new Singularity.MediaPlaybackGuard();
         sync_screen_keyboard();
+        screen_keyboard_service = new Singularity.ScreenKeyboardService(() => {
+            if (screen_keyboard == null) screen_keyboard = new Singularity.OnScreenKeyboard(this);
+            screen_keyboard.present();
+            return screen_keyboard;
+        }, () => sync_screen_keyboard());
+        screen_keyboard_service.own_bus();
         Singularity.InputMethodService.get_default().start();
         Singularity.Dictation.DictationBus.export();
         Gdk.Display.get_default().get_monitors().items_changed.connect(() => {
@@ -662,7 +669,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         if (settings.get_boolean("screen-keyboard-enabled")) {
             if (screen_keyboard == null) screen_keyboard = new Singularity.OnScreenKeyboard(this);
             screen_keyboard.present();
-        } else if (screen_keyboard != null) {
+        } else if (screen_keyboard != null && !screen_keyboard.remote) {
             screen_keyboard.destroy();
             screen_keyboard = null;
         }
