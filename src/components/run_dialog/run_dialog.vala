@@ -4,6 +4,9 @@ namespace Singularity {
 
     public class RunDialog : Singularity.Shell.ShellDialog {
         private Entry entry;
+        private TextView ai_text;
+        private ScrolledWindow ai_text_scroll;
+        private Label ai_placeholder;
         private Label action_prefix;
         private Label error_label;
         private Revealer suggestions_revealer;
@@ -131,9 +134,51 @@ namespace Singularity {
             entry.activate.connect(on_activate);
             entry.changed.connect(on_text_changed);
 
+            ai_text = new TextView();
+            ai_text.wrap_mode = WrapMode.WORD_CHAR;
+            ai_text.accepts_tab = false;
+            ai_text.left_margin = 28;
+            ai_text.top_margin = 8;
+            ai_text.bottom_margin = 8;
+            ai_text.add_css_class("run-ai-text");
+            ai_text.buffer.changed.connect(() => {
+                sync_ai_placeholder();
+                on_text_changed();
+            });
+            var ai_text_keys = new EventControllerKey();
+            ai_text_keys.key_pressed.connect((keyval, keycode, state) => {
+                if ((keyval == Gdk.Key.Return || keyval == Gdk.Key.KP_Enter)
+                        && (state & Gdk.ModifierType.SHIFT_MASK) == 0) {
+                    on_activate();
+                    return true;
+                }
+                return on_entry_key_pressed(keyval, keycode, state);
+            });
+            ai_text.add_controller(ai_text_keys);
+            ai_text_scroll = new ScrolledWindow();
+            ai_text_scroll.hscrollbar_policy = PolicyType.NEVER;
+            ai_text_scroll.propagate_natural_height = true;
+            ai_text_scroll.max_content_height = 400;
+            ai_text_scroll.width_request = 450;
+            ai_text_scroll.add_css_class("run-ai-input");
+            ai_text_scroll.set_child(ai_text);
+            ai_text_scroll.visible = false;
+            var input_box = new Box(Orientation.VERTICAL, 0);
+            input_box.append(entry);
+            input_box.append(ai_text_scroll);
+
             var entry_overlay = new Overlay();
             entry_overlay.halign = Align.START;
-            entry_overlay.set_child(entry);
+            entry_overlay.set_child(input_box);
+            ai_placeholder = new Label(_("Ask Sinty AI"));
+            ai_placeholder.add_css_class("run-ai-placeholder");
+            ai_placeholder.halign = Align.START;
+            ai_placeholder.valign = Align.START;
+            ai_placeholder.margin_start = 28;
+            ai_placeholder.margin_top = 8;
+            ai_placeholder.can_target = false;
+            ai_placeholder.visible = false;
+            entry_overlay.add_overlay(ai_placeholder);
             action_prefix = new Label("!");
             action_prefix.add_css_class("run-action-prefix");
             action_prefix.halign = Align.START;
@@ -144,14 +189,16 @@ namespace Singularity {
             entry_overlay.add_overlay(action_prefix);
             ai_orb = new AgentOrb(16);
             ai_orb.halign = Align.START;
-            ai_orb.valign = Align.CENTER;
+            ai_orb.valign = Align.START;
             ai_orb.margin_start = 3;
+            ai_orb.margin_top = 10;
             ai_orb.visible = false;
             entry_overlay.add_overlay(ai_orb);
 
             ai_controls = new Box(Orientation.HORIZONTAL, 6);
             ai_controls.halign = Align.END;
-            ai_controls.valign = Align.CENTER;
+            ai_controls.valign = Align.END;
+            ai_controls.margin_bottom = 3;
             ai_controls.margin_end = 6;
             ai_voice = new Button.from_icon_name("audio-input-microphone-symbolic");
             ai_voice.add_css_class("flat");
@@ -165,8 +212,7 @@ namespace Singularity {
             voice.notify["preview"].connect(() => {
                 if (!voice.listening) return;
                 updating_text = true;
-                entry.text = voice.preview;
-                entry.set_position(-1);
+                set_input_text(voice.preview);
                 updating_text = false;
             });
             voice.notify["listening"].connect(sync_voice);
@@ -174,7 +220,7 @@ namespace Singularity {
             voice.notify["active"].connect(sync_voice);
             voice.heard.connect((text) => {
                 updating_text = true;
-                entry.text = text;
+                set_input_text(text);
                 updating_text = false;
                 ask_ai();
             });
@@ -239,6 +285,9 @@ namespace Singularity {
             ai_close.visible = false;
             ai_close.clicked.connect(close_dialog);
             ai_controls.append(ai_close);
+            for (var child = ai_controls.get_first_child(); child != null; child = child.get_next_sibling()) {
+                child.notify["visible"].connect(reserve_ai_space);
+            }
             entry_overlay.add_overlay(ai_controls);
             content_box.append(entry_overlay);
 
@@ -318,16 +367,8 @@ namespace Singularity {
             entry_keys.key_pressed.connect(on_entry_key_pressed);
             entry.add_controller(entry_keys);
 
-            var undo_keys = new EventControllerKey();
-            undo_keys.propagation_phase = PropagationPhase.CAPTURE;
-            undo_keys.key_pressed.connect((keyval, keycode, state) => {
-                if (!ai_mode || entry.text != "" || ai_last_change == 0) return false;
-                if (keyval != Gdk.Key.z || (state & Gdk.ModifierType.CONTROL_MASK) == 0
-                        || (state & Gdk.ModifierType.SHIFT_MASK) != 0) return false;
-                undo_agent_change.begin();
-                return true;
-            });
-            entry.add_controller(undo_keys);
+            entry.add_controller(undo_controller());
+            ai_text.add_controller(undo_controller());
 
             var list_keys = new EventControllerKey();
             list_keys.key_pressed.connect(on_list_key_pressed);
@@ -396,7 +437,7 @@ namespace Singularity {
 
         private void on_text_changed() {
             if (updating_text) return;
-            string query = entry.text.strip();
+            string query = input_text().strip();
             error_label.visible = false;
 
             if (ai_mode) {
@@ -477,9 +518,9 @@ namespace Singularity {
             entry.add_css_class("action-mode");
             entry.placeholder_text = _("Ask Sinty AI");
             updating_text = true;
-            entry.text = query;
-            entry.set_position(-1);
+            set_input_text(query);
             updating_text = false;
+            show_ai_input(true);
             clear_suggestions();
             hide_preview();
             set_results_visible(false);
@@ -572,13 +613,15 @@ namespace Singularity {
             ai_answer.label = "";
             clear_agent_cards();
             ai_scroll.visible = false;
-            entry.sensitive = true;
+            set_input_sensitive(true);
             entry.remove_css_class("action-mode");
             entry.placeholder_text = _("Search apps or run a command...");
             entry.primary_icon_name = "system-search-symbolic";
             updating_text = true;
             entry.text = "";
+            ai_text.buffer.text = "";
             updating_text = false;
+            show_ai_input(false);
         }
 
         private void reserve_ai_space() {
@@ -587,6 +630,7 @@ namespace Singularity {
             var text = entry.get_delegate() as Widget;
             if (text == null) return;
             text.margin_end = ai_mode_select.visible || ai_close.visible ? nat + ai_controls.margin_end + 6 : 0;
+            ai_text.right_margin = ai_mode ? nat + ai_controls.margin_end + 6 : 8;
         }
 
         private void on_voice_clicked() {
@@ -626,15 +670,16 @@ namespace Singularity {
                 ai_voice.tooltip_text = _("Send Voice Message");
             }
             entry.editable = !voice.listening;
+            ai_text.editable = !voice.listening;
             if (voice.listening) set_orb(AgentOrbState.LISTEN);
             else if (voice.speaking) set_orb(AgentOrbState.SPEAK);
             else if (ai_process == null && ai_mode) set_orb(AgentOrbState.IDLE);
-            if (voice.listening) entry.placeholder_text = _("Listening");
-            else if (voice.speaking) entry.placeholder_text = _("Speaking");
-            else if (ai_mode) entry.placeholder_text = _("Ask Sinty AI");
+            if (voice.listening) ai_placeholder.label = _("Listening");
+            else if (voice.speaking) ai_placeholder.label = _("Speaking");
+            else ai_placeholder.label = _("Ask Sinty AI");
             if (voice.listening && voice.preview == "") {
                 updating_text = true;
-                entry.text = "";
+                set_input_text("");
                 updating_text = false;
             }
         }
@@ -650,6 +695,60 @@ namespace Singularity {
                 if (then == AgentOrbState.DONE) ai_orb.kick(1);
                 return GLib.Source.REMOVE;
             });
+        }
+
+        private string input_text() {
+            return ai_mode ? ai_text.buffer.text : entry.text;
+        }
+
+        private void set_input_text(string text) {
+            if (!ai_mode) {
+                entry.text = text;
+                entry.set_position(-1);
+                return;
+            }
+            ai_text.buffer.text = text;
+            TextIter end;
+            ai_text.buffer.get_end_iter(out end);
+            ai_text.buffer.place_cursor(end);
+        }
+
+        private void focus_input() {
+            if (ai_mode) ai_text.grab_focus();
+            else entry.grab_focus();
+        }
+
+        private void set_input_sensitive(bool sensitive) {
+            entry.sensitive = sensitive;
+            ai_text.sensitive = sensitive;
+        }
+
+        private void show_ai_input(bool show) {
+            if (show == ai_text_scroll.visible) return;
+            if (show) ai_text_scroll.width_request = int.max(450, entry.get_width());
+            entry.visible = !show;
+            ai_text_scroll.visible = show;
+            reserve_ai_space();
+            sync_ai_placeholder();
+            if (show && visible) ai_text.grab_focus();
+            else if (!show && visible) entry.grab_focus();
+        }
+
+        private void sync_ai_placeholder() {
+            ai_placeholder.visible = ai_mode && ai_text.buffer.text == "";
+        }
+
+        private EventControllerKey undo_controller() {
+            var keys = new EventControllerKey();
+            keys.propagation_phase = PropagationPhase.CAPTURE;
+            keys.key_pressed.connect((keyval, keycode, state) => {
+                if (!ai_mode || input_text() != "" || ai_last_change == 0) return false;
+                if (keyval != Gdk.Key.z || (state & Gdk.ModifierType.CONTROL_MASK) == 0
+                        || (state & Gdk.ModifierType.SHIFT_MASK) != 0) return false;
+                undo_agent_change.begin();
+                return true;
+            });
+            return keys;
         }
 
         private void stop_ai() {
@@ -746,7 +845,7 @@ namespace Singularity {
                     ? obj.get_string_member("instruction") : null;
                 if (instruction != null) {
                     updating_text = true;
-                    entry.text = instruction;
+                    set_input_text(instruction);
                     updating_text = false;
                     ask_ai();
                 } else if (obj.get_boolean_member_with_default("failed", false)) {
@@ -787,7 +886,7 @@ namespace Singularity {
         }
 
         private void ask_ai() {
-            var text = entry.text.strip();
+            var text = input_text().strip();
             if (text == "" || ai_process != null) return;
             if (text.has_prefix("--")) text = " " + text;
             error_label.visible = false;
@@ -795,7 +894,7 @@ namespace Singularity {
             clear_agent_cards();
             ai_scroll.visible = false;
             set_orb(AgentOrbState.THINK);
-            entry.sensitive = false;
+            set_input_sensitive(false);
             set_ai_compact(true);
             run_ai.begin(text);
         }
@@ -828,8 +927,8 @@ namespace Singularity {
             ai_process = null;
             ai_spinner.stop();
             ai_spinner.visible = false;
-            entry.sensitive = true;
-            entry.grab_focus();
+            set_input_sensitive(true);
+            focus_input();
             if (!ok) voice.end();
             if (ok) set_orb(AgentOrbState.SPEAK, AgentOrbState.DONE, 1400);
             else set_orb(AgentOrbState.IDLE);
@@ -845,7 +944,7 @@ namespace Singularity {
                 ai_answer.visible = answer != "";
                 ai_scroll.visible = answer != "" || ai_cards.visible;
                 updating_text = true;
-                entry.text = "";
+                set_input_text("");
                 updating_text = false;
                 if (voice.active) voice.reply.begin(answer);
             } else if (failure.contains("no key for this provider")) {
@@ -1473,7 +1572,7 @@ exec dbus-run-session -- %s/bin/labwc -s "$S"
             else leave_action_mode();
             enter_ai_mode("");
             ai_direct = true;
-            entry.grab_focus();
+            focus_input();
         }
 
         public void voice_ai() {
