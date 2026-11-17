@@ -180,6 +180,13 @@ namespace Singularity {
             ws_strip_container.add_css_class("workspace-strip-container");
             update_strip_glass();
             gesture_settings.changed["background-effect"].connect(update_strip_glass);
+            gesture_settings.changed["theme-mode"].connect(() => {
+                if (!visible) return;
+                GLib.Timeout.add(450, () => {
+                    schedule_refresh_overview();
+                    return GLib.Source.REMOVE;
+                });
+            });
             ws_strip_container.vexpand = false;
             ws_strip_container.set_size_request(-1, 162);
             main_box.append(ws_strip_container);
