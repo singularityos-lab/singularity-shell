@@ -338,6 +338,42 @@ namespace Singularity {
             return count > 0 ? total / count : -1.0;
         }
 
+        private static double linear_channel(uint8 value) {
+            double c = value / 255.0;
+            return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+        }
+
+        public bool top_band_readability(double frac, double min_contrast, out double white_share, out double black_share) {
+            white_share = 0.0;
+            black_share = 0.0;
+            int x, y, w, h;
+            if (!top_band_rect(frac, out x, out y, out w, out h)) return false;
+            var pb = _display_pixbuf;
+            if (pb.get_bits_per_sample() != 8 || pb.get_n_channels() < 3) return false;
+            int channels = pb.get_n_channels();
+            int rowstride = pb.get_rowstride();
+            uint8[] data = pb.get_pixels_with_length();
+            int n = data.length;
+            int white = 0;
+            int black = 0;
+            int count = 0;
+            for (int yy = y; yy < y + h; yy++) {
+                for (int xx = x; xx < x + w; xx++) {
+                    int idx = yy * rowstride + xx * channels;
+                    if (idx + 2 >= n) continue;
+                    double l = 0.2126 * linear_channel(data[idx]) + 0.7152 * linear_channel(data[idx + 1])
+                        + 0.0722 * linear_channel(data[idx + 2]);
+                    if (1.05 / (l + 0.05) >= min_contrast) white++;
+                    if ((l + 0.05) / 0.05 >= min_contrast) black++;
+                    count++;
+                }
+            }
+            if (count == 0) return false;
+            white_share = (double) white / count;
+            black_share = (double) black / count;
+            return true;
+        }
+
         public Pixbuf? top_band_pixbuf(double frac) {
             int x, y, w, h;
             if (!top_band_rect(frac, out x, out y, out w, out h)) return null;

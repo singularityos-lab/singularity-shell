@@ -474,6 +474,11 @@ namespace Singularity {
         private bool _last_strip_light = false;
         private double _last_strip_lum = -1.0;
         private double _last_frac = -1.0;
+        private bool _band_white_ok = true;
+        private bool _band_black_ok = false;
+        private bool _band_unreadable = false;
+        private const double BAND_MIN_CONTRAST = 3.0;
+        private const double BAND_READABLE_SHARE = 0.98;
         private Button workspace_btn;
         private TilingPositionIndicator tiling_position;
         private bool _tiling_position_active = false;
@@ -1081,7 +1086,7 @@ namespace Singularity {
                 : (AppSystem.get_default().has_any_maximized_window()
                    || AppSystem.get_default().has_any_fullscreen_window());
             if (!_overview_active && !_workspace_overview_active
-                    && (flat_setting || force_flat)) {
+                    && (flat_setting || force_flat || _band_unreadable)) {
                 add_css_class("flat-panel");
             } else {
                 remove_css_class("flat-panel");
@@ -1532,17 +1537,36 @@ namespace Singularity {
         }
 
         private void update_topbar_fg_class() {
+            double frac = topbar_strip_fraction(gdk_monitor, height_request);
+            if (_last_strip_lum < 0.0 || frac != _last_frac) {
+                var wallpapers = WallpaperManager.get_default();
+                double lum = wallpapers.top_band_luminance(frac);
+                if (lum < 0.0) lum = fallback_wallpaper_luminance();
+                if (lum >= 0.0) { _last_strip_lum = lum; _last_frac = frac; }
+                double white_share, black_share;
+                if (wallpapers.top_band_readability(frac, BAND_MIN_CONTRAST, out white_share, out black_share)) {
+                    _band_white_ok = white_share >= BAND_READABLE_SHARE;
+                    _band_black_ok = black_share >= BAND_READABLE_SHARE;
+                } else {
+                    _band_white_ok = true;
+                    _band_black_ok = true;
+                }
+            }
+            bool unreadable = !_band_white_ok && !_band_black_ok;
+            if (unreadable != _band_unreadable) {
+                _band_unreadable = unreadable;
+                update_flat_mode();
+                return;
+            }
             if (has_css_class("flat-panel")) {
                 remove_css_class("light-bg");
                 return;
             }
-            double frac = topbar_strip_fraction(gdk_monitor, height_request);
-            if (_last_strip_lum < 0.0 || frac != _last_frac) {
-                double lum = WallpaperManager.get_default().top_band_luminance(frac);
-                if (lum < 0.0) lum = fallback_wallpaper_luminance();
-                if (lum >= 0.0) { _last_strip_lum = lum; _last_frac = frac; }
+            if (_band_white_ok && _band_black_ok) {
+                _last_strip_light = (_last_strip_lum >= 0.0) && (_last_strip_lum > topbar_lum_threshold);
+            } else {
+                _last_strip_light = _band_black_ok;
             }
-            _last_strip_light = (_last_strip_lum >= 0.0) && (_last_strip_lum > topbar_lum_threshold);
             if (_last_strip_light) add_css_class("light-bg");
             else remove_css_class("light-bg");
         }

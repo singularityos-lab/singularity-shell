@@ -670,6 +670,14 @@ namespace Singularity {
             var tint_row = material_scale_row(_("Tint"),
                 _("Amount of accent color in the material"), "glass-tint", 40);
             material_group.add_row(tint_row);
+            bool has_shell_tint = settings.settings_schema.has_key("shell-accent-tint");
+            var shell_tint_row = new SwitchRow(_("Tint the Top Bar and Dock"),
+                _("Use the same accent tint on the top bar and the Dock"),
+                has_shell_tint && settings.get_boolean("shell-accent-tint"));
+            if (has_shell_tint) {
+                settings.bind("shell-accent-tint", shell_tint_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+                material_group.add_row(shell_tint_row);
+            }
             var vibrancy_row = material_scale_row(_("Vibrancy"),
                 _("Color saturation of what shows through"), "glass-vibrancy", 100);
             material_group.add_row(vibrancy_row);
@@ -680,7 +688,7 @@ namespace Singularity {
                 _("Light caught by the rim of liquid glass"), "liquid-highlight", 100);
             material_group.add_row(highlight_row);
 
-            Gtk.Widget[] effect_rows = { transparency_row, card_transparency_row, blur_strength_row, tint_row, vibrancy_row };
+            Gtk.Widget[] effect_rows = { transparency_row, card_transparency_row, blur_strength_row, tint_row, shell_tint_row, vibrancy_row };
             Gtk.Widget[] liquid_rows = { refraction_row, highlight_row };
             update_material_rows(effect_rows, liquid_rows);
             settings.changed["background-effect"].connect(() => {
