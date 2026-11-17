@@ -138,11 +138,12 @@ namespace Singularity {
             ai_text.wrap_mode = WrapMode.WORD_CHAR;
             ai_text.accepts_tab = false;
             ai_text.left_margin = 28;
-            ai_text.top_margin = 8;
-            ai_text.bottom_margin = 8;
+            ai_text.top_margin = 12;
+            ai_text.bottom_margin = 12;
             ai_text.add_css_class("run-ai-text");
             ai_text.buffer.changed.connect(() => {
                 sync_ai_placeholder();
+                sync_ai_height();
                 on_text_changed();
             });
             var ai_text_keys = new EventControllerKey();
@@ -157,11 +158,14 @@ namespace Singularity {
             ai_text.add_controller(ai_text_keys);
             ai_text_scroll = new ScrolledWindow();
             ai_text_scroll.hscrollbar_policy = PolicyType.NEVER;
+            ai_text_scroll.vscrollbar_policy = PolicyType.NEVER;
             ai_text_scroll.propagate_natural_height = true;
             ai_text_scroll.max_content_height = 400;
             ai_text_scroll.width_request = 450;
             ai_text_scroll.add_css_class("run-ai-input");
             ai_text_scroll.set_child(ai_text);
+            ai_text_scroll.vadjustment.changed.connect(pin_ai_scroll);
+            ai_text_scroll.vadjustment.value_changed.connect(pin_ai_scroll);
             ai_text_scroll.visible = false;
             var input_box = new Box(Orientation.VERTICAL, 0);
             input_box.append(entry);
@@ -175,7 +179,7 @@ namespace Singularity {
             ai_placeholder.halign = Align.START;
             ai_placeholder.valign = Align.START;
             ai_placeholder.margin_start = 28;
-            ai_placeholder.margin_top = 8;
+            ai_placeholder.margin_top = 12;
             ai_placeholder.can_target = false;
             ai_placeholder.visible = false;
             entry_overlay.add_overlay(ai_placeholder);
@@ -191,14 +195,14 @@ namespace Singularity {
             ai_orb.halign = Align.START;
             ai_orb.valign = Align.START;
             ai_orb.margin_start = 3;
-            ai_orb.margin_top = 10;
+            ai_orb.margin_top = 6;
             ai_orb.visible = false;
             entry_overlay.add_overlay(ai_orb);
 
             ai_controls = new Box(Orientation.HORIZONTAL, 6);
             ai_controls.halign = Align.END;
             ai_controls.valign = Align.END;
-            ai_controls.margin_bottom = 3;
+            ai_controls.margin_bottom = 0;
             ai_controls.margin_end = 6;
             ai_voice = new Button.from_icon_name("audio-input-microphone-symbolic");
             ai_voice.add_css_class("flat");
@@ -631,6 +635,7 @@ namespace Singularity {
             if (text == null) return;
             text.margin_end = ai_mode_select.visible || ai_close.visible ? nat + ai_controls.margin_end + 6 : 0;
             ai_text.right_margin = ai_mode ? nat + ai_controls.margin_end + 6 : 8;
+            sync_ai_height();
         }
 
         private void on_voice_clicked() {
@@ -730,8 +735,30 @@ namespace Singularity {
             ai_text_scroll.visible = show;
             reserve_ai_space();
             sync_ai_placeholder();
+            sync_ai_height();
             if (show && visible) ai_text.grab_focus();
             else if (!show && visible) entry.grab_focus();
+        }
+
+        private void sync_ai_height() {
+            if (!ai_text_scroll.visible) return;
+            int width = int.max(ai_text_scroll.get_width(), ai_text_scroll.width_request)
+                - ai_text.left_margin - ai_text.right_margin;
+            if (width <= 0) return;
+            var layout = ai_text.create_pango_layout(ai_text.buffer.text == "" ? " " : ai_text.buffer.text);
+            layout.set_width(width * Pango.SCALE);
+            layout.set_wrap(Pango.WrapMode.WORD_CHAR);
+            int lw, lh;
+            layout.get_pixel_size(out lw, out lh);
+            int wanted = lh + ai_text.top_margin + ai_text.bottom_margin;
+            int cap = (int) ai_text_scroll.max_content_height;
+            ai_text_scroll.vscrollbar_policy = wanted > cap ? PolicyType.AUTOMATIC : PolicyType.NEVER;
+            ai_text_scroll.min_content_height = int.min(wanted, cap);
+        }
+
+        private void pin_ai_scroll() {
+            var adj = ai_text_scroll.vadjustment;
+            if (ai_text_scroll.vscrollbar_policy == PolicyType.NEVER && adj.value != 0) adj.value = 0;
         }
 
         private void sync_ai_placeholder() {
