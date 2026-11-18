@@ -289,6 +289,10 @@ namespace Singularity.SidebarPages {
                 }
             }
             foreach (var item in descriptor.items) {
+                if (item.is_list) {
+                    add_group(new Singularity.Widgets.AppSettingsListGroup(item));
+                    continue;
+                }
                 var settings = item.schema_id != null ? Singularity.Core.AppSettingsLoader.settings_for(descriptor, item) : base_settings;
                 if (settings == null) continue;
                 if (!settings.settings_schema.has_key(item.key)) {
@@ -379,6 +383,7 @@ namespace Singularity.SidebarPages {
                     }
                 }
             }
+            group.visible = group.get_rows().size > 0;
         }
     }
 }
