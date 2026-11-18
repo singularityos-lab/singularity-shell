@@ -137,6 +137,7 @@ namespace Singularity.SidebarPages {
             try {
                 st = yield Client.get_default().startup_sync(device);
             } catch (KeyError e) {
+                row.subtitle = e.message;
                 return;
             }
             if (st[0] == "") return;
