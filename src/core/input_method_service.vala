@@ -87,6 +87,7 @@ namespace Singularity {
                 settings.changed[key].connect(sync_environment);
             }
             OneTimeCodeService.get_default().changed.connect(schedule_suggestions);
+            Singularity.FormFactor.get_default().changed.connect(() => sync_environment());
             var sources = Singularity.InputMethods.InputSources.get_default();
             sources.engine_ready.connect(bind_engine);
             sources.changed.connect(() => {
@@ -122,7 +123,8 @@ namespace Singularity {
         private void sync_environment() {
             bool wanted = settings.get_boolean("spell-autocorrect") || settings.get_boolean("spell-suggestions")
                 || settings.get_boolean("press-hold-accents") || settings.get_boolean("spell-check-all-apps")
-                || settings.get_strv("input-method-engines").length > 0 || settings.get_boolean("dictation-enabled");
+                || settings.get_strv("input-method-engines").length > 0 || settings.get_boolean("dictation-enabled")
+                || Singularity.FormFactor.current().is_touch_first();
             sync_gtk_module(wanted);
             sync_qt_module(wanted);
         }

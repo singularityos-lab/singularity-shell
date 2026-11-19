@@ -344,6 +344,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         setup_form_shell();
         sync_workspace_switch_feedbacks();
         settings.changed["screen-keyboard-enabled"].connect(sync_screen_keyboard);
+        Singularity.FormFactor.get_default().changed.connect(() => sync_screen_keyboard());
         settings.changed["mono-audio"].connect(() => {
             Singularity.SystemMonitor.get_default().audio.set_mono(settings.get_boolean("mono-audio"));
         });
@@ -668,7 +669,11 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     private void sync_screen_keyboard() {
         if (settings.get_boolean("screen-keyboard-enabled")) {
             if (screen_keyboard == null) screen_keyboard = new Singularity.OnScreenKeyboard(this);
+            screen_keyboard.follow_input_focus(false);
             screen_keyboard.present();
+        } else if (Singularity.FormFactor.current().is_touch_first()) {
+            if (screen_keyboard == null) screen_keyboard = new Singularity.OnScreenKeyboard(this);
+            if (!screen_keyboard.remote) screen_keyboard.follow_input_focus(true);
         } else if (screen_keyboard != null && !screen_keyboard.remote) {
             screen_keyboard.destroy();
             screen_keyboard = null;

@@ -85,7 +85,14 @@ namespace Singularity {
         private Stack? pages = null;
         private const double SWIPE_DISMISS_DISTANCE = 56;
 
+        private const uint FOCUS_HIDE_DELAY_MS = 150;
+
         public bool follows_focus { get; set; default = false; }
+        private ulong focus_handler = 0;
+        private uint focus_hide_timeout = 0;
+        private bool focus_was_wanted = false;
+        private bool local_text_focused = false;
+        private ulong window_added_handler = 0;
 
         public bool remote { get; private set; default = false; }
         public signal void remote_done(bool accepted);
@@ -256,6 +263,87 @@ namespace Singularity {
                 });
             });
             popover.popup();
+        }
+
+        public void follow_input_focus(bool follow) {
+            var ime = InputMethodService.get_default();
+            follows_focus = follow;
+            cancel_focus_hide();
+            if (!follow) {
+                if (focus_handler != 0) SignalHandler.disconnect(ime, focus_handler);
+                focus_handler = 0;
+                if (window_added_handler != 0) SignalHandler.disconnect(application, window_added_handler);
+                window_added_handler = 0;
+                return;
+            }
+            if (focus_handler == 0) focus_handler = ime.notify["active"].connect(sync_input_focus);
+            if (window_added_handler == 0 && application != null) {
+                window_added_handler = application.window_added.connect(track_local_window);
+                foreach (var window in application.get_windows()) track_local_window(window);
+            }
+            focus_was_wanted = false;
+            sync_local_focus();
+        }
+
+        private void track_local_window(Gtk.Window window) {
+            if (window == this || window.get_data<bool>("osk-tracked")) return;
+            window.set_data<bool>("osk-tracked", true);
+            window.notify["focus-widget"].connect(sync_local_focus);
+            window.notify["is-active"].connect(sync_local_focus);
+            window.notify["visible"].connect(sync_local_focus);
+        }
+
+        private void sync_local_focus() {
+            if (!follows_focus || application == null) return;
+            bool focused = false;
+            foreach (var window in application.get_windows()) {
+                if (window == this || !window.visible || !window.is_active) continue;
+                if (takes_text(window.get_focus())) focused = true;
+            }
+            local_text_focused = focused;
+            sync_input_focus();
+        }
+
+        private static bool takes_text(Widget? widget) {
+            if (widget is Gtk.Text) return ((Gtk.Text) widget).editable;
+            if (widget is Gtk.TextView) return ((Gtk.TextView) widget).editable;
+            return false;
+        }
+
+        private bool input_wanted() {
+            return InputMethodService.get_default().active || local_text_focused;
+        }
+
+        private void sync_input_focus() {
+            cancel_focus_hide();
+            bool wanted = input_wanted();
+            bool focused = wanted && !focus_was_wanted;
+            focus_was_wanted = wanted;
+            if (wanted) {
+                if (focused) raise_to_top();
+                return;
+            }
+            focus_hide_timeout = Timeout.add(FOCUS_HIDE_DELAY_MS, () => {
+                focus_hide_timeout = 0;
+                if (!input_wanted()) set_visible(false);
+                return Source.REMOVE;
+            });
+        }
+
+        private void raise_to_top() {
+            if (visible) set_visible(false);
+            present();
+        }
+
+        private void cancel_focus_hide() {
+            if (focus_hide_timeout == 0) return;
+            Source.remove(focus_hide_timeout);
+            focus_hide_timeout = 0;
+        }
+
+        public override void dispose() {
+            follow_input_focus(false);
+            base.dispose();
         }
 
         public void dismiss() {
