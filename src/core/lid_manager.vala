@@ -18,10 +18,10 @@ namespace Singularity {
 
         private LidManager() {
             settings = new GLib.Settings("dev.sinty.desktop");
-            DBusProxy.create_for_bus.begin(BusType.SYSTEM, DBusProxyFlags.NONE, null,
+            DBusProxy.for_bus.begin(BusType.SYSTEM, DBusProxyFlags.NONE, null,
                 "org.freedesktop.UPower", "/org/freedesktop/UPower", "org.freedesktop.UPower", null, (obj, res) => {
                 try {
-                    upower = DBusProxy.create_for_bus.end(res);
+                    upower = DBusProxy.for_bus.end(res);
                 } catch (Error e) {
                     warning("LidManager: UPower unavailable: %s", e.message);
                     return;
