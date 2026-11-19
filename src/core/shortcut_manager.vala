@@ -208,6 +208,11 @@ namespace Singularity {
                     write_labwc_rc_xml();
                 });
             }
+            if (settings.settings_schema.has_key("touchpad-tap-to-click")) {
+                settings.changed["touchpad-tap-to-click"].connect(() => {
+                    write_labwc_rc_xml();
+                });
+            }
             Gtk.Settings.get_default().notify["gtk-enable-animations"].connect(() => {
                 write_labwc_rc_xml();
             });
@@ -648,6 +653,10 @@ namespace Singularity {
             xml.append("    <device category=\"touchpad\">\n");
             xml.append_printf("      <accelProfile>%s</accelProfile>\n", accel_profile);
             xml.append_printf("      <naturalScroll>%s</naturalScroll>\n", natural_scroll ? "yes" : "no");
+            if (settings.settings_schema.has_key("touchpad-tap-to-click")) {
+                xml.append_printf("      <tap>%s</tap>\n",
+                    settings.get_boolean("touchpad-tap-to-click") ? "yes" : "no");
+            }
             bool two_finger_scroll = settings.get_boolean("touchpad-two-finger-scroll");
             bool edge_scroll = settings.get_boolean("touchpad-edge-scroll");
             string scroll_method = two_finger_scroll && edge_scroll ? "twofingerAndEdge"
