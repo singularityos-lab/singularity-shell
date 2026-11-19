@@ -70,6 +70,22 @@ namespace Singularity {
         private Gee.ArrayList<Gee.ArrayList<Button>> key_rows = new Gee.ArrayList<Gee.ArrayList<Button>>();
         private Button? highlighted = null;
         private const double REMOTE_SCALE = 1.5;
+        private const int COMPACT_COLUMNS = 20;
+        private const int COMPACT_KEY_HEIGHT = 46;
+        private const string[] SYMBOLS_ROW_ONE = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" };
+        private const string[] SYMBOLS_ROW_TWO = { "@", "#", "€", "_", "&", "-", "+", "(", ")", "/" };
+        private const string[] SYMBOLS_ROW_THREE = { "*", "\"", "'", ":", ";", "!", "?" };
+        private const string[] MORE_ROW_ONE = { "~", "`", "|", "•", "√", "π", "÷", "×", "§", "∆" };
+        private const string[] MORE_ROW_TWO = { "£", "$", "¥", "^", "°", "=", "{", "}", "\\", "%" };
+        private const string[] MORE_ROW_THREE = { "©", "®", "™", "[", "]", "<", ">" };
+        private const uint[] COMPACT_TOP = { 16, 17, 18, 19, 20, 21, 22, 23, 24, 25 };
+        private const uint[] COMPACT_HOME = { 30, 31, 32, 33, 34, 35, 36, 37, 38 };
+        private const uint[] COMPACT_BOTTOM = { 44, 45, 46, 47, 48, 49, 50 };
+
+        private Stack? pages = null;
+        private const double SWIPE_DISMISS_DISTANCE = 56;
+
+        public bool follows_focus { get; set; default = false; }
 
         public bool remote { get; private set; default = false; }
         public signal void remote_done(bool accepted);
@@ -80,7 +96,7 @@ namespace Singularity {
 
             init_for_window(this);
             set_namespace(this, "singularity-osk");
-            set_layer(this, GtkLayerShell.Layer.TOP);
+            set_layer(this, GtkLayerShell.Layer.OVERLAY);
             set_anchor(this, GtkLayerShell.Edge.BOTTOM, true);
             set_anchor(this, GtkLayerShell.Edge.LEFT, true);
             set_anchor(this, GtkLayerShell.Edge.RIGHT, true);
@@ -115,12 +131,27 @@ namespace Singularity {
             suggestion_bar = new Box(Orientation.HORIZONTAL, 6);
             suggestion_bar.add_css_class("osk-suggestions");
             suggestion_bar.halign = Align.CENTER;
-            rows.append(suggestion_bar);
-            rows.append(build_row(ROW_NUMBERS));
-            rows.append(build_row(ROW_TOP));
-            rows.append(build_row(ROW_HOME));
-            rows.append(build_row(ROW_BOTTOM));
-            rows.append(build_row(ROW_SPACE));
+            if (compact_screen()) {
+                rows.halign = Align.FILL;
+                var header = new CenterBox();
+                var hide = new Button.from_icon_name("go-down-symbolic");
+                hide.add_css_class("osk-suggestion");
+                hide.focus_on_click = false;
+                hide.can_focus = false;
+                hide.clicked.connect(dismiss);
+                header.start_widget = hide;
+                header.center_widget = suggestion_bar;
+                rows.append(header);
+                rows.append(build_compact_pages());
+                attach_swipe_dismiss(rows);
+            } else {
+                rows.append(suggestion_bar);
+                rows.append(build_row(ROW_NUMBERS));
+                rows.append(build_row(ROW_TOP));
+                rows.append(build_row(ROW_HOME));
+                rows.append(build_row(ROW_BOTTOM));
+                rows.append(build_row(ROW_SPACE));
+            }
             set_child(rows);
 
             settings.changed["xkb-layout"].connect(apply_layout);
@@ -227,6 +258,143 @@ namespace Singularity {
             popover.popup();
         }
 
+        public void dismiss() {
+            close_accents();
+            if (remote) remote_done(false);
+            else if (follows_focus) set_visible(false);
+            else settings.set_boolean("screen-keyboard-enabled", false);
+        }
+
+        private void attach_swipe_dismiss(Widget area) {
+            var drag = new GestureDrag();
+            drag.propagation_phase = PropagationPhase.CAPTURE;
+            drag.drag_update.connect((dx, dy) => {
+                if (dy > SWIPE_DISMISS_DISTANCE && dy > dx.abs() * 2) {
+                    drag.set_state(EventSequenceState.CLAIMED);
+                    dismiss();
+                }
+            });
+            area.add_controller(drag);
+        }
+
+        private static bool compact_screen() {
+            var monitors = Gdk.Display.get_default().get_monitors();
+            if (monitors.get_n_items() == 0) return false;
+            var monitor = (Gdk.Monitor) monitors.get_item(0);
+            var area = monitor.geometry;
+            return area.width < 640 || area.height > area.width;
+        }
+
+        private Grid compact_grid() {
+            var grid = new Grid();
+            grid.column_homogeneous = true;
+            grid.column_spacing = 5;
+            grid.row_spacing = 8;
+            grid.hexpand = true;
+            return grid;
+        }
+
+        private Button compact_key(Grid grid, int column, int row, int span) {
+            var button = new Button();
+            button.add_css_class("osk-key");
+            button.focus_on_click = false;
+            button.can_focus = false;
+            button.hexpand = true;
+            button.set_size_request(-1, COMPACT_KEY_HEIGHT);
+            grid.attach(button, column, row, span, 1);
+            return button;
+        }
+
+        private void compact_letter(Grid grid, int column, int row, uint code) {
+            var button = compact_key(grid, column, row, 2);
+            button.set_data<uint>("code", code);
+            character_buttons.add(button);
+            attach_accent_hold(button);
+            button.clicked.connect(() => press(code));
+        }
+
+        private Button compact_special(Grid grid, int column, int row, int span, string? label, string? icon) {
+            var button = compact_key(grid, column, row, span);
+            button.add_css_class("osk-key-special");
+            if (icon != null) button.icon_name = icon;
+            else button.label = label;
+            return button;
+        }
+
+        private void compact_symbols(Grid grid, int column, int row, string[] symbols) {
+            for (int i = 0; i < symbols.length; i++) {
+                string symbol = symbols[i];
+                var button = compact_key(grid, column + i * 2, row, 2);
+                button.label = symbol;
+                button.clicked.connect(() => type_text(symbol));
+            }
+        }
+
+        private void compact_bottom_row(Grid grid, int row, string switch_label, string target) {
+            compact_special(grid, 0, row, 3, switch_label, null).clicked.connect(() => pages.visible_child_name = target);
+            var comma = compact_key(grid, 3, row, 2);
+            comma.label = ",";
+            comma.clicked.connect(() => type_text(","));
+            var space = compact_key(grid, 5, row, 10);
+            space.clicked.connect(() => press(57));
+            var period = compact_key(grid, 15, row, 2);
+            period.label = ".";
+            period.clicked.connect(() => type_text("."));
+            var enter = compact_special(grid, 17, row, 3, "Enter", null);
+            enter.add_css_class("suggested-action");
+            enter.clicked.connect(() => press(28));
+        }
+
+        private void compact_backspace(Grid grid, int row) {
+            compact_special(grid, 17, row, 3, null, "edit-clear-symbolic").clicked.connect(() => press(14));
+        }
+
+        private Grid build_compact_letters() {
+            var grid = compact_grid();
+            for (int i = 0; i < COMPACT_TOP.length; i++) compact_letter(grid, i * 2, 0, COMPACT_TOP[i]);
+            for (int i = 0; i < COMPACT_HOME.length; i++) compact_letter(grid, 1 + i * 2, 1, COMPACT_HOME[i]);
+            var shift = compact_special(grid, 0, 2, 3, null, "go-up-symbolic");
+            shift.set_data<uint>("modifier", SHIFT);
+            modifier_buttons.add(shift);
+            shift.clicked.connect(() => toggle_modifier(SHIFT));
+            for (int i = 0; i < COMPACT_BOTTOM.length; i++) compact_letter(grid, 3 + i * 2, 2, COMPACT_BOTTOM[i]);
+            compact_backspace(grid, 2);
+            compact_bottom_row(grid, 3, "?123", "symbols");
+            return grid;
+        }
+
+        private Grid build_compact_symbols(string[] one, string[] two, string[] three, string switch_label, string switch_target) {
+            var grid = compact_grid();
+            compact_symbols(grid, 0, 0, one);
+            compact_symbols(grid, 0, 1, two);
+            compact_special(grid, 0, 2, 3, switch_label, null).clicked.connect(() => pages.visible_child_name = switch_target);
+            compact_symbols(grid, 3, 2, three);
+            compact_backspace(grid, 2);
+            compact_bottom_row(grid, 3, "ABC", "letters");
+            return grid;
+        }
+
+        private Widget build_compact_pages() {
+            rows_box.add_css_class("compact");
+            pages = new Stack();
+            pages.hhomogeneous = true;
+            pages.vhomogeneous = true;
+            pages.add_named(build_compact_letters(), "letters");
+            pages.add_named(build_compact_symbols(SYMBOLS_ROW_ONE, SYMBOLS_ROW_TWO, SYMBOLS_ROW_THREE, "=\\<", "more"), "symbols");
+            pages.add_named(build_compact_symbols(MORE_ROW_ONE, MORE_ROW_TWO, MORE_ROW_THREE, "?123", "symbols"), "more");
+            pages.visible_child_name = "letters";
+            return pages;
+        }
+
+        private void type_text(string text) {
+            close_accents();
+            var ime = InputMethodService.get_default();
+            ime.osk_other_key();
+            if (!ime.commit_text(text)) Singularity.osk_press_keysym(Gdk.unicode_to_keyval(text.get_char()), 0);
+            latched = 0;
+            refresh();
+        }
+
         private Box build_row(Key[] keys) {
             var row = new Box(Orientation.HORIZONTAL, 6);
             row.halign = Align.CENTER;
@@ -258,10 +426,7 @@ namespace Singularity {
                     modifier_buttons.add(button);
                     button.clicked.connect(() => toggle_modifier(modifier));
                 } else if (code == 0) {
-                    button.clicked.connect(() => {
-                        if (remote) remote_done(false);
-                        else settings.set_boolean("screen-keyboard-enabled", false);
-                    });
+                    button.clicked.connect(dismiss);
                 } else if (code == 28) {
                     button.clicked.connect(() => {
                         if (remote) remote_done(true);

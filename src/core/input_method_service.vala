@@ -15,6 +15,7 @@ namespace Singularity {
         private const uint HINT_PRIVATE = 0x40 | 0x80;
 
         private static InputMethodService? instance = null;
+        public static bool standalone = false;
 
         public signal void suggestions_changed(string word, string[] suggestions);
         public signal void escape_pressed();
@@ -193,6 +194,7 @@ namespace Singularity {
         }
 
         public bool own_client() {
+            if (standalone) return false;
             string? app = AppSystem.get_default().get_focused_app_id();
             if (app == null || app == "") return false;
             if (app.has_prefix("dev.sinty.")) return true;

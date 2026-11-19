@@ -2449,6 +2449,9 @@ window.inactive.shadow.color: %s
         Intl.bindtextdomain("singularity-desktop", locale_dir);
         Intl.bind_textdomain_codeset("singularity-desktop", "UTF-8");
         Intl.textdomain("singularity-desktop");
+        if (args.length >= 2 && args[1] == "--keyboard") {
+            return Singularity.KeyboardMode.launch(args);
+        }
 
         // Must run before GTK/Mesa spin up their worker threads so the cap
         // applies to every arena they would otherwise each create.
