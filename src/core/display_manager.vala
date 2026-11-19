@@ -22,6 +22,8 @@ namespace Singularity {
         // hand-edited displays.json or a misbehaving compositor -- cannot be
         // represented and would overflow into a bad output configuration.
         private const double MIN_SCALE = 1.0;
+        private const double HANDHELD_DPI_PER_SCALE = 160.0;
+        private const double HANDHELD_MAX_SCALE = 3.0;
         private const double MAX_SCALE = 16.0;
 
         /**
@@ -47,6 +49,10 @@ namespace Singularity {
             if (diag_in < 1.0) return 1.0;
             double diag_px = Math.sqrt((double) px_w * px_w + (double) px_h * px_h);
             double dpi = diag_px / diag_in;
+            if (Singularity.FormFactor.classify("", phys_w_mm, phys_h_mm).is_handheld()) {
+                double steps = Math.floor(dpi / HANDHELD_DPI_PER_SCALE * 4.0) / 4.0;
+                return double.max(1.0, double.min(HANDHELD_MAX_SCALE, steps));
+            }
 
             // Fractional steps are deliberate -- 4K/27" lands near 163 dpi, where
             // 2.0 is too large and 1.0 too small.
