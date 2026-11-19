@@ -4,7 +4,8 @@ using GtkLayerShell;
 namespace Singularity {
 
     public class TvHome : Gtk.Window {
-        private const double FOCUS_SCALE = 1.08;
+        private const int TILE_WIDTH = 248;
+        private const int TILE_HEIGHT = 156;
         private const string FOLDER = "::apps";
         private const string[] TV_CATEGORIES = {
             "AudioVideo", "Audio", "Video", "Music", "TV", "Player", "Game", "WebBrowser", "Photography", "PackageManager",
@@ -12,7 +13,6 @@ namespace Singularity {
         };
         private const string[] EDITOR_CATEGORIES = { "AudioVideoEditing", "Sequencer", "Mixer" };
         private const string FORM_FACTORS_KEY = "X-Sinty-FormFactors";
-        private delegate void Settle();
 
         private FlowBox _apps;
         private FlowBox _resume;
@@ -208,35 +208,20 @@ namespace Singularity {
         internal static FlowBoxChild tile(GLib.Icon? icon, string icon_name, string label) {
             var box = new Box(Orientation.VERTICAL, 14);
             box.add_css_class("tv-tile");
-            var banner = new TvBanner(icon, icon_name);
+            var art = new Singularity.Widgets.MediaArt(TILE_WIDTH, icon_name, false, TILE_HEIGHT);
+            art.halign = Align.CENTER;
+            if (icon != null) art.icon.gicon = icon;
             var name = new Label(label);
             name.add_css_class("tv-tile-label");
             name.ellipsize = Pango.EllipsizeMode.END;
             name.max_width_chars = 18;
-            box.append(banner);
+            box.append(art);
             box.append(name);
             var motion = new Singularity.Animation.MotionBin(box);
             var child = new FlowBoxChild();
             child.child = motion;
             child.focusable = true;
             child.update_property(Gtk.AccessibleProperty.LABEL, label, -1);
-            bool focused = false, hovered = false;
-            bool raised = false;
-            var focus = new EventControllerFocus();
-            var hover = new EventControllerMotion();
-            Settle settle = () => {
-                bool up = focused || hovered;
-                if (up == raised) return;
-                raised = up;
-                Singularity.Motion.spring_to(motion, "scale", up ? FOCUS_SCALE : 1.0, Singularity.Motion.Spring.GENTLE);
-                Singularity.Motion.spring_to(banner, "lift", up ? 1.0 : 0.0, Singularity.Motion.Spring.GENTLE, double.NAN, banner);
-            };
-            focus.enter.connect(() => { focused = true; settle(); });
-            focus.leave.connect(() => { focused = false; settle(); });
-            hover.enter.connect(() => { hovered = true; settle(); });
-            hover.leave.connect(() => { hovered = false; settle(); });
-            child.add_controller(focus);
-            child.add_controller(hover);
             return child;
         }
 
