@@ -54,6 +54,7 @@ namespace Singularity {
 
     public class RecentsSwitcher : Gtk.Window {
         private const double CLOSE_SWIPE = 120.0;
+        private const double SWIPE_DECIDE = 4.0;
         private const double CARD_RATIO = 0.62;
         private const int CARD_MAX_WIDTH = 420;
         private const int TV_CARD_WIDTH = 440;
@@ -66,6 +67,7 @@ namespace Singularity {
         private int _card_width = 260;
         private int _card_height = 460;
         private bool _closing = false;
+        private Singularity.Animation.MotionBin? _swiping = null;
         private Gdk.Monitor? _monitor = null;
 
         public signal void dismissed();
@@ -112,6 +114,17 @@ namespace Singularity {
                 if (picked == page || picked == _scroll || picked == _cards || picked == _empty) dismiss();
             });
             page.add_controller(tap);
+
+            var swipe = new GestureDrag();
+            swipe.propagation_phase = PropagationPhase.CAPTURE;
+            swipe.drag_begin.connect((x, y) => {
+                var picked = page.pick(x, y, PickFlags.DEFAULT);
+                _swiping = picked != null ? find_card(picked) : null;
+                if (_swiping == null) swipe.set_state(EventSequenceState.DENIED);
+            });
+            swipe.drag_update.connect((dx, dy) => swipe_update(swipe, dx, dy));
+            swipe.drag_end.connect((dx, dy) => swipe_end(dy));
+            page.add_controller(swipe);
 
             var keys = new EventControllerKey();
             keys.key_pressed.connect((keyval, code, state) => {
@@ -215,21 +228,6 @@ namespace Singularity {
             var click = new GestureClick();
             click.released.connect(() => open_window(motion));
             motion.add_controller(click);
-            var drag = new GestureDrag();
-            drag.drag_update.connect((dx, dy) => {
-                if (Math.fabs(dy) < Math.fabs(dx)) return;
-                drag.set_state(EventSequenceState.CLAIMED);
-                motion.translate_y = double.min(0.0, dy);
-                motion.opacity = 1.0 - double.min(0.6, -motion.translate_y / (_card_height * 1.5));
-            });
-            drag.drag_end.connect((dx, dy) => {
-                if (dy < -CLOSE_SWIPE) fling(motion);
-                else {
-                    Singularity.Motion.spring_to(motion, "translate-y", 0.0, Singularity.Motion.Spring.BOUNCY);
-                    Singularity.Motion.tween(motion, "opacity", 1.0, Singularity.Motion.Duration.SMALL, Singularity.Motion.Curve.ENTER);
-                }
-            });
-            motion.add_controller(drag);
             var keys = new EventControllerKey();
             keys.key_pressed.connect((keyval, code, state) => {
                 if (keyval == Gdk.Key.Return || keyval == Gdk.Key.KP_Enter || keyval == Gdk.Key.space) {
@@ -240,6 +238,34 @@ namespace Singularity {
             });
             motion.add_controller(keys);
             return motion;
+        }
+
+        private void swipe_update(GestureDrag swipe, double dx, double dy) {
+            if (_swiping == null) return;
+            var sequence = swipe.get_current_sequence();
+            if (swipe.get_sequence_state(sequence) != EventSequenceState.CLAIMED) {
+                if (Math.fabs(dx) < SWIPE_DECIDE && Math.fabs(dy) < SWIPE_DECIDE) return;
+                if (dy >= 0.0 || Math.fabs(dy) < Math.fabs(dx)) {
+                    _swiping = null;
+                    swipe.set_state(EventSequenceState.DENIED);
+                    return;
+                }
+                swipe.set_state(EventSequenceState.CLAIMED);
+            }
+            _swiping.translate_y = double.min(0.0, dy);
+            _swiping.opacity = 1.0 - double.min(0.6, -_swiping.translate_y / (_card_height * 1.5));
+        }
+
+        private void swipe_end(double dy) {
+            var card = _swiping;
+            _swiping = null;
+            if (card == null) return;
+            if (dy < -CLOSE_SWIPE) {
+                fling(card);
+                return;
+            }
+            Singularity.Motion.spring_to(card, "translate-y", 0.0, Singularity.Motion.Spring.BOUNCY);
+            Singularity.Motion.tween(card, "opacity", 1.0, Singularity.Motion.Duration.SMALL, Singularity.Motion.Curve.ENTER);
         }
 
         private Singularity.Animation.MotionBin? find_card(Widget widget) {
