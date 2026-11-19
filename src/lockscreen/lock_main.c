@@ -66,7 +66,9 @@ struct lock_output {
     struct wl_surface *surface;
     struct ext_session_lock_surface_v1 *lock_surface;
     uint32_t width, height;
+    int32_t scale;
     bool configured;
+    struct loginui_buffer *pool[2];
     double mb_cx[3], mb_r[3], mb_cy;
     bool mb_valid;
     struct wl_callback *frame_cb;
@@ -79,6 +81,7 @@ static struct wl_shm *shm;
 static struct wl_seat *seat;
 static struct wl_keyboard *keyboard;
 static struct wl_pointer *pointer;
+static struct wl_touch *touch;
 static struct lock_output *ptr_output;
 static double ptr_x, ptr_y;
 static struct ext_session_lock_manager_v1 *lock_manager;
@@ -97,6 +100,14 @@ static char status_text[128] = "";
 static bool status_error = false;
 static char username[256] = "";
 static char display_name[256] = "";
+static bool auth_broker = false;
+static bool auth_pin = false;
+
+static LoginUiKeypad keypad;
+static int keypad_page = -1;
+static LoginUiGesture gesture;
+static bool keypad_shown = false;
+static int surface_h = 0;
 
 static void render_output(struct lock_output *o);
 
@@ -439,11 +450,17 @@ static bool secret_is_pin(void) {
     return access("/dev/tpmrm0", F_OK) == 0 || access("/dev/tpm0", F_OK) == 0;
 }
 
+static double now_s(void) {
+    return now_us() / 1000000.0;
+}
+
 static void render_output(struct lock_output *o) {
     if (o->frame_cb) return;
+    int s = o->scale > 0 ? o->scale : 1;
     cairo_t *cr;
-    struct loginui_buffer *b = loginui_create_buffer(shm, o->width, o->height, &cr);
+    struct loginui_buffer *b = loginui_pool_buffer(shm, o->pool, 2, o->width * s, o->height * s, &cr);
     if (!b) return;
+    cairo_scale(cr, s, s);
 
     time_t now = time(NULL);
     struct tm tm; localtime_r(&now, &tm);
@@ -464,14 +481,33 @@ static void render_output(struct lock_output *o) {
     st.status_error = status_error;
     /* On Sinty OS the unlock field takes a PIN, not a password (the recoverd
      * broker socket is the tell that we authenticate via the PIN daemon). */
-    st.auth_label = (access("/run/sinty-recoverd.sock", F_OK) == 0) ? (secret_is_pin() ? "PIN" : "Passphrase") : NULL;
+    st.auth_label = auth_broker ? (auth_pin ? "PIN" : "Passphrase") : NULL;
     bool animating = apply_motion(&st);
+
+    surface_h = (int)o->height;
+    keypad_shown = loginui_compact(st.width, st.height) && (touch || !keyboard);
+    if (keypad_shown) {
+        LoginUiKeypadPage page = auth_broker && auth_pin ? LOGINUI_KEYPAD_DIGITS : LOGINUI_KEYPAD_LETTERS;
+        if ((int)page != keypad_page) {
+            keypad_page = (int)page;
+            loginui_keypad_set_page(&keypad, page);
+        }
+    }
+    st.cover = keypad_shown ? gesture.cover : 0.0;
+    st.keypad = keypad_shown ? &keypad : NULL;
 
     double card_x, card_y, card_w, card_h;
     loginui_render(cr, &st, &card_x, &card_y, &card_w, &card_h);
 
-    if (st.content_fade < 1.0) {
-        bool faded = st.content_fade > 0.0;
+    double extras = keypad_shown ? gesture.cover : 1.0;
+    o->mb_valid = false;
+    if (st.content_fade < 1.0 && extras > 0.0) {
+        double alpha = (1.0 - st.content_fade) * extras;
+        if (keypad_shown) {
+            card_y = st.height * 0.30 - 14 + (1.0 - extras) * 48;
+            card_h = 0;
+        }
+        bool faded = alpha < 1.0;
         if (faded) cairo_push_group(cr);
         cairo_save(cr);
         cairo_translate(cr, st.card_dx, 0);
@@ -480,8 +516,9 @@ static void render_output(struct lock_output *o) {
         cairo_restore(cr);
         if (faded) {
             cairo_pop_group_to_source(cr);
-            cairo_paint_with_alpha(cr, 1.0 - st.content_fade);
+            cairo_paint_with_alpha(cr, alpha);
         }
+        if (keypad_shown && extras < 0.5) o->mb_valid = false;
     }
 
     cairo_destroy(cr);
@@ -490,9 +527,14 @@ static void render_output(struct lock_output *o) {
         o->frame_cb = wl_surface_frame(o->surface);
         wl_callback_add_listener(o->frame_cb, &frame_listener, o);
     }
+    wl_surface_set_buffer_scale(o->surface, s);
     wl_surface_attach(o->surface, b->wl_buffer, 0, 0);
-    wl_surface_damage_buffer(o->surface, 0, 0, (int)o->width, (int)o->height);
+    wl_surface_damage_buffer(o->surface, 0, 0, (int)o->width * s, (int)o->height * s);
     wl_surface_commit(o->surface);
+}
+
+static void set_cover(double target) {
+    if (loginui_gesture_set_cover(&gesture, target, now_s())) render_all();
 }
 
 /* ── ext-session-lock ───────────────────────────────────────────────────── */
@@ -658,6 +700,32 @@ static void submit_password(void) {
     }
 }
 
+static void type_text(const char *text, size_t n) {
+    if ((unsigned char)text[0] < 0x20 || password_len + n >= sizeof password - 1) return;
+    memcpy(password + password_len, text, n);
+    password_len += n;
+    status_text[0] = '\0';
+    render_all();
+}
+
+static void erase_last(void) {
+    while (password_len > 0 && ((unsigned char)password[password_len - 1] & 0xC0) == 0x80)
+        password[--password_len] = '\0';
+    if (password_len > 0) password[--password_len] = '\0';
+    status_text[0] = '\0';
+    render_all();
+}
+
+static void keypad_activate(int i) {
+    char text[8];
+    switch (loginui_keypad_activate(&keypad, i, text, sizeof text)) {
+    case LOGINUI_KEYPAD_TEXT: type_text(text, strlen(text)); break;
+    case LOGINUI_KEYPAD_BACKSPACE: erase_last(); break;
+    case LOGINUI_KEYPAD_ENTER: submit_password(); break;
+    default: render_all(); break;
+    }
+}
+
 /* ── Keyboard ───────────────────────────────────────────────────────────── */
 
 static void kb_keymap(void *data, struct wl_keyboard *kb, uint32_t format, int fd, uint32_t size) {
@@ -670,7 +738,11 @@ static void kb_keymap(void *data, struct wl_keyboard *kb, uint32_t format, int f
     xkb_keymap = xkb_keymap_new_from_string(xkb_context, map,
         XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
     munmap(map, size);
-    if (xkb_keymap) xkb_state = xkb_state_new(xkb_keymap);
+    if (xkb_keymap) {
+        xkb_state = xkb_state_new(xkb_keymap);
+        loginui_keypad_set_keymap(&keypad, xkb_keymap);
+        render_all();
+    }
 }
 static void kb_enter(void *d, struct wl_keyboard *kb, uint32_t s, struct wl_surface *sf, struct wl_array *keys) {}
 static void kb_leave(void *d, struct wl_keyboard *kb, uint32_t s, struct wl_surface *sf) {}
@@ -686,6 +758,10 @@ static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
     if (anim_phase == PHASE_LEAVE) return;
     xkb_keycode_t kc = key + 8;
     xkb_keysym_t sym = xkb_state_key_get_one_sym(xkb_state, kc);
+    gesture.last_input = now_s();
+    if (loginui_gesture_covered(&gesture, keypad_shown) && sym != XKB_KEY_XF86AudioPlay && sym != XKB_KEY_XF86AudioPause
+            && sym != XKB_KEY_XF86AudioNext && sym != XKB_KEY_XF86AudioPrev)
+        set_cover(0.0);
 
     switch (sym) {
     case XKB_KEY_Return:
@@ -693,9 +769,7 @@ static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
         submit_password();
         return;
     case XKB_KEY_BackSpace:
-        if (password_len > 0) password[--password_len] = '\0';
-        status_text[0] = '\0';
-        render_all();
+        erase_last();
         return;
     case XKB_KEY_Escape:
         password_len = 0; password[0] = '\0'; status_text[0] = '\0';
@@ -716,25 +790,64 @@ static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
 
     char buf[8];
     int n = xkb_state_key_get_utf8(xkb_state, kc, buf, sizeof buf);
-    if (n > 0 && (unsigned char)buf[0] >= 0x20 && password_len + n < sizeof password - 1) {
-        memcpy(password + password_len, buf, n);
-        password_len += n;
-        status_text[0] = '\0';
-        render_all();
-    }
+    if (n > 0) type_text(buf, (size_t)n);
 }
 static const struct wl_keyboard_listener keyboard_listener = {
     .keymap = kb_keymap, .enter = kb_enter, .leave = kb_leave,
     .key = kb_key, .modifiers = kb_modifiers, .repeat_info = kb_repeat,
 };
 
-/* ── Pointer (media buttons) ─────────────────────────────────────────────── */
+/* ── Pointer and touch ───────────────────────────────────────────────────── */
+
+static struct lock_output *output_for(struct wl_surface *sf) {
+    for (struct lock_output *o = outputs; o; o = o->next)
+        if (o->surface == sf) return o;
+    return NULL;
+}
+
+static bool media_click(struct lock_output *o, double x, double y) {
+    if (!o || !o->mb_valid) return false;
+    for (int i = 0; i < 3; i++) {
+        double r = o->mb_r[i] + 6;
+        double dx = x - o->mb_cx[i];
+        double dy = y - o->mb_cy;
+        if (dx * dx + dy * dy <= r * r) {
+            if (i == 0) lock_media_prev();
+            else if (i == 1) lock_media_play_pause();
+            else lock_media_next();
+            return true;
+        }
+    }
+    return false;
+}
+
+static void input_press(struct lock_output *o, double x, double y) {
+    if (anim_phase == PHASE_LEAVE) return;
+    if (loginui_gesture_covered(&gesture, keypad_shown) && media_click(o, x, y)) return;
+    switch (loginui_gesture_press(&gesture, &keypad, keypad_shown, x, y, now_s())) {
+    case LOGINUI_GESTURE_REDRAW: render_all(); break;
+    case LOGINUI_GESTURE_TAP: media_click(o, x, y); break;
+    default: break;
+    }
+}
+
+static void input_motion(double x, double y) {
+    if (loginui_gesture_motion(&gesture, &keypad, keypad_shown, x, y, surface_h, now_s()) == LOGINUI_GESTURE_REDRAW)
+        render_all();
+}
+
+static void input_release(double x, double y) {
+    int key = -1;
+    switch (loginui_gesture_release(&gesture, &keypad, keypad_shown, x, y, now_s(), &key)) {
+    case LOGINUI_GESTURE_REDRAW: render_all(); break;
+    case LOGINUI_GESTURE_KEY: if (anim_phase != PHASE_LEAVE) keypad_activate(key); break;
+    default: break;
+    }
+}
 
 static void pt_enter(void *d, struct wl_pointer *p, uint32_t serial,
                      struct wl_surface *sf, wl_fixed_t sx, wl_fixed_t sy) {
-    ptr_output = NULL;
-    for (struct lock_output *o = outputs; o; o = o->next)
-        if (o->surface == sf) { ptr_output = o; break; }
+    ptr_output = output_for(sf);
     ptr_x = wl_fixed_to_double(sx);
     ptr_y = wl_fixed_to_double(sy);
 }
@@ -744,22 +857,13 @@ static void pt_leave(void *d, struct wl_pointer *p, uint32_t serial, struct wl_s
 static void pt_motion(void *d, struct wl_pointer *p, uint32_t t, wl_fixed_t sx, wl_fixed_t sy) {
     ptr_x = wl_fixed_to_double(sx);
     ptr_y = wl_fixed_to_double(sy);
+    input_motion(ptr_x, ptr_y);
 }
 static void pt_button(void *d, struct wl_pointer *p, uint32_t serial, uint32_t time,
                       uint32_t button, uint32_t btn_state) {
-    if (button != BTN_LEFT || btn_state != WL_POINTER_BUTTON_STATE_PRESSED) return;
-    if (!ptr_output || !ptr_output->mb_valid) return;
-    for (int i = 0; i < 3; i++) {
-        double r = ptr_output->mb_r[i] + 6;
-        double dx = ptr_x - ptr_output->mb_cx[i];
-        double dy = ptr_y - ptr_output->mb_cy;
-        if (dx * dx + dy * dy <= r * r) {
-            if (i == 0) lock_media_prev();
-            else if (i == 1) lock_media_play_pause();
-            else lock_media_next();
-            break;
-        }
-    }
+    if (button != BTN_LEFT) return;
+    if (btn_state == WL_POINTER_BUTTON_STATE_PRESSED) input_press(ptr_output, ptr_x, ptr_y);
+    else input_release(ptr_x, ptr_y);
 }
 static void pt_axis(void *d, struct wl_pointer *p, uint32_t t, uint32_t axis, wl_fixed_t value) {}
 static void pt_frame(void *d, struct wl_pointer *p) {}
@@ -770,6 +874,53 @@ static const struct wl_pointer_listener pointer_listener = {
     .enter = pt_enter, .leave = pt_leave, .motion = pt_motion, .button = pt_button,
     .axis = pt_axis, .frame = pt_frame, .axis_source = pt_axis_source,
     .axis_stop = pt_axis_stop, .axis_discrete = pt_axis_discrete,
+};
+
+static void tc_down(void *d, struct wl_touch *t, uint32_t serial, uint32_t time,
+                    struct wl_surface *sf, int32_t id, wl_fixed_t x, wl_fixed_t y) {
+    if (gesture.touch_id >= 0) return;
+    gesture.touch_id = id;
+    gesture.touch_x = wl_fixed_to_double(x);
+    gesture.touch_y = wl_fixed_to_double(y);
+    input_press(output_for(sf), gesture.touch_x, gesture.touch_y);
+}
+static void tc_up(void *d, struct wl_touch *t, uint32_t serial, uint32_t time, int32_t id) {
+    if (id != gesture.touch_id) return;
+    gesture.touch_id = -1;
+    input_release(gesture.touch_x, gesture.touch_y);
+}
+static void tc_motion(void *d, struct wl_touch *t, uint32_t time, int32_t id, wl_fixed_t x, wl_fixed_t y) {
+    if (id != gesture.touch_id) return;
+    gesture.touch_x = wl_fixed_to_double(x);
+    gesture.touch_y = wl_fixed_to_double(y);
+    input_motion(gesture.touch_x, gesture.touch_y);
+}
+static void tc_frame(void *d, struct wl_touch *t) {}
+static void tc_cancel(void *d, struct wl_touch *t) {
+    if (loginui_gesture_cancel(&gesture, &keypad)) render_all();
+}
+static void tc_shape(void *d, struct wl_touch *t, int32_t id, wl_fixed_t major, wl_fixed_t minor) {}
+static void tc_orientation(void *d, struct wl_touch *t, int32_t id, wl_fixed_t orientation) {}
+static const struct wl_touch_listener touch_listener = {
+    .down = tc_down, .up = tc_up, .motion = tc_motion, .frame = tc_frame,
+    .cancel = tc_cancel, .shape = tc_shape, .orientation = tc_orientation,
+};
+
+/* ── Outputs ────────────────────────────────────────────────────────────── */
+
+static void out_geometry(void *d, struct wl_output *wo, int32_t x, int32_t y, int32_t pw, int32_t ph,
+                         int32_t subpixel, const char *make, const char *model, int32_t transform) {}
+static void out_mode(void *d, struct wl_output *wo, uint32_t flags, int32_t w, int32_t h, int32_t refresh) {}
+static void out_done(void *d, struct wl_output *wo) {
+    struct lock_output *o = d;
+    if (o->configured) render_output(o);
+}
+static void out_scale(void *d, struct wl_output *wo, int32_t factor) {
+    struct lock_output *o = d;
+    o->scale = factor;
+}
+static const struct wl_output_listener output_listener = {
+    .geometry = out_geometry, .mode = out_mode, .done = out_done, .scale = out_scale,
 };
 
 /* ── Registry ───────────────────────────────────────────────────────────── */
@@ -789,8 +940,10 @@ static void reg_global(void *data, struct wl_registry *reg, uint32_t name,
     } else if (strcmp(iface, wl_output_interface.name) == 0) {
         struct lock_output *o = calloc(1, sizeof(*o));
         o->name = name;
+        o->scale = 1;
         o->wl_output = wl_registry_bind(reg, name, &wl_output_interface,
                                         version < 3 ? version : 3);
+        wl_output_add_listener(o->wl_output, &output_listener, o);
         o->next = outputs;
         outputs = o;
         if (locked) create_lock_surface(o);
@@ -805,6 +958,8 @@ static void reg_remove(void *data, struct wl_registry *reg, uint32_t name) {
             if (dead->frame_cb) wl_callback_destroy(dead->frame_cb);
             if (dead->lock_surface) ext_session_lock_surface_v1_destroy(dead->lock_surface);
             if (dead->surface) wl_surface_destroy(dead->surface);
+            loginui_pool_release(dead->pool, 2);
+            if (ptr_output == dead) ptr_output = NULL;
             if (dead->wl_output) wl_output_destroy(dead->wl_output);
             free(dead);
             if (anim_phase == PHASE_LEAVE) {
@@ -843,6 +998,15 @@ static void seat_capabilities(void *data, struct wl_seat *s, uint32_t caps) {
         wl_pointer_release(pointer);
         pointer = NULL;
     }
+    if ((caps & WL_SEAT_CAPABILITY_TOUCH) && !touch) {
+        touch = wl_seat_get_touch(s);
+        wl_touch_add_listener(touch, &touch_listener, NULL);
+    } else if (!(caps & WL_SEAT_CAPABILITY_TOUCH) && touch) {
+        wl_touch_release(touch);
+        touch = NULL;
+        gesture.touch_id = -1;
+    }
+    render_all();
 }
 
 static void seat_name(void *data, struct wl_seat *s, const char *name) {
@@ -860,6 +1024,10 @@ int main(int argc, char **argv) {
     if (pw && pw->pw_gecos && pw->pw_gecos[0] && pw->pw_gecos[0] != ',')
         snprintf(display_name, sizeof display_name, "%.*s", (int)strcspn(pw->pw_gecos, ","), pw->pw_gecos);
 
+    loginui_gesture_init(&gesture);
+    loginui_keypad_init(&keypad, NULL, LOGINUI_KEYPAD_LETTERS);
+    auth_broker = access("/run/sinty-recoverd.sock", F_OK) == 0;
+    auth_pin = secret_is_pin();
     load_assets();
     load_motion();
     start_phase(PHASE_ENTER, MOTION_PAGE_MS);
@@ -916,7 +1084,7 @@ int main(int argc, char **argv) {
             pfds[i + 1].revents = 0;
         }
 
-        int timeout = 1000;
+        int timeout = loginui_gesture_animating(&gesture) ? 16 : 1000;
         if (gl_timeout >= 0 && gl_timeout < timeout) timeout = gl_timeout;
 
         int pr = poll(pfds, nf + 1, timeout);
@@ -934,6 +1102,9 @@ int main(int argc, char **argv) {
             g_main_context_dispatch(ctx);
             g_main_context_release(ctx);
         }
+
+        if (loginui_gesture_tick(&gesture, now_s())) render_all();
+        if (password_len == 0 && loginui_gesture_idle(&gesture, keypad_shown, now_s(), 30.0)) set_cover(1.0);
 
         /* Repaint clock once a minute. */
         time_t now = time(NULL);
