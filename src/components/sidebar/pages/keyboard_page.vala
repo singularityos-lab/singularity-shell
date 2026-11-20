@@ -92,6 +92,13 @@ namespace Singularity {
                 settings.get_boolean("spell-suggestions"));
             settings.bind("spell-suggestions", suggestions_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
             typing_group.add_row(suggestions_row);
+            if (settings.settings_schema.has_key("keyboard-haptic-feedback") && Singularity.Haptics.get_default().available) {
+                var haptic_row = new SwitchRow(_("Vibrate on Key Press"),
+                    _("A short vibration on every key of the screen keyboard"),
+                    settings.get_boolean("keyboard-haptic-feedback"));
+                settings.bind("keyboard-haptic-feedback", haptic_row.switch_btn, "active", SettingsBindFlags.DEFAULT);
+                typing_group.add_row(haptic_row);
+            }
             var accents_row = new SwitchRow(_("Hold Keys for Accents"),
                 _("Hold a letter to pick an accented variant instead of repeating it"),
                 settings.get_boolean("press-hold-accents"));

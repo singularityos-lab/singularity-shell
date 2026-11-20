@@ -117,6 +117,13 @@ namespace Singularity {
             rows.add_css_class("osk");
             rows.halign = Align.CENTER;
             rows_box = rows;
+            var touch = new GestureClick();
+            touch.propagation_phase = PropagationPhase.CAPTURE;
+            touch.pressed.connect((n, x, y) => {
+                var hit = rows.pick(x, y, PickFlags.DEFAULT);
+                if (hit != null && (hit is Button || hit.get_ancestor(typeof(Button)) != null)) Singularity.Haptics.get_default().key();
+            });
+            rows.add_controller(touch);
             preview_row = new Box(Orientation.HORIZONTAL, 0);
             preview_row.add_css_class("osk-preview");
             preview_row.visible = false;

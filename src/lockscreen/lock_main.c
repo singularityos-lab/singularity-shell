@@ -35,6 +35,7 @@
 #include "lock_notifs.h"
 #include "lock_fprint.h"
 #include "loginui.h"
+#include <sinty-system/v1.h>
 
 #define BTN_LEFT 0x110
 
@@ -821,10 +822,31 @@ static bool media_click(struct lock_output *o, double x, double y) {
     return false;
 }
 
+static bool haptic_keys(void) {
+    static int enabled = -1;
+    if (enabled < 0) {
+        enabled = 1;
+        GSettingsSchemaSource *src = g_settings_schema_source_get_default();
+        GSettingsSchema *schema = src ? g_settings_schema_source_lookup(src, "dev.sinty.desktop", TRUE) : NULL;
+        if (schema) {
+            if (g_settings_schema_has_key(schema, "keyboard-haptic-feedback")) {
+                GSettings *s = g_settings_new("dev.sinty.desktop");
+                enabled = g_settings_get_boolean(s, "keyboard-haptic-feedback");
+                g_object_unref(s);
+            }
+            g_settings_schema_unref(schema);
+        }
+    }
+    return enabled == 1;
+}
+
 static void input_press(struct lock_output *o, double x, double y) {
     if (anim_phase == PHASE_LEAVE) return;
     if (loginui_gesture_covered(&gesture, keypad_shown) && media_click(o, x, y)) return;
-    switch (loginui_gesture_press(&gesture, &keypad, keypad_shown, x, y, now_s())) {
+    int before = keypad.pressed;
+    LoginUiGestureEvent ev = loginui_gesture_press(&gesture, &keypad, keypad_shown, x, y, now_s());
+    if (keypad_shown && keypad.pressed >= 0 && keypad.pressed != before && haptic_keys()) sinty_haptic_key();
+    switch (ev) {
     case LOGINUI_GESTURE_REDRAW: render_all(); break;
     case LOGINUI_GESTURE_TAP: media_click(o, x, y); break;
     default: break;

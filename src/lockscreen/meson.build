@@ -9,6 +9,7 @@ lock_cairo_dep      = dependency('cairo')
 lock_pangocairo_dep = dependency('pangocairo')
 lock_pixbuf_dep     = dependency('gdk-pixbuf-2.0')
 lock_gio_dep        = dependency('gio-2.0')
+lock_core_dep       = dependency('sinty-system-1', fallback: ['libsingularity', 'system_core_dep'])
 
 executable('singularity-lockscreen',
   ['lock_main.c', 'pam_auth.c', 'lock_media.c', 'lock_notifs.c', 'lock_fprint.c'],
@@ -20,6 +21,7 @@ executable('singularity-lockscreen',
     lock_pangocairo_dep,
     lock_pixbuf_dep,
     lock_gio_dep,
+    lock_core_dep,
     pam_dep,
     loginui_dep,
   ],
