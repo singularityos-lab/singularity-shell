@@ -54,6 +54,12 @@ namespace Singularity {
         }
 
         private SystemMonitor() {
+            if (LedMatrixService.board_has_matrix()) {
+                Idle.add(() => {
+                    LedMatrixService.get_default().watch(notifications);
+                    return Source.REMOVE;
+                });
+            }
         }
     }
 }

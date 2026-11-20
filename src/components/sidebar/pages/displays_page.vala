@@ -636,6 +636,11 @@ namespace Singularity.SidebarPages {
             var legacy_row = make_nav_row(_("Legacy Apps"), _("Scaling of X11 apps"), "application-x-executable-symbolic");
             legacy_row.activated.connect(() => view.open_subpage(legacy_apps_page, "displays-legacy-apps"));
             all_group.add_row(legacy_row);
+            if (LedMatrixService.board_has_matrix() && LedMatrixService.settings_available()) {
+                var led_row = make_nav_row(_("LED Matrix"), _("What the LED matrix shows"), "view-app-grid-symbolic");
+                led_row.activated.connect(() => view.open_subpage(new LedMatrixPage(view), "displays-led-matrix"));
+                all_group.add_row(led_row);
+            }
 
             var night_light = SystemMonitor.get_default().night_light;
             night_light.changed.connect(update_night_light_subtitle);
