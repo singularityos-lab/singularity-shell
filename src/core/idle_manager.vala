@@ -29,6 +29,7 @@ namespace Singularity {
         public bool on_battery { get; private set; default = false; }
         public bool dimmed { get; private set; default = false; }
         public bool blanked { get; private set; default = false; }
+        public bool held_off { get; private set; default = false; }
         public signal void action_taken(string action);
 
         public static IdleManager get_default() {
@@ -202,6 +203,7 @@ namespace Singularity {
                 IdleInhibitors.get_default().mark_window_inhibit(false);
             }
             idle_since = 0;
+            if (held_off) return;
             undim();
             if (blanked) blank_screens(false);
         }
@@ -210,7 +212,7 @@ namespace Singularity {
             bool now = IdleInhibitors.get_default().inhibits(IdleInhibitors.IDLE, false);
             bool was = dbus_inhibited;
             dbus_inhibited = now;
-            if (!was && now) {
+            if (!was && now && !held_off) {
                 undim();
                 if (blanked) blank_screens(false);
             }
@@ -218,6 +220,7 @@ namespace Singularity {
         }
 
         public void wake() {
+            held_off = false;
             undim();
             if (blanked) blank_screens(false);
             rearm();
@@ -233,6 +236,11 @@ namespace Singularity {
             return (uint32) ((get_monotonic_time() - blanked_since) / 1000000);
         }
 
+        public void hold_screens_off() {
+            blank_screens(true);
+            held_off = true;
+        }
+
         public void blank_screens(bool value) {
             if (blanked == value) return;
             if (value) {
@@ -241,6 +249,7 @@ namespace Singularity {
                 blanked_since = get_monotonic_time();
                 IdleNotify.output_power_set(false);
             } else {
+                held_off = false;
                 message("IdleManager: turning the screens on");
                 IdleNotify.output_power_set(true);
                 undim();

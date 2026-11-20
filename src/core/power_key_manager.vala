@@ -33,9 +33,20 @@ namespace Singularity {
         }
 
         public void power_pressed() {
+            var idle = IdleManager.get_default();
+            if (idle.blanked) {
+                message("PowerKeyManager: power button, turning the screen back on");
+                idle.wake();
+                return;
+            }
             string action = settings.get_string("power-button-action");
+            if (action == "auto") action = Singularity.FormFactor.current().is_handheld() ? "screen-off" : "ask";
             message("PowerKeyManager: power button, action %s", action);
             switch (action) {
+                case "screen-off":
+                    PowerActions.get_default().lock_screen();
+                    idle.hold_screens_off();
+                    break;
                 case "suspend":
                     SessionManager.get_default().suspend();
                     break;

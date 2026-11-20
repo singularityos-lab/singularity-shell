@@ -205,6 +205,7 @@ namespace Singularity {
             if (urgency != null && urgency.is_of_type(VariantType.BYTE)) urgency_level = urgency.get_byte();
             if (urgency_level == 2) {
                 critical_ids.add(id);
+                if (IdleManager.get_default().blanked) IdleManager.get_default().wake();
             } else {
                 critical_ids.remove(id);
             }

@@ -292,14 +292,18 @@ namespace Singularity.SidebarPages {
         private void build_buttons() {
             var group = new PreferencesGroup(_("Buttons and Lid"));
             var button_options = new Gee.ArrayList<Singularity.Core.AppSettingOption>();
-            string[] ids = { "ask", "suspend", "power-off", "lock", "nothing" };
-            string[] names = { _("Ask What to Do"), _("Suspend"), _("Power Off"), _("Lock the Screen"), _("Do Nothing") };
+            string[] ids = { "auto", "ask", "screen-off", "suspend", "power-off", "lock", "nothing" };
+            string[] names = { _("Automatic"), _("Ask What to Do"), _("Turn Off the Screen"), _("Suspend"), _("Power Off"), _("Lock the Screen"), _("Do Nothing") };
+            var key = settings.settings_schema.get_key("power-button-action");
             for (int i = 0; i < ids.length; i++) {
+                if (!key.range_check(new Variant.string(ids[i]))) continue;
                 button_options.add(new Singularity.Core.AppSettingOption() { id = ids[i], label = names[i] });
             }
             var button_row = new SelectionRow.with_options(_("Power Button"), button_options,
                 settings.get_string("power-button-action"));
-            button_row.selected.connect((id) => settings.set_string("power-button-action", id));
+            button_row.selected.connect((id) => {
+                if (key.range_check(new Variant.string(id))) settings.set_string("power-button-action", id);
+            });
             group.add_row(button_row);
 
             var lid = LidManager.get_default();
