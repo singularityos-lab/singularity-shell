@@ -16,6 +16,9 @@ namespace Singularity {
             out string message) throws GLib.Error;
         public abstract async void set_sdb_enabled (bool enabled, out bool ok,
             out bool active, out string message) throws GLib.Error;
+        public abstract async bool sdb_auto_approve () throws GLib.Error;
+        public abstract async void set_sdb_auto_approve (bool enabled) throws GLib.Error;
+        public abstract async void reset_sdb_approvals () throws GLib.Error;
         public abstract async void six_status (out bool available, out string state) throws GLib.Error;
         public abstract async void set_six_enabled (bool enabled, out bool ok,
             out string state, out string message) throws GLib.Error;
@@ -82,6 +85,9 @@ namespace Singularity {
         private ActionRow _sdb_device_row;
         private Label _sdb_device_fp;
         private ActionRow _sdb_pair_row;
+        private SwitchRow _sdb_auto_switch;
+        private ActionRow _sdb_forget_row;
+        private bool _sdb_auto_guard = false;
         private Button _sdb_pair_btn;
         private PreferencesGroup _sdb_hosts_group;
         private string _sdb_hosts_signature = "";
@@ -1172,6 +1178,26 @@ namespace Singularity {
             _sdb_pair_row.visible = false;
             _sdb_group.add_row (_sdb_pair_row);
 
+            _sdb_auto_switch = new SwitchRow (_("Approve paired hosts without asking"),
+                _("Root shell, system writes and privileged ports from a paired host are allowed at once. A locked device still refuses a root shell."));
+            _sdb_auto_switch.switch_btn.notify["active"].connect (() => {
+                if (_sdb_auto_guard) return;
+                apply_sdb_auto_approve.begin (_sdb_auto_switch.switch_btn.active);
+            });
+            _sdb_auto_switch.visible = false;
+            _sdb_group.add_row (_sdb_auto_switch);
+
+            _sdb_forget_row = new ActionRow (_("Remembered approvals"),
+                _("Answers given with Always or for this session"),
+                "edit-clear-symbolic");
+            var forget_btn = new Button.with_label (_("Forget"));
+            forget_btn.valign = Gtk.Align.CENTER;
+            forget_btn.add_css_class ("pill");
+            forget_btn.clicked.connect (() => forget_sdb_approvals.begin ());
+            _sdb_forget_row.add_suffix (forget_btn);
+            _sdb_forget_row.visible = false;
+            _sdb_group.add_row (_sdb_forget_row);
+
             _sdb_pairing_group = new PreferencesGroup (_("Pairing request"));
             _sdb_pairing_group.description = _("Type this code on the host. Before you do, check that the key fingerprint below is the same one the host is showing you. If it differs, do not pair.");
             _sdb_pairing_group.visible = false;
@@ -1316,11 +1342,65 @@ namespace Singularity {
                 return;
             }
             refresh_sdb_bridge ();
+            yield refresh_sdb_approvals ();
+        }
+
+        private async UshBroker? sdb_broker () {
+            try {
+                return yield Bus.get_proxy<UshBroker> (BusType.SESSION, "dev.sinty.ush.Broker", "/dev/sinty/ush/Broker");
+            } catch (GLib.Error e) {
+                show_sdb_error (e.message);
+                return null;
+            }
+        }
+
+        private async void refresh_sdb_approvals () {
+            var broker = yield sdb_broker ();
+            if (broker == null) return;
+            try {
+                bool on = yield broker.sdb_auto_approve ();
+                _sdb_auto_guard = true;
+                _sdb_auto_switch.switch_btn.active = on;
+                _sdb_auto_guard = false;
+                _sdb_auto_switch.visible = true;
+                _sdb_forget_row.visible = true;
+            } catch (GLib.Error e) {
+                _sdb_auto_switch.visible = false;
+                _sdb_forget_row.visible = false;
+            }
+        }
+
+        private async void apply_sdb_auto_approve (bool enabled) {
+            _sdb_auto_switch.sensitive = false;
+            var broker = yield sdb_broker ();
+            if (broker != null) {
+                try {
+                    yield broker.set_sdb_auto_approve (enabled);
+                    show_sdb_error (null);
+                } catch (GLib.Error e) {
+                    show_sdb_error (_("The approval setting could not be saved. %s").printf (e.message));
+                }
+            }
+            _sdb_auto_switch.sensitive = true;
+            yield refresh_sdb_approvals ();
+        }
+
+        private async void forget_sdb_approvals () {
+            var broker = yield sdb_broker ();
+            if (broker == null) return;
+            try {
+                yield broker.reset_sdb_approvals ();
+                show_sdb_error (null);
+            } catch (GLib.Error e) {
+                show_sdb_error (_("Remembered approvals could not be forgotten. %s").printf (e.message));
+            }
         }
 
         private void hide_sdb_bridge_ui () {
             _sdb_device_row.visible = false;
             _sdb_pair_row.visible = false;
+            _sdb_auto_switch.visible = false;
+            _sdb_forget_row.visible = false;
             _sdb_pairing_group.visible = false;
             _sdb_hosts_group.visible = false;
             _sdb_hosts_signature = "";
