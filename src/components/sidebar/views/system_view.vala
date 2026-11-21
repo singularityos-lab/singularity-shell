@@ -925,7 +925,8 @@ namespace Singularity {
 
         private void update_compact_mode() {
             bool phone = shade_form();
-            bool compact = _settings.get_boolean("quick-settings-compact") || phone;
+            bool compact = _settings.get_boolean("quick-settings-compact")
+                || _form == Singularity.FormFactorKind.WATCH || (phone && _editing_tiles);
             uint per_line = compact ? (phone ? (_form == Singularity.FormFactorKind.WATCH ? WATCH_PILLS_PER_LINE : PHONE_PILLS_PER_LINE) : 6) : 2;
             set_css_class(_tile_grid, "compact", compact);
             set_css_class(_inactive_tile_grid, "compact", compact);
@@ -940,11 +941,12 @@ namespace Singularity {
                 item.tile.compact = compact;
                 item.wrapper.tooltip_text = compact ? item.tile.title : null;
                 var nav_btn = item.wrapper.get_last_child();
-                if (nav_btn != null && nav_btn.has_css_class("quick-setting-nav-btn"))
-                    nav_btn.visible = !compact;
+                bool has_nav = nav_btn != null && nav_btn.has_css_class("quick-setting-nav-btn");
+                if (has_nav) nav_btn.visible = !compact && !phone;
+                set_css_class(item.wrapper, "detail-on-hold", has_nav && phone && !compact);
                 var long_press = item.tile.get_data<GestureLongPress>("quick-setting-long-press");
                 if (long_press != null)
-                    long_press.propagation_phase = compact
+                    long_press.propagation_phase = compact || phone
                         ? PropagationPhase.CAPTURE : PropagationPhase.NONE;
             }
         }
