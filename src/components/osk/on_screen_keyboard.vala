@@ -471,6 +471,7 @@ namespace Singularity {
 
         private Widget build_compact_pages() {
             rows_box.add_css_class("compact");
+            rows_box.halign = Align.FILL;
             pages = new Stack();
             pages.hhomogeneous = true;
             pages.vhomogeneous = true;
