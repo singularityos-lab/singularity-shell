@@ -536,6 +536,7 @@ namespace Singularity {
         private TvAppsFolder? _folder = null;
         private ulong _sig_clock = 0;
         private ulong _sig_apps = 0;
+        private ulong _sig_pinned = 0;
         private ulong _sig_featured = 0;
         private ulong _sig_history = 0;
         private ulong _sig_state = 0;
@@ -687,6 +688,9 @@ namespace Singularity {
 
             var app_system = AppSystem.get_default();
             _sig_apps = app_system.apps_changed.connect(() => fill_apps());
+            _sig_pinned = app_system.config_changed.connect((key) => {
+                if (key == "pinned-apps") fill_apps();
+            });
             _sig_clock = SharedClock.get_default().minute_changed.connect(() => update_clock());
             var catalog = Streaming.Catalog.get_default();
             _sig_featured = catalog.featured_changed.connect(() => fill_hero());
@@ -703,6 +707,7 @@ namespace Singularity {
             var app_system = AppSystem.get_default();
             var catalog = Streaming.Catalog.get_default();
             if (_sig_apps != 0) { app_system.disconnect(_sig_apps); _sig_apps = 0; }
+            if (_sig_pinned != 0) { app_system.disconnect(_sig_pinned); _sig_pinned = 0; }
             if (_sig_clock != 0) { SharedClock.get_default().disconnect(_sig_clock); _sig_clock = 0; }
             if (_sig_featured != 0) { catalog.disconnect(_sig_featured); _sig_featured = 0; }
             if (_sig_state != 0) { catalog.disconnect(_sig_state); _sig_state = 0; }
