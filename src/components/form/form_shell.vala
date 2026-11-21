@@ -31,6 +31,8 @@ namespace Singularity {
         private Gee.ArrayList<Screen> _screens = new Gee.ArrayList<Screen>();
         private HashTable<void*, bool> _form_maximized = new HashTable<void*, bool>(direct_hash, direct_equal);
         private Gee.HashSet<string> _known_outputs = new Gee.HashSet<string>();
+        private Gee.HashMap<string, uint> _paced = new Gee.HashMap<string, uint>();
+        private bool _pacing_ready = false;
         private RecentsSwitcher? _switcher = null;
         private CompanionPad? _pad = null;
         private ScreenChooser? _chooser = null;
@@ -50,10 +52,14 @@ namespace Singularity {
         public FormShell(Gtk.Application app) {
             _app = app;
             var app_system = AppSystem.get_default();
-            app_system.app_opened.connect((handle, app_id) => on_app_opened(handle));
+            app_system.app_opened.connect((handle, app_id) => {
+                on_app_opened(handle);
+                sync_pacing();
+            });
             app_system.window_output_changed.connect((handle) => apply_window(handle));
             app_system.app_closed.connect((handle) => {
                 _form_maximized.remove(handle);
+                sync_pacing();
                 Idle.add(() => {
                     fill_after_close(handle);
                     return Source.REMOVE;
@@ -84,6 +90,7 @@ namespace Singularity {
         }
 
         private const uint SPLIT_POLL_MS = 400;
+        private const uint TV_INTERFACE_RATE = 30;
         private const int SPLIT_MAX_GAP = 40;
         private const double SPLIT_MIN_HEIGHT = 0.6;
 
@@ -318,6 +325,7 @@ namespace Singularity {
             if (current.size == 1) resize_nested(kind_on(current[0]));
             foreach (var win in AppSystem.get_default().get_windows()) apply_window(win.handle);
             update_companion();
+            sync_pacing();
         }
 
         private void build_surfaces(Screen screen) {
@@ -375,18 +383,35 @@ namespace Singularity {
             }
         }
 
+        private static bool covered_by_app(Gdk.Monitor? monitor) {
+            foreach (var win in AppSystem.get_default().get_windows()) {
+                if (!win.is_minimized && on_monitor(win.handle, monitor)) return true;
+            }
+            return false;
+        }
+
         private void sync_tv_keyboard() {
             foreach (var screen in _screens) {
                 if (screen.tv == null) continue;
-                bool covered = false;
-                foreach (var win in AppSystem.get_default().get_windows()) {
-                    if (!win.is_minimized && on_monitor(win.handle, screen.monitor)) {
-                        covered = true;
-                        break;
-                    }
-                }
+                bool covered = covered_by_app(screen.monitor);
                 if (!covered && screen.tv.recently_released()) continue;
                 screen.tv.own_keyboard(!covered);
+            }
+            sync_pacing();
+        }
+
+        private void sync_pacing() {
+            if (!_pacing_ready) {
+                if (!Singularity.FramePacingBridge.init()) return;
+                _pacing_ready = true;
+            }
+            foreach (var monitor in monitors()) {
+                uint rate = 0;
+                if (kind_on(monitor) == Singularity.FormFactorKind.TV && !covered_by_app(monitor)) rate = TV_INTERFACE_RATE;
+                string connector = connector_of(monitor);
+                if (_paced.has_key(connector) && _paced[connector] == rate) continue;
+                _paced[connector] = rate;
+                Singularity.FramePacingBridge.set(connector, rate);
             }
         }
 

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="singularity_pacing_unstable_v1">
+  <copyright>
+    Copyright © 2026 Singularity Desktop
+  </copyright>
+
+  <interface name="zsingularity_pacing_manager_v1" version="1">
+    <description summary="limit how often an output is repainted">
+      Lets the desktop shell cap the frame rate of an output below its refresh
+      rate, for form factors such as a television where a steady lower rate
+      looks the same and costs less power and heat. The compositor paints the
+      output and sends frame callbacks to its surfaces at most at that rate,
+      so clients slow down with it. The video mode is never changed. Limits
+      set through a manager are removed when that manager is destroyed.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager and remove its limits"/>
+    </request>
+
+    <request name="set_max_rate">
+      <description summary="set the frame rate limit of an output">
+        Sets the limit in frames per second. Zero, or a value at or above the
+        refresh rate of the output, removes the limit.
+      </description>
+      <arg name="output" type="object" interface="wl_output"/>
+      <arg name="rate" type="uint"/>
+    </request>
+  </interface>
+</protocol>
