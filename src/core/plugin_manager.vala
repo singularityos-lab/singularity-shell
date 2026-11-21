@@ -186,7 +186,9 @@ namespace Singularity {
                      } catch (Error e) {
                          warning("Failed to load plugin %s: %s", module_name, e.message);
                      }
-                 } else if (!should_be_active && is_loaded) {
+                 } else if (should_be_active) {
+                     load_extension(info);
+                 } else if (is_loaded) {
                      unload_extension(info);
                  }
             }
