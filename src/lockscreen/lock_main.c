@@ -105,6 +105,9 @@ static bool auth_broker = false;
 static bool auth_pin = false;
 
 static LoginUiKeypad keypad;
+static LoginUiPattern pattern;
+static SintyUnlockState quick = {0};
+static bool pattern_mode = false;
 static int keypad_page = -1;
 static LoginUiGesture gesture;
 static bool keypad_shown = false;
@@ -482,11 +485,17 @@ static void render_output(struct lock_output *o) {
     st.status_error = status_error;
     /* On Sinty OS the unlock field takes a PIN, not a password (the recoverd
      * broker socket is the tell that we authenticate via the PIN daemon). */
-    st.auth_label = auth_broker ? (auth_pin ? "PIN" : "Passphrase") : NULL;
+    st.auth_label = auth_broker ? (pattern_mode ? "Pattern" : auth_pin ? "PIN" : "Passphrase") : NULL;
+    if (pattern_mode) {
+        st.pattern = &pattern;
+        st.pattern_fallback = auth_pin ? "Use PIN" : "Use passphrase";
+        st.auth_hint = "Draw your pattern";
+        keypad.n_keys = 0;
+    }
     bool animating = apply_motion(&st);
 
     surface_h = (int)o->height;
-    keypad_shown = loginui_compact(st.width, st.height) && (touch || !keyboard);
+    keypad_shown = loginui_compact(st.width, st.height) && (touch || !keyboard || pattern_mode);
     if (keypad_shown) {
         LoginUiKeypadPage page = auth_broker && auth_pin ? LOGINUI_KEYPAD_DIGITS : LOGINUI_KEYPAD_LETTERS;
         if ((int)page != keypad_page) {
@@ -495,7 +504,7 @@ static void render_output(struct lock_output *o) {
         }
     }
     st.cover = keypad_shown ? gesture.cover : 0.0;
-    st.keypad = keypad_shown ? &keypad : NULL;
+    st.keypad = keypad_shown && !pattern_mode ? &keypad : NULL;
 
     double card_x, card_y, card_w, card_h;
     loginui_render(cr, &st, &card_x, &card_y, &card_w, &card_h);
@@ -651,8 +660,64 @@ static int badge_resume(const char *pin, char *why, size_t n) {
     return -1;
 }
 
+static void quick_refresh(void) {
+    memset(&quick, 0, sizeof quick);
+    if (!auth_broker || getuid() == BADGE_UID || sinty_unlock_state(&quick) != 0) quick.armed = false;
+    pattern_mode = quick.armed && quick.kind == SINTY_UNLOCK_PATTERN;
+    loginui_pattern_reset(&pattern);
+}
+
+static void quick_locked(void) {
+    quick.armed = false;
+    pattern_mode = false;
+    snprintf(status_text, sizeof status_text, "%s",
+             secret_is_pin() ? "Too many attempts. Enter your PIN." : "Too many attempts. Enter your passphrase.");
+    status_error = true;
+}
+
+static bool quick_pin_matches(void) {
+    if (!quick.armed || quick.kind != SINTY_UNLOCK_PIN || (int)password_len != quick.length) return false;
+    for (size_t i = 0; i < password_len; i++)
+        if (password[i] < '0' || password[i] > '9') return false;
+    return true;
+}
+
+static void submit_pattern(const char *sequence) {
+    snprintf(status_text, sizeof status_text, "%s", "Checking…");
+    status_error = false;
+    render_all();
+    wl_display_flush(display);
+    int rc = sinty_unlock_verify(sequence);
+    if (rc == SINTY_UNLOCK_OK) {
+        loginui_pattern_reset(&pattern);
+        status_text[0] = '\0';
+        begin_leave();
+        return;
+    }
+    if (!motion_reduced) shake_start = now_us();
+    if (rc == SINTY_UNLOCK_LOCKED) quick_locked();
+    else {
+        pattern.error = true;
+        snprintf(status_text, sizeof status_text, "%s", "Incorrect pattern");
+        status_error = true;
+    }
+    render_all();
+}
+
 static void submit_password(void) {
     if (password_len == 0) return;
+    if (quick_pin_matches()) {
+        password[password_len] = '\0';
+        int rc = sinty_unlock_verify(password);
+        if (rc == SINTY_UNLOCK_OK) {
+            memset(password, 0, sizeof password);
+            password_len = 0;
+            status_text[0] = '\0';
+            begin_leave();
+            return;
+        }
+        if (rc == SINTY_UNLOCK_LOCKED) quick.armed = false;
+    }
     if (getuid() == BADGE_UID) {
         password[password_len] = '\0';
         snprintf(status_text, sizeof status_text, "%s", "Opening the Sinty Key…");
@@ -701,8 +766,16 @@ static void submit_password(void) {
     }
 }
 
+static void leave_pattern(void) {
+    if (!pattern_mode) return;
+    pattern_mode = false;
+    loginui_pattern_reset(&pattern);
+    keypad_page = -1;
+}
+
 static void type_text(const char *text, size_t n) {
     if ((unsigned char)text[0] < 0x20 || password_len + n >= sizeof password - 1) return;
+    leave_pattern();
     memcpy(password + password_len, text, n);
     password_len += n;
     status_text[0] = '\0';
@@ -840,8 +913,27 @@ static bool haptic_keys(void) {
     return enabled == 1;
 }
 
+static bool pattern_reachable(void) {
+    return pattern_mode && (!keypad_shown || gesture.cover <= 0.0);
+}
+
 static void input_press(struct lock_output *o, double x, double y) {
     if (anim_phase == PHASE_LEAVE) return;
+    if (pattern_reachable()) {
+        if (loginui_pattern_link_at(&pattern, x, y)) {
+            leave_pattern();
+            status_text[0] = '\0';
+            render_all();
+            return;
+        }
+        if (loginui_pattern_press(&pattern, x, y)) {
+            status_text[0] = '\0';
+            gesture.last_input = now_s();
+            if (haptic_keys()) sinty_haptic_key();
+            render_all();
+            return;
+        }
+    }
     if (loginui_gesture_covered(&gesture, keypad_shown) && media_click(o, x, y)) return;
     int before = keypad.pressed;
     LoginUiGestureEvent ev = loginui_gesture_press(&gesture, &keypad, keypad_shown, x, y, now_s());
@@ -854,11 +946,33 @@ static void input_press(struct lock_output *o, double x, double y) {
 }
 
 static void input_motion(double x, double y) {
+    if (pattern.tracking) {
+        int before = pattern.n;
+        loginui_pattern_motion(&pattern, x, y);
+        if (pattern.n != before && haptic_keys()) sinty_haptic_key();
+        gesture.last_input = now_s();
+        render_all();
+        return;
+    }
     if (loginui_gesture_motion(&gesture, &keypad, keypad_shown, x, y, surface_h, now_s()) == LOGINUI_GESTURE_REDRAW)
         render_all();
 }
 
 static void input_release(double x, double y) {
+    if (pattern.tracking) {
+        char sequence[LOGINUI_PATTERN_MAX + 1];
+        size_t n = loginui_pattern_release(&pattern, sequence, sizeof sequence);
+        if (n >= 4) {
+            submit_pattern(sequence);
+        } else if (n > 0) {
+            pattern.error = true;
+            snprintf(status_text, sizeof status_text, "%s", "Connect at least 4 dots");
+            status_error = true;
+            render_all();
+        }
+        explicit_bzero(sequence, sizeof sequence);
+        return;
+    }
     int key = -1;
     switch (loginui_gesture_release(&gesture, &keypad, keypad_shown, x, y, now_s(), &key)) {
     case LOGINUI_GESTURE_REDRAW: render_all(); break;
@@ -1050,6 +1164,7 @@ int main(int argc, char **argv) {
     loginui_keypad_init(&keypad, NULL, LOGINUI_KEYPAD_LETTERS);
     auth_broker = access("/run/sinty-recoverd.sock", F_OK) == 0;
     auth_pin = secret_is_pin();
+    quick_refresh();
     load_assets();
     load_motion();
     start_phase(PHASE_ENTER, MOTION_PAGE_MS);

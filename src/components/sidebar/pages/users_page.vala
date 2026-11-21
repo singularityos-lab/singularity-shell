@@ -627,6 +627,15 @@ namespace Singularity.SidebarPages {
                 });
                 sec_group.add_row(keys_row);
             }
+            if (self_account && Singularity.Runtime.is_sinty_os() && QuickUnlock.available()) {
+                var quick_row = new ActionRow(_("Quick Unlock"), QuickUnlock.kind().to_label(), "input-dialpad-symbolic");
+                quick_row.activatable = true;
+                string back = "user-detail-%s".printf(user.uid.to_string());
+                quick_row.activated.connect(() => {
+                    view.open_subpage(new QuickUnlockPage(view, back), "quick-unlock-%s".printf(user.uid.to_string()));
+                });
+                sec_group.add_row(quick_row);
+            }
             add_group(sec_group);
 
             if (admin_unlocked && !self_account && user.account_type == 0) {

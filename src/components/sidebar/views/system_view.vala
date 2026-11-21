@@ -682,6 +682,12 @@ namespace Singularity {
                 SessionManager.get_default().lock_screen();
                 hide_sidebar();
             });
+            if (QuickUnlock.kind() != QuickUnlockKind.NONE) {
+                menu.add_item("Lockdown", "security-high-symbolic", () => {
+                    SessionManager.get_default().lockdown();
+                    hide_sidebar();
+                });
+            }
             menu.add_item("Suspend", "weather-clear-night-symbolic", () => {
                 SessionManager.get_default().suspend();
                 hide_sidebar();
