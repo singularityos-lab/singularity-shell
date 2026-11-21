@@ -55,6 +55,7 @@ namespace Singularity {
             set_child(_content_bin);
             var shade_drag = new GestureDrag();
             shade_drag.propagation_phase = PropagationPhase.CAPTURE;
+            shade_drag.drag_begin.connect((x, y) => shade_drag_begin(shade_drag, x, y));
             shade_drag.drag_update.connect((dx, dy) => shade_drag_update(shade_drag, dx, dy));
             shade_drag.drag_end.connect((dx, dy) => shade_drag_end(dy));
             shade_drag.cancel.connect(() => shade_drag_end(0.0));
@@ -86,6 +87,17 @@ namespace Singularity {
             var column = new Box(Orientation.VERTICAL, 0);
             column.append(_wait_bar);
             column.append(sidebar_scroll);
+            _shade_handle = new Box(Orientation.HORIZONTAL, 0);
+            _shade_handle.add_css_class("phone-shade-handle");
+            _shade_handle.halign = Align.FILL;
+            _shade_handle.visible = false;
+            var pill = new Box(Orientation.HORIZONTAL, 0);
+            pill.add_css_class("phone-nav-pill");
+            pill.halign = Align.CENTER;
+            pill.valign = Align.CENTER;
+            pill.hexpand = true;
+            _shade_handle.append(pill);
+            column.append(_shade_handle);
             main_box.append(new SidebarWidth(column));
 
             _background_effect_handler = desktop_settings.changed["background-effect"].connect(
@@ -315,6 +327,7 @@ namespace Singularity {
             main_box.margin_end = _phone ? 0 : 20 + EDGE_GAP;
             main_box.vexpand = _phone;
             sidebar_scroll.vexpand = _phone;
+            _shade_handle.visible = _pull;
             set_css_class(main_box, "phone-shade", _phone);
             int width = -1;
             if (_phone && monitor != null) {
@@ -425,34 +438,62 @@ namespace Singularity {
         private const int EDGE_GAP = 40;
         private const double PULL_SLOP = 6.0;
         private const double PULL_COMMIT = 0.3;
+        private const double SHADE_GRAB_ZONE = 64.0;
+        private const double FLICK_VELOCITY = 700.0;
         private bool _shade_tracking = false;
         private bool _shade_pulling = false;
+        private bool _shade_armed = false;
+        private Box _shade_handle;
+        private double _shade_last_dy = 0.0;
+        private int64 _shade_last_time = 0;
+        private double _shade_velocity = 0.0;
 
         private double shade_height() {
             int h = main_box.get_height();
             return h > 0 ? h + SHADE_MARGIN : 640.0;
         }
 
-        private bool scrolled_to_end() {
-            var adj = sidebar_scroll.vadjustment;
-            return adj.value >= adj.upper - adj.page_size - 1.0;
+        private void shade_drag_begin(GestureDrag drag, double x, double y) {
+            _shade_armed = false;
+            if (!_pull || _is_closing) {
+                drag.set_state(EventSequenceState.DENIED);
+                return;
+            }
+            Graphene.Point local;
+            var start = Graphene.Point() { x = (float) x, y = (float) y };
+            if (!_content_bin.compute_point(main_box, start, out local)
+                || local.y < main_box.get_height() - SHADE_GRAB_ZONE) {
+                drag.set_state(EventSequenceState.DENIED);
+                return;
+            }
+            _shade_armed = true;
+            _shade_last_dy = 0.0;
+            _shade_last_time = get_monotonic_time();
+            _shade_velocity = 0.0;
         }
 
         private void shade_drag_update(GestureDrag drag, double dx, double dy) {
-            if (!_pull || _is_closing) return;
+            if (!_shade_armed || _is_closing) return;
             if (!_shade_tracking) {
-                if (Math.fabs(dy) < PULL_SLOP || dy > 0 || Math.fabs(dx) > Math.fabs(dy) || !scrolled_to_end()) return;
+                if (Math.fabs(dy) < PULL_SLOP || dy > 0 || Math.fabs(dx) > Math.fabs(dy)) return;
                 _shade_tracking = true;
                 drag.set_state(EventSequenceState.CLAIMED);
                 Singularity.Motion.cancel(_content_bin, "translate-y");
             }
+            int64 now = get_monotonic_time();
+            double elapsed = (now - _shade_last_time) / 1000000.0;
+            if (elapsed > 0.0) _shade_velocity = (dy - _shade_last_dy) / elapsed;
+            _shade_last_dy = dy;
+            _shade_last_time = now;
             _content_bin.translate_y = double.min(0.0, dy);
         }
 
         private void shade_drag_end(double dy) {
+            _shade_armed = false;
             if (!_shade_tracking) return;
             _shade_tracking = false;
-            if (-dy > shade_height() * PULL_COMMIT) gesture_close();
+            bool flicked = _shade_velocity < -FLICK_VELOCITY && dy < -PULL_SLOP;
+            if (flicked || -dy > shade_height() * PULL_COMMIT) gesture_close();
             else Singularity.Motion.spring_to(_content_bin, "translate-y", 0.0, Singularity.Motion.Spring.SNAPPY);
         }
 
