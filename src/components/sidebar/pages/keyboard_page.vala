@@ -734,24 +734,12 @@ namespace Singularity {
         }
 
         private void sync_to_singularity_schema(Variant sources) {
-            try {
-                var desktop_settings = new GLib.Settings("dev.sinty.desktop");
-                var iter = sources.iterator();
-                string type, id;
-                while (iter.next("(ss)", out type, out id)) {
-                    if (type != "xkb") continue;
-                    string layout = id;
-                    string variant = "";
-                    if (id.contains("+")) {
-                        layout = id.substring(0, id.index_of("+"));
-                        variant = id.substring(id.index_of("+") + 1);
-                    }
-                    desktop_settings.set_string("xkb-layout", layout);
-                    desktop_settings.set_string("xkb-variant", variant);
-                    return;
-                }
-            } catch (Error e) {
-                warning("Failed to sync keyboard layout to singularity schema: %s", e.message);
+            var iter = sources.iterator();
+            string type, id;
+            while (iter.next("(ss)", out type, out id)) {
+                if (type != "xkb") continue;
+                Singularity.KeyboardLayouts.get_default().select(id);
+                return;
             }
         }
     }

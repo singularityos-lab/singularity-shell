@@ -31,14 +31,14 @@ namespace Singularity {
         }
 
         public bool apply() {
-            bool applied = false;
-            if (explicit_layout()) {
-                applied = Singularity.osk_set_layout(settings.get_string("xkb-layout"), settings.get_string("xkb-variant"));
-            } else {
+            string variant;
+            string layout = LocaleManager.effective_keyboard_layout(settings, out variant);
+            bool applied = Singularity.osk_set_layout(layout, variant);
+            if (!applied && !explicit_layout()) {
                 string lang = SystemMonitor.get_default().locale.get_lang_value();
                 if (lang == "") lang = Environment.get_variable("LANG") ?? "";
-                foreach (string layout in LocaleManager.keyboard_layouts_for(lang)) {
-                    if (Singularity.osk_set_layout(layout, null)) {
+                foreach (string candidate in LocaleManager.keyboard_layouts_for(lang)) {
+                    if (Singularity.osk_set_layout(candidate, null)) {
                         applied = true;
                         break;
                     }

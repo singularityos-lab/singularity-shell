@@ -95,7 +95,8 @@ namespace Singularity.InputMethods {
 
         public string label_for(string id) {
             if (id == "") {
-                string layout = settings.get_string("xkb-layout");
+                string variant;
+                string layout = LocaleManager.effective_keyboard_layout(settings, out variant);
                 if (layout == "") return "EN";
                 return layout.substring(0, int.min(2, layout.length)).up();
             }

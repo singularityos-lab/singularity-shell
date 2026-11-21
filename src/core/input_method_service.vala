@@ -188,7 +188,9 @@ namespace Singularity {
         }
 
         private void sync_typing_layout() {
-            Singularity.type_text_set_layout(settings.get_string("xkb-layout"), settings.get_string("xkb-variant"));
+            string variant;
+            string layout = LocaleManager.effective_keyboard_layout(settings, out variant);
+            Singularity.type_text_set_layout(layout, variant);
         }
 
         private bool spell_context() {
@@ -238,6 +240,10 @@ namespace Singularity {
         public void set_preedit(string text) {
             if (!active) return;
             Singularity.ime_preedit(text, text.length, text.length);
+        }
+
+        public bool osk_accents_allowed() {
+            return !active || accent_context();
         }
 
         public bool accent_context() {

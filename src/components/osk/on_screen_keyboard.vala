@@ -63,6 +63,8 @@ namespace Singularity {
         private GLib.Settings settings;
         private Box suggestion_bar;
         private Popover? accent_popover = null;
+        private Gee.ArrayList<Button> accent_choices = new Gee.ArrayList<Button>();
+        private Button? accent_hot = null;
         private Box rows_box;
         private Box preview_row;
         private Label preview_before;
@@ -75,6 +77,9 @@ namespace Singularity {
         private bool swiping = false;
         private const double REMOTE_SCALE = 1.5;
         private const int COMPACT_COLUMNS = 20;
+        private const string[] COMPACT_DIAERESIS_LAYOUTS = { "se", "fi", "ee", "is" };
+        private Box? compact_slot = null;
+        private Gee.ArrayList<Button> compact_buttons = new Gee.ArrayList<Button>();
         private const int COMPACT_KEY_HEIGHT = 46;
         private const string[] SYMBOLS_ROW_ONE = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" };
         private const string[] SYMBOLS_ROW_TWO = { "@", "#", "€", "_", "&", "-", "+", "(", ")", "/" };
@@ -82,9 +87,9 @@ namespace Singularity {
         private const string[] MORE_ROW_ONE = { "~", "`", "|", "•", "√", "π", "÷", "×", "§", "∆" };
         private const string[] MORE_ROW_TWO = { "£", "$", "¥", "^", "°", "=", "{", "}", "\\", "%" };
         private const string[] MORE_ROW_THREE = { "©", "®", "™", "[", "]", "<", ">" };
-        private const uint[] COMPACT_TOP = { 16, 17, 18, 19, 20, 21, 22, 23, 24, 25 };
-        private const uint[] COMPACT_HOME = { 30, 31, 32, 33, 34, 35, 36, 37, 38 };
-        private const uint[] COMPACT_BOTTOM = { 44, 45, 46, 47, 48, 49, 50 };
+        private const uint[] COMPACT_TOP = { 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27 };
+        private const uint[] COMPACT_HOME = { 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40 };
+        private const uint[] COMPACT_BOTTOM = { 44, 45, 46, 47, 48, 49, 50, 51, 52, 53 };
 
         private Stack? pages = null;
         private const double SWIPE_DISMISS_DISTANCE = 56;
@@ -164,7 +169,10 @@ namespace Singularity {
                 header.start_widget = hide;
                 header.center_widget = suggestion_bar;
                 rows.append(header);
-                rows.append(build_compact_pages());
+                ScreenKeymap.get_default().ensure();
+                compact_slot = new Box(Orientation.VERTICAL, 0);
+                compact_slot.append(build_compact_pages());
+                rows.append(compact_slot);
                 attach_swipe_dismiss(rows);
             } else {
                 rows.append(suggestion_bar);
@@ -176,7 +184,10 @@ namespace Singularity {
             }
             set_child(compact_screen() ? rows : attach_swipe_typing(rows));
 
-            ScreenKeymap.get_default().changed.connect(refresh);
+            ScreenKeymap.get_default().changed.connect(() => {
+                rebuild_compact_pages();
+                refresh();
+            });
             ScreenKeymap.get_default().ensure();
 
             var ime = InputMethodService.get_default();
@@ -227,13 +238,47 @@ namespace Singularity {
             hold.pressed.connect(() => {
                 var ime = InputMethodService.get_default();
                 string label = button.label ?? "";
-                if (label.char_count() != 1 || !ime.accent_context()) return;
+                if (label.char_count() != 1 || !ime.osk_accents_allowed()) return;
                 string[] variants = AccentTable.variants(label.get_char());
                 if (variants.length == 0) return;
                 hold.set_state(EventSequenceState.CLAIMED);
                 show_accents(button, variants);
             });
             button.add_controller(hold);
+            var slide = new GestureDrag();
+            slide.propagation_phase = PropagationPhase.CAPTURE;
+            slide.drag_update.connect((dx, dy) => {
+                if (accent_popover == null) return;
+                double x, y;
+                slide.get_start_point(out x, out y);
+                hover_accent(button, x + dx, y + dy);
+            });
+            slide.drag_end.connect(() => {
+                if (accent_popover == null || accent_hot == null) return;
+                string variant = accent_hot.label;
+                close_accents();
+                type_text(variant);
+            });
+            button.add_controller(slide);
+        }
+
+        private void hover_accent(Button origin, double x, double y) {
+            Button? hot = null;
+            foreach (var choice in accent_choices) {
+                Graphene.Point local;
+                if (!origin.compute_point(choice, Graphene.Point() { x = (float) x, y = (float) y }, out local)) continue;
+                if (local.x >= 0 && local.y >= 0 && local.x < choice.get_width() && local.y < choice.get_height()) {
+                    hot = choice;
+                    break;
+                }
+            }
+            if (hot == accent_hot) return;
+            if (accent_hot != null) accent_hot.remove_css_class("active");
+            accent_hot = hot;
+            if (accent_hot != null) {
+                accent_hot.add_css_class("active");
+                Singularity.Haptics.get_default().key();
+            }
         }
 
         private void close_accents() {
@@ -245,6 +290,8 @@ namespace Singularity {
             var popover = new Popover();
             popover.autohide = false;
             accent_popover = popover;
+            accent_choices.clear();
+            accent_hot = null;
             popover.add_css_class("osk-accents");
             popover.has_arrow = false;
             popover.position = PositionType.TOP;
@@ -260,11 +307,10 @@ namespace Singularity {
                 choice.can_focus = false;
                 choice.set_size_request(48, 48);
                 choice.clicked.connect(() => {
-                    InputMethodService.get_default().commit_text(variant);
                     popover.popdown();
-                    latched = 0;
-                    refresh();
+                    type_text(variant);
                 });
+                accent_choices.add(choice);
                 grid.append(choice);
             }
             popover.child = grid;
@@ -430,6 +476,7 @@ namespace Singularity {
             button.hexpand = true;
             button.set_size_request(-1, COMPACT_KEY_HEIGHT);
             grid.attach(button, column, row, span, 1);
+            compact_buttons.add(button);
             return button;
         }
 
@@ -458,36 +505,87 @@ namespace Singularity {
             }
         }
 
-        private void compact_bottom_row(Grid grid, int row, string switch_label, string target) {
+        private void compact_bottom_row(Grid grid, int row, int columns, string switch_label, string target) {
             compact_special(grid, 0, row, 3, switch_label, null).clicked.connect(() => pages.visible_child_name = target);
-            var comma = compact_key(grid, 3, row, 2);
+            int column = 3;
+            var layouts = Singularity.KeyboardLayouts.get_default();
+            bool several = layouts.configured().length > 1;
+            if (several) {
+                var globe = compact_special(grid, column, row, 2, null, "preferences-desktop-locale-symbolic");
+                globe.tooltip_text = _("Next keyboard language");
+                globe.clicked.connect(() => layouts.select(layouts.next()));
+                column += 2;
+            }
+            var comma = compact_key(grid, column, row, 2);
             comma.label = ",";
             comma.clicked.connect(() => type_text(","));
-            var space = compact_key(grid, 5, row, 10);
+            column += 2;
+            int space_span = columns - column - 5;
+            var space = compact_key(grid, column, row, space_span);
+            if (several) {
+                space.label = Singularity.KeyboardLayouts.short_label(layouts.current());
+                space.add_css_class("osk-space-language");
+            }
             space.clicked.connect(() => press(57));
-            var period = compact_key(grid, 15, row, 2);
+            column += space_span;
+            var period = compact_key(grid, column, row, 2);
             period.label = ".";
             period.clicked.connect(() => type_text("."));
-            var enter = compact_special(grid, 17, row, 3, "Enter", null);
+            var enter = compact_special(grid, columns - 3, row, 3, "Enter", null);
             enter.add_css_class("suggested-action");
             enter.clicked.connect(() => press(28));
         }
 
-        private void compact_backspace(Grid grid, int row) {
-            compact_special(grid, 17, row, 3, null, "edit-clear-symbolic").clicked.connect(() => press(14));
+        private void compact_backspace(Grid grid, int row, int columns) {
+            compact_special(grid, columns - 3, row, 3, null, "edit-clear-symbolic").clicked.connect(() => press(14));
+        }
+
+        private static bool compact_diaeresis_kept() {
+            string layout = Singularity.KeyboardLayouts.get_default().current();
+            int plus = layout.index_of_char('+');
+            if (plus > 0) layout = layout.substring(0, plus);
+            return layout in COMPACT_DIAERESIS_LAYOUTS;
+        }
+
+        private static bool compact_shows(uint code, bool keep_diaeresis) {
+            string? plain = Singularity.osk_label(code, false);
+            if (plain == null || plain.char_count() != 1) return false;
+            unichar letter = plain.get_char();
+            if (!letter.isalpha() || letter.toupper() == letter) return false;
+            string decomposed = plain.normalize(-1, NormalizeMode.NFD);
+            if (decomposed.char_count() < 2) return true;
+            unichar mark = decomposed.get_char(decomposed.index_of_nth_char(1));
+            if (mark == 0x0308) return keep_diaeresis;
+            return mark != 0x0300 && mark != 0x0301 && mark != 0x0302;
+        }
+
+        private static uint[] compact_row(uint[] codes, bool keep_diaeresis) {
+            uint[] row = {};
+            foreach (uint code in codes) {
+                if (compact_shows(code, keep_diaeresis)) row += code;
+            }
+            return row;
         }
 
         private Grid build_compact_letters() {
             var grid = compact_grid();
-            for (int i = 0; i < COMPACT_TOP.length; i++) compact_letter(grid, i * 2, 0, COMPACT_TOP[i]);
-            for (int i = 0; i < COMPACT_HOME.length; i++) compact_letter(grid, 1 + i * 2, 1, COMPACT_HOME[i]);
+            bool keep = compact_diaeresis_kept();
+            uint[] top = compact_row(COMPACT_TOP, keep);
+            uint[] home = compact_row(COMPACT_HOME, keep);
+            uint[] bottom = compact_row(COMPACT_BOTTOM, keep);
+            int columns = int.max(COMPACT_COLUMNS, 2 * int.max(top.length, int.max(home.length + 1, bottom.length + 3)));
+            int start = (columns - 2 * top.length) / 2;
+            for (int i = 0; i < top.length; i++) compact_letter(grid, start + i * 2, 0, top[i]);
+            start = (columns - 2 * home.length) / 2;
+            for (int i = 0; i < home.length; i++) compact_letter(grid, start + i * 2, 1, home[i]);
             var shift = compact_special(grid, 0, 2, 3, null, "go-up-symbolic");
             shift.set_data<uint>("modifier", SHIFT);
             modifier_buttons.add(shift);
             shift.clicked.connect(() => toggle_modifier(SHIFT));
-            for (int i = 0; i < COMPACT_BOTTOM.length; i++) compact_letter(grid, 3 + i * 2, 2, COMPACT_BOTTOM[i]);
-            compact_backspace(grid, 2);
-            compact_bottom_row(grid, 3, "?123", "symbols");
+            start = int.max(3, (columns - 2 * bottom.length) / 2);
+            for (int i = 0; i < bottom.length; i++) compact_letter(grid, start + i * 2, 2, bottom[i]);
+            compact_backspace(grid, 2, columns);
+            compact_bottom_row(grid, 3, columns, "?123", "symbols");
             return grid;
         }
 
@@ -497,9 +595,24 @@ namespace Singularity {
             compact_symbols(grid, 0, 1, two);
             compact_special(grid, 0, 2, 3, switch_label, null).clicked.connect(() => pages.visible_child_name = switch_target);
             compact_symbols(grid, 3, 2, three);
-            compact_backspace(grid, 2);
-            compact_bottom_row(grid, 3, "ABC", "letters");
+            compact_backspace(grid, 2, COMPACT_COLUMNS);
+            compact_bottom_row(grid, 3, COMPACT_COLUMNS, "ABC", "letters");
             return grid;
+        }
+
+        private void rebuild_compact_pages() {
+            if (compact_slot == null) return;
+            close_accents();
+            string page = pages != null ? pages.visible_child_name : "letters";
+            foreach (var button in compact_buttons) {
+                character_buttons.remove(button);
+                modifier_buttons.remove(button);
+            }
+            compact_buttons.clear();
+            Widget? old = compact_slot.get_first_child();
+            if (old != null) compact_slot.remove(old);
+            compact_slot.append(build_compact_pages());
+            pages.visible_child_name = page;
         }
 
         private Widget build_compact_pages() {
