@@ -747,14 +747,14 @@ namespace Singularity {
                 }
             }
             // XF86 hardware media/brightness keys as aliases
-            xml.append_printf("    <keybind key=\"XF86AudioRaiseVolume\"><action name=\"Execute\"><command>%s volume_up</command></action></keybind>\n", dbus_shorts);
-            xml.append_printf("    <keybind key=\"XF86AudioLowerVolume\"><action name=\"Execute\"><command>%s volume_down</command></action></keybind>\n", dbus_shorts);
-            xml.append_printf("    <keybind key=\"XF86AudioMute\"><action name=\"Execute\"><command>%s volume_mute</command></action></keybind>\n", dbus_shorts);
-            xml.append_printf("    <keybind key=\"XF86AudioMicMute\"><action name=\"Execute\"><command>%s mic_mute</command></action></keybind>\n", dbus_shorts);
-            xml.append_printf("    <keybind key=\"XF86MonBrightnessUp\"><action name=\"Execute\"><command>%s brightness_up</command></action></keybind>\n", dbus_shorts);
-            xml.append_printf("    <keybind key=\"XF86MonBrightnessDown\"><action name=\"Execute\"><command>%s brightness_down</command></action></keybind>\n", dbus_shorts);
-            xml.append_printf("    <keybind key=\"XF86PowerOff\" overrideInhibition=\"yes\"><action name=\"Execute\"><command>%s power_button</command></action></keybind>\n", dbus_shorts);
-            xml.append_printf("    <keybind key=\"XF86Sleep\" overrideInhibition=\"yes\"><action name=\"Execute\"><command>%s sleep_button</command></action></keybind>\n", dbus_shorts);
+            xml.append_printf("    <keybind key=\"XF86AudioRaiseVolume\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s volume_up</command></action></keybind>\n", dbus_shorts);
+            xml.append_printf("    <keybind key=\"XF86AudioLowerVolume\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s volume_down</command></action></keybind>\n", dbus_shorts);
+            xml.append_printf("    <keybind key=\"XF86AudioMute\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s volume_mute</command></action></keybind>\n", dbus_shorts);
+            xml.append_printf("    <keybind key=\"XF86AudioMicMute\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s mic_mute</command></action></keybind>\n", dbus_shorts);
+            xml.append_printf("    <keybind key=\"XF86MonBrightnessUp\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s brightness_up</command></action></keybind>\n", dbus_shorts);
+            xml.append_printf("    <keybind key=\"XF86MonBrightnessDown\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s brightness_down</command></action></keybind>\n", dbus_shorts);
+            xml.append_printf("    <keybind key=\"XF86PowerOff\" overrideInhibition=\"yes\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s power_button</command></action></keybind>\n", dbus_shorts);
+            xml.append_printf("    <keybind key=\"XF86Sleep\" overrideInhibition=\"yes\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s sleep_button</command></action></keybind>\n", dbus_shorts);
             xml.append("  </keyboard>\n");
             xml.append("  <shaders>\n    <liquid>shaders/liquid.frag</liquid>\n  </shaders>\n</labwc_config>\n");
 
