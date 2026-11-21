@@ -32,6 +32,8 @@ namespace Singularity {
 
         public bool showing { get; private set; default = false; }
 
+        public Singularity.Dock? dock { get; set; default = null; }
+
         // True when the keyboard focus is on something the user is typing
         // into (Entry, TextView, etc.) - used to suppress the
         // "redirect to search bar" behavior so notes / calculator widgets
@@ -411,12 +413,26 @@ namespace Singularity {
             if (grid_mon == null) return;
             Gdk.Rectangle gg = grid_mon.get_geometry();
             int avail = gg.width - 48;
+            int avail_h = gg.height;
             string dock_pos = desktop_settings.get_string("dock-position");
-            if ((dock_pos == "left" || dock_pos == "right")
-                    && !desktop_settings.get_boolean("dock-autohide")) {
-                int isz = Singularity.FormShell.dock_icon_size(desktop_settings, grid_mon);
-                if (isz <= 0) isz = 48;
-                avail -= isz + desktop_settings.get_int("dock-gap") + 28;
+            bool under_dock = Singularity.FormShell.wants_dock(grid_mon)
+                && Singularity.FormFactor.at(grid_mon).is_touch_first();
+            int dock_extent = (dock != null && !under_dock) ? dock.shown_extent() : 0;
+            content_stack.margin_bottom = 0;
+            content_stack.margin_start = 0;
+            content_stack.margin_end = 0;
+            if (dock_pos == "left" || dock_pos == "right") {
+                if (dock == null && !desktop_settings.get_boolean("dock-autohide")) {
+                    int isz = Singularity.FormShell.dock_icon_size(desktop_settings, grid_mon);
+                    if (isz <= 0) isz = 48;
+                    dock_extent = isz + desktop_settings.get_int("dock-gap") + 28;
+                }
+                avail -= dock_extent;
+                if (dock_pos == "left") content_stack.margin_start = dock_extent;
+                else content_stack.margin_end = dock_extent;
+            } else {
+                content_stack.margin_bottom = dock_extent;
+                avail_h -= dock_extent;
             }
             if (Singularity.FormFactor.at(grid_mon) == Singularity.FormFactorKind.PHONE) {
                 int slot = avail / PHONE_GRID_COLUMNS;
@@ -429,7 +445,7 @@ namespace Singularity {
                 results_scrolled.width_request = RESULTS_WIDTH;
             }
             launcher_grid.set_columns_for_width(avail);
-            launcher_grid.viewport_hint = gg.height;
+            launcher_grid.viewport_hint = avail_h;
         }
 
         private void animate_stage(bool entering) {
