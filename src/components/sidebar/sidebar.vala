@@ -54,8 +54,10 @@ namespace Singularity {
             });
             set_child(_content_bin);
             var shade_drag = new GestureDrag();
+            shade_drag.propagation_phase = PropagationPhase.CAPTURE;
             shade_drag.drag_update.connect((dx, dy) => shade_drag_update(shade_drag, dx, dy));
             shade_drag.drag_end.connect((dx, dy) => shade_drag_end(dy));
+            shade_drag.cancel.connect(() => shade_drag_end(0.0));
             _content_bin.add_controller(shade_drag);
 
             var sidebar_scroll = new ScrolledWindow();
@@ -421,7 +423,7 @@ namespace Singularity {
 
         private const double SLIDE_DISTANCE = 96.0;
         private const int EDGE_GAP = 40;
-        private const double PULL_SLOP = 10.0;
+        private const double PULL_SLOP = 6.0;
         private const double PULL_COMMIT = 0.3;
         private bool _shade_tracking = false;
         private bool _shade_pulling = false;
