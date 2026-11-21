@@ -69,6 +69,10 @@ namespace Singularity {
         private Label preview_after;
         private Gee.ArrayList<Gee.ArrayList<Button>> key_rows = new Gee.ArrayList<Gee.ArrayList<Button>>();
         private Button? highlighted = null;
+        private Widget? swipe_area = null;
+        private DrawingArea? swipe_trail = null;
+        private double[] swipe_points = {};
+        private bool swiping = false;
         private const double REMOTE_SCALE = 1.5;
         private const int COMPACT_COLUMNS = 20;
         private const int COMPACT_KEY_HEIGHT = 46;
@@ -170,7 +174,7 @@ namespace Singularity {
                 rows.append(build_row(ROW_BOTTOM));
                 rows.append(build_row(ROW_SPACE));
             }
-            set_child(rows);
+            set_child(compact_screen() ? rows : attach_swipe_typing(rows));
 
             ScreenKeymap.get_default().changed.connect(refresh);
             ScreenKeymap.get_default().ensure();
@@ -392,6 +396,7 @@ namespace Singularity {
             var drag = new GestureDrag();
             drag.propagation_phase = PropagationPhase.CAPTURE;
             drag.drag_update.connect((dx, dy) => {
+                if (swiping) return;
                 if (dy > SWIPE_DISMISS_DISTANCE && dy > dx.abs() * 2) {
                     drag.set_state(EventSequenceState.CLAIMED);
                     dismiss();
@@ -503,11 +508,107 @@ namespace Singularity {
             pages = new Stack();
             pages.hhomogeneous = true;
             pages.vhomogeneous = true;
-            pages.add_named(build_compact_letters(), "letters");
+            pages.add_named(attach_swipe_typing(build_compact_letters()), "letters");
             pages.add_named(build_compact_symbols(SYMBOLS_ROW_ONE, SYMBOLS_ROW_TWO, SYMBOLS_ROW_THREE, "=\\<", "more"), "symbols");
             pages.add_named(build_compact_symbols(MORE_ROW_ONE, MORE_ROW_TWO, MORE_ROW_THREE, "?123", "symbols"), "more");
             pages.visible_child_name = "letters";
             return pages;
+        }
+
+        private Widget attach_swipe_typing(Widget area) {
+            swipe_area = area;
+            var trail = new DrawingArea();
+            trail.can_target = false;
+            trail.set_draw_func(draw_swipe_trail);
+            swipe_trail = trail;
+            var overlay = new Overlay();
+            overlay.child = area;
+            overlay.add_overlay(trail);
+            var drag = new GestureDrag();
+            drag.propagation_phase = PropagationPhase.CAPTURE;
+            drag.drag_begin.connect((x, y) => {
+                swiping = false;
+                swipe_points = {};
+                if (!on_letter(x, y) || !InputMethodService.get_default().swipe_context()) {
+                    drag.set_state(EventSequenceState.DENIED);
+                    return;
+                }
+                swipe_points = { x, y };
+            });
+            drag.drag_update.connect((dx, dy) => {
+                if (swipe_points.length < 2) return;
+                double x = swipe_points[0] + dx;
+                double y = swipe_points[1] + dy;
+                if (!swiping) {
+                    if (Math.hypot(dx, dy) < swipe_threshold()) return;
+                    swiping = true;
+                    close_accents();
+                    drag.set_state(EventSequenceState.CLAIMED);
+                }
+                swipe_points += x;
+                swipe_points += y;
+                trail.queue_draw();
+            });
+            drag.drag_end.connect((dx, dy) => {
+                if (swiping) finish_swipe();
+                swiping = false;
+                swipe_points = {};
+                trail.queue_draw();
+            });
+            drag.cancel.connect(() => {
+                swiping = false;
+                swipe_points = {};
+                trail.queue_draw();
+            });
+            area.add_controller(drag);
+            return overlay;
+        }
+
+        private bool on_letter(double x, double y) {
+            var hit = swipe_area.pick(x, y, PickFlags.DEFAULT);
+            if (hit == null) return false;
+            Widget? button = (hit is Button) ? hit : hit.get_ancestor(typeof(Button));
+            return button != null && character_buttons.contains((Button) button);
+        }
+
+        private double swipe_threshold() {
+            foreach (var button in character_buttons) {
+                if (button.get_mapped()) return button.get_width() * 0.6;
+            }
+            return 24;
+        }
+
+        private void finish_swipe() {
+            Singularity.SwipeKey[] keys = {};
+            foreach (var button in character_buttons) {
+                if (!button.get_mapped() || button.label == null || button.label.char_count() != 1) continue;
+                Graphene.Rect bounds;
+                if (!button.compute_bounds(swipe_area, out bounds)) continue;
+                var key = Singularity.SwipeKey();
+                key.codepoint = button.label.get_char();
+                key.x = bounds.origin.x + bounds.size.width / 2;
+                key.y = bounds.origin.y + bounds.size.height / 2;
+                keys += key;
+            }
+            uint active = latched | locked;
+            bool capitalize = caps || (active & SHIFT) != 0;
+            if (InputMethodService.get_default().commit_swipe(keys, swipe_points, capitalize)) {
+                Singularity.Haptics.get_default().key();
+                if ((locked & SHIFT) == 0) latched = 0;
+                refresh();
+            }
+        }
+
+        private void draw_swipe_trail(DrawingArea area, Cairo.Context cr, int width, int height) {
+            if (!swiping || swipe_points.length < 4) return;
+            var color = area.get_color();
+            cr.set_source_rgba(color.red, color.green, color.blue, 0.45);
+            cr.set_line_width(6);
+            cr.set_line_cap(Cairo.LineCap.ROUND);
+            cr.set_line_join(Cairo.LineJoin.ROUND);
+            cr.move_to(swipe_points[0], swipe_points[1]);
+            for (int i = 2; i + 1 < swipe_points.length; i += 2) cr.line_to(swipe_points[i], swipe_points[i + 1]);
+            cr.stroke();
         }
 
         private void type_text(string text) {

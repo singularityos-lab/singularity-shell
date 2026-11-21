@@ -30,6 +30,8 @@ namespace Singularity {
 
         private GLib.Settings settings;
         private Singularity.Text.SpellChecker checker;
+        private Singularity.WordList? words;
+        private string words_language = "";
         private string surrounding = "";
         private uint cursor = 0;
         private uint purpose = 0;
@@ -192,7 +194,26 @@ namespace Singularity {
         private bool spell_context() {
             return active && (purpose == 0 || purpose == 1) && (hint & HINT_PRIVATE) == 0
                 && settings.get_boolean("spell-check-all-apps") && !engine_context() && !own_client()
-                && checker.enabled && checker.available;
+                && checker.enabled && (checker.available || word_list() != null);
+        }
+
+        private string typing_language() {
+            foreach (string tag in settings.get_strv("spell-check-languages")) {
+                if (tag.strip() != "") return tag;
+            }
+            foreach (unowned string name in Intl.get_language_names()) {
+                if (name != "C" && name != "POSIX") return name;
+            }
+            return "";
+        }
+
+        public Singularity.WordList? word_list() {
+            string language = typing_language();
+            if (language != words_language) {
+                words_language = language;
+                words = Singularity.WordList.for_language(language);
+            }
+            return words;
         }
 
         public bool own_client() {
@@ -429,13 +450,39 @@ namespace Singularity {
             return suggestion;
         }
 
+        private bool known_word(string word) {
+            var list = word_list();
+            if (list != null && list.contains(word)) return true;
+            if (checker.available) return checker.check(word);
+            return list == null;
+        }
+
         private string[] corrections(string word) {
             if (!spell_context() || word.char_count() < 2) return {};
-            if (rejected.contains(word.down()) || checker.check(word)) return {};
+            if (rejected.contains(word.down()) || known_word(word)) return {};
+            string[] found = {};
+            var list = word_list();
+            if (list != null) {
+                foreach (string suggestion in list.correct(word, 3)) found += suggestion;
+            }
+            if (checker.available) {
+                foreach (string suggestion in checker.suggest(word, 3)) found += suggestion;
+            }
             string[] result = {};
-            foreach (string suggestion in checker.suggest(word, 3)) {
+            foreach (string suggestion in found) {
                 string candidate = match_case(word, suggestion);
-                if (candidate != word && !(candidate in result)) result += candidate;
+                if (candidate != word && !(candidate in result) && result.length < 3) result += candidate;
+            }
+            return result;
+        }
+
+        private string[] completions(string word) {
+            var list = word_list();
+            if (!spell_context() || list == null || word == "") return {};
+            string[] result = {};
+            foreach (string suggestion in list.complete(word, 4)) {
+                string candidate = match_case(word, suggestion);
+                if (candidate.down() != word.down() && !(candidate in result) && result.length < 3) result += candidate;
             }
             return result;
         }
@@ -479,7 +526,8 @@ namespace Singularity {
             if (popup_accents || dictating || engine_candidates != null) return;
             current_word = active ? word_before_cursor() : "";
             string[] items = corrections(current_word);
-            suggestions_changed(items.length > 0 ? current_word : "", items);
+            string[] bar = items.length > 0 ? items : completions(current_word);
+            suggestions_changed(bar.length > 0 ? current_word : "", bar);
             var code = code_for_field();
             if (code != null && purpose != 0 && purpose != 1 && !own_client()
                     && !settings.get_boolean("screen-keyboard-enabled")
@@ -536,6 +584,29 @@ namespace Singularity {
         public bool commit_text(string text) {
             if (!active) return false;
             Singularity.ime_replace(0, 0, text);
+            return true;
+        }
+
+        public bool swipe_context() {
+            return active && (purpose <= 1 || purpose == 5 || purpose == 6 || purpose == 7)
+                && (hint & HINT_PRIVATE) == 0 && !engine_context() && word_list() != null;
+        }
+
+        public bool commit_swipe(Singularity.SwipeKey[] keys, double[] points, bool capitalize) {
+            if (!swipe_context()) return false;
+            string[] found = word_list().swipe(keys, points, 4);
+            if (found.length == 0) return false;
+            string[] words = {};
+            foreach (string candidate in found) {
+                words += capitalize ? candidate.substring(0, candidate.index_of_nth_char(1)).up() + candidate.substring(candidate.index_of_nth_char(1)) : candidate;
+            }
+            string before = has_surrounding ? before_cursor() : typed_word;
+            bool spaced = before == "" || before.get_char(before.index_of_nth_char(before.char_count() - 1)).isspace();
+            close_popup();
+            if (!commit_text(spaced ? words[0] : " " + words[0])) return false;
+            typed_word = words[0];
+            suggestions_changed("", words[1:words.length]);
+            update_grab();
             return true;
         }
 
