@@ -2081,7 +2081,7 @@ namespace Singularity {
         }
 
         public void add_overview_widget(string provider_id, int w, int h,
-                                         string config_json = "") {
+                                         string config_json = "", string? before = null) {
             string iid = "%s-%lld".printf(provider_id,
                                           (int64) GLib.get_real_time());
             var builder = new VariantBuilder(new VariantType("a(ssiis)"));
@@ -2092,9 +2092,18 @@ namespace Singularity {
             builder.add("(ssiis)", iid, provider_id, w, h, config_json);
             SettingsGuard.store(settings, "overview-widgets", builder.end());
 
-            // Add to grid order too.
-            string[] order = get_grid_order();
-            order += "widget:" + iid;
+            string key = "widget:" + iid;
+            string[] order = {};
+            bool inserted = false;
+            foreach (var k in before != null ? get_ordered_grid_items() : get_grid_order()) {
+                if (k == key) continue;
+                if (!inserted && k == before) {
+                    order += key;
+                    inserted = true;
+                }
+                order += k;
+            }
+            if (!inserted) order += key;
             set_grid_order(order);
         }
 

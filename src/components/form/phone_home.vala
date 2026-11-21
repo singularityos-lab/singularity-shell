@@ -65,6 +65,8 @@ namespace Singularity {
             _pager.kinetic_scrolling = false;
             _pager.vexpand = true;
             _pager.child = _grid;
+            var viewport = _pager.child as Viewport;
+            if (viewport != null) viewport.scroll_to_focus = false;
             _pager.add_css_class("phone-home-pages");
 
             _dots = new Box(Orientation.HORIZONTAL, 6);
@@ -87,7 +89,10 @@ namespace Singularity {
                 leave_edit();
                 wallpaper_requested();
             }));
-            bar.append(edit_button("view-grid-symbolic", _("Widgets"), () => _grid.show_widget_picker(_bar)));
+            bar.append(edit_button("view-grid-symbolic", _("Widgets"), () => {
+                _grid.insert_page = _page;
+                _grid.show_widget_picker(_bar);
+            }));
             bar.append(edit_button("object-select-symbolic", _("Done"), () => leave_edit()));
             _bar = new Singularity.Animation.MotionBin(bar);
             _bar.halign = Align.CENTER;

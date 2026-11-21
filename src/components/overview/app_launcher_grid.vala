@@ -262,6 +262,8 @@ namespace Singularity {
         private string[] _build_keys = {};
         private int _build_index = 0;
         private bool[] _occ = new bool[0];
+        private HashTable<int, string> _page_first_keys = new HashTable<int, string>(direct_hash, direct_equal);
+        public int insert_page = -1;
         private int _occ_rows = 0;
         private uint _build_source = 0;
 
@@ -292,6 +294,7 @@ namespace Singularity {
             _occ = new bool[0];
             _occ_rows = 0;
             _last_row = 0;
+            _page_first_keys.remove_all();
             // Build the first batch synchronously (instant content), the rest
             // across idle ticks.
             build_batch(12);
@@ -422,7 +425,9 @@ namespace Singularity {
                 int fw = cell_w * w + spacing_col * (w - 1);
                 int fh = cell_h * h + spacing_row * (h - 1);
                 var capped = new FixedCell(child, fw, fh);
-                if (!clip_cells) capped.overflow = Gtk.Overflow.VISIBLE;
+                if (!clip_cells && !key.has_prefix("widget:")) capped.overflow = Gtk.Overflow.VISIBLE;
+                if (page_rows > 0 && !_page_first_keys.contains(row / page_rows))
+                    _page_first_keys.insert(row / page_rows, key);
                 capped.set_data<string>("grid-key", key);
                 child = capped;
                 child.width_request  = fw;
@@ -1360,6 +1365,11 @@ namespace Singularity {
             dialog.open_dialog();
         }
 
+        private string? insert_anchor() {
+            if (insert_page < 0) return null;
+            return _page_first_keys.lookup(insert_page);
+        }
+
         // Widget picker (called from overview "+" button)
         public void show_widget_picker(Widget parent, double x = -1, double y = -1) {
             var menu = new Singularity.Widgets.ContextMenu(parent);
@@ -1377,7 +1387,7 @@ namespace Singularity {
                         var only = p.supported_sizes.length == 1 ? p.supported_sizes[0] : WidgetSize(2, 2);
                         int w = only.w, h = only.h;
                         menu.add_item(_("%s (%dx%d)").printf(p.display_name, w, h), p.icon_name, () => {
-                            app_system.add_overview_widget(pid, w, h);
+                            app_system.add_overview_widget(pid, w, h, "", insert_anchor());
                         });
                         continue;
                     }
@@ -1385,7 +1395,7 @@ namespace Singularity {
                     foreach (var size in p.supported_sizes) {
                         int w = size.w, h = size.h;
                         sizes.add_item(_("%dx%d").printf(w, h), null, () => {
-                            app_system.add_overview_widget(pid, w, h);
+                            app_system.add_overview_widget(pid, w, h, "", insert_anchor());
                         });
                     }
                 }
