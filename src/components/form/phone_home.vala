@@ -17,6 +17,8 @@ namespace Singularity {
         private const double PAGE_COMMIT = 0.18;
         private const double SWIPE_SLOP = 12.0;
         private const int BAR_TRAVEL = 48;
+        private const int EDGE_ZONE = 40;
+        private const uint EDGE_DWELL_MS = 650;
 
         private unowned Gdk.Monitor _monitor;
         private AppLauncherGrid _grid;
@@ -33,6 +35,8 @@ namespace Singularity {
         private double _swipe_origin = 0;
         private double _scroll_x = 0;
         private double _wheel_dx = 0;
+        private int _edge_dir = 0;
+        private uint _edge_source = 0;
 
         public bool editing { get { return _editing; } }
 
@@ -58,6 +62,7 @@ namespace Singularity {
             _grid.valign = Align.START;
             _grid.margin_top = TOP_GAP;
             _grid.notify["page-count"].connect(() => refresh_pages());
+            _grid.on_edit_requested = () => enter_edit();
 
             _pager = new ScrolledWindow();
             _pager.hscrollbar_policy = PolicyType.EXTERNAL;
@@ -68,6 +73,15 @@ namespace Singularity {
             var viewport = _pager.child as Viewport;
             if (viewport != null) viewport.scroll_to_focus = false;
             _pager.add_css_class("phone-home-pages");
+            var page_drop = new DropTarget(typeof(string), Gdk.DragAction.MOVE);
+            page_drop.drop.connect((val, x, y) => {
+                string? dragged = val.get_string();
+                if (dragged == null || !_editing) return false;
+                Graphene.Point p;
+                if (!_pager.compute_point(_grid, Graphene.Point() { x = (float) x, y = (float) y }, out p)) return false;
+                return _grid.drop_on_empty(dragged, p.x);
+            });
+            _pager.add_controller(page_drop);
 
             _dots = new Box(Orientation.HORIZONTAL, 6);
             _dots.add_css_class("singularity-carousel-dots");
@@ -79,6 +93,7 @@ namespace Singularity {
             column.append(_pager);
             column.append(_dots);
             _stage = new Singularity.Animation.MotionBin(column);
+            _stage.transform_input = true;
 
             var bar = new Box(Orientation.HORIZONTAL, 12);
             bar.add_css_class("phone-home-edit-bar");
@@ -278,6 +293,11 @@ namespace Singularity {
             });
             _grid.add_controller(wheel);
 
+            var dnd = new DropControllerMotion();
+            dnd.motion.connect((x, y) => edge_hover(x));
+            dnd.leave.connect(() => stop_edge());
+            root.add_controller(dnd);
+
             var hold = new GestureLongPress();
             hold.pressed.connect((x, y) => {
                 if (_editing || over_item(root, x, y)) return;
@@ -300,6 +320,24 @@ namespace Singularity {
             root.add_controller(tap);
         }
 
+        private void edge_hover(double x) {
+            int dir = x < EDGE_ZONE ? -1 : (x > _width - EDGE_ZONE ? 1 : 0);
+            if (dir == _edge_dir) return;
+            stop_edge();
+            if (dir == 0) return;
+            _edge_dir = dir;
+            _edge_source = Timeout.add(EDGE_DWELL_MS, () => {
+                go_to_page(_page + _edge_dir);
+                return Source.CONTINUE;
+            });
+        }
+
+        private void stop_edge() {
+            if (_edge_source != 0) Source.remove(_edge_source);
+            _edge_source = 0;
+            _edge_dir = 0;
+        }
+
         private void show_home_menu(Widget parent, double x, double y) {
             var menu = new Singularity.Widgets.ContextMenu(parent);
             menu.set_pointing_to(Gdk.Rectangle() { x = (int) x, y = (int) y, width = 1, height = 1 });
@@ -311,6 +349,7 @@ namespace Singularity {
             if (_editing) return;
             _editing = true;
             _grid.reorder_enabled = true;
+            _grid.edit_mode = true;
             _stage.add_css_class("editing");
             _dots.visible = true;
             Singularity.Motion.spring_to(_stage, "scale", EDIT_SCALE, Singularity.Motion.Spring.SNAPPY);
@@ -325,6 +364,8 @@ namespace Singularity {
             if (!_editing) return false;
             _editing = false;
             _grid.reorder_enabled = false;
+            _grid.edit_mode = false;
+            stop_edge();
             _stage.remove_css_class("editing");
             Singularity.Motion.spring_to(_stage, "scale", 1.0, Singularity.Motion.Spring.SNAPPY);
             Singularity.Motion.spring_to(_bar, "translate-y", BAR_TRAVEL, Singularity.Motion.Spring.SNAPPY);

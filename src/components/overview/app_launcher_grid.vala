@@ -135,6 +135,17 @@ namespace Singularity {
             _grid_overlay.set_child(grid);
             append(_grid_overlay);
 
+            var empty_drop = new DropTarget(typeof(string), Gdk.DragAction.MOVE);
+            empty_drop.drop.connect((val, x, y) => {
+                string? dragged = val.get_string();
+                if (dragged == null || !reorder_enabled) return false;
+                double gx = x;
+                Graphene.Point p;
+                if (_grid_overlay.compute_point(grid, Graphene.Point() { x = (float) x, y = (float) y }, out p)) gx = p.x;
+                return drop_on_empty(dragged, gx);
+            });
+            _grid_overlay.add_controller(empty_drop);
+
             app_system.apps_changed.connect(on_apps_changed);
             app_system.folders_changed.connect(on_apps_changed);
             IconTheme.get_for_display(Gdk.Display.get_default()).changed.connect(() => {
@@ -263,7 +274,36 @@ namespace Singularity {
         private int _build_index = 0;
         private bool[] _occ = new bool[0];
         private HashTable<int, string> _page_first_keys = new HashTable<int, string>(direct_hash, direct_equal);
+        private HashTable<int, string> _page_last_keys = new HashTable<int, string>(direct_hash, direct_equal);
         public int insert_page = -1;
+        public ToggleCallback? on_edit_requested;
+
+        private class WidgetChrome {
+            public Gtk.Overlay overlay;
+            public Gtk.Widget content;
+            public Gtk.Widget handle;
+            public Gtk.Widget badge;
+        }
+        private GLib.GenericArray<WidgetChrome> _widget_chromes = new GLib.GenericArray<WidgetChrome>();
+        private bool _edit_mode = false;
+
+        public bool edit_mode {
+            get { return _edit_mode; }
+            set {
+                if (_edit_mode == value) return;
+                _edit_mode = value;
+                if (!value) clear_resize_chrome();
+                for (int i = 0; i < _widget_chromes.length; i++) sync_chrome(_widget_chromes[i]);
+            }
+        }
+
+        private void sync_chrome(WidgetChrome chrome) {
+            chrome.content.can_target = !_edit_mode;
+            chrome.badge.visible = _edit_mode;
+            chrome.handle.opacity = _edit_mode ? 1.0 : 0.0;
+            if (_edit_mode) chrome.overlay.add_css_class("editing");
+            else chrome.overlay.remove_css_class("editing");
+        }
         private int _occ_rows = 0;
         private uint _build_source = 0;
 
@@ -295,6 +335,8 @@ namespace Singularity {
             _occ_rows = 0;
             _last_row = 0;
             _page_first_keys.remove_all();
+            _page_last_keys.remove_all();
+            _widget_chromes = new GLib.GenericArray<WidgetChrome>();
             // Build the first batch synchronously (instant content), the rest
             // across idle ticks.
             build_batch(12);
@@ -426,8 +468,11 @@ namespace Singularity {
                 int fh = cell_h * h + spacing_row * (h - 1);
                 var capped = new FixedCell(child, fw, fh);
                 if (!clip_cells && !key.has_prefix("widget:")) capped.overflow = Gtk.Overflow.VISIBLE;
-                if (page_rows > 0 && !_page_first_keys.contains(row / page_rows))
-                    _page_first_keys.insert(row / page_rows, key);
+                if (page_rows > 0) {
+                    if (!_page_first_keys.contains(row / page_rows))
+                        _page_first_keys.insert(row / page_rows, key);
+                    _page_last_keys.insert(row / page_rows, key);
+                }
                 capped.set_data<string>("grid-key", key);
                 child = capped;
                 child.width_request  = fw;
@@ -583,8 +628,32 @@ namespace Singularity {
 
             var hover = new EventControllerMotion();
             hover.enter.connect((x, y) => { handle.opacity = 1.0; });
-            hover.leave.connect(()     => { handle.opacity = 0.0; });
+            hover.leave.connect(()     => { if (!_edit_mode) handle.opacity = 0.0; });
             overlay.add_controller(hover);
+
+            var badge = new Button.from_icon_name("list-remove-symbolic");
+            badge.add_css_class("edit-remove-badge");
+            badge.tooltip_text = _("Remove");
+            badge.halign = Align.END;
+            badge.valign = Align.START;
+            badge.width_request = 24;
+            badge.height_request = 24;
+            badge.clicked.connect(() => app_system.remove_overview_widget(iid));
+            overlay.add_overlay(badge);
+
+            var tap = new GestureClick();
+            tap.released.connect((n, x, y) => {
+                if (!_edit_mode) return;
+                tap.set_state(EventSequenceState.CLAIMED);
+                if (_resize_mode_iid == iid) {
+                    clear_resize_chrome();
+                    return;
+                }
+                clear_resize_chrome();
+                _resize_mode_iid = iid;
+                attach_resize_chrome(overlay, iid, inst, provider);
+            });
+            overlay.add_controller(tap);
 
             // Right-click anywhere on the widget -> context menu.
             var rc = new GestureClick();
@@ -615,6 +684,28 @@ namespace Singularity {
                 overlay.remove_css_class("dragging");
             });
             handle.add_controller(drag);
+
+            var body_drag = new DragSource();
+            body_drag.actions = Gdk.DragAction.MOVE;
+            body_drag.prepare.connect((x, y) => !_edit_mode || !reorder_enabled ? null : new Gdk.ContentProvider.for_value(captured));
+            body_drag.drag_begin.connect((d) => {
+                clear_resize_chrome();
+                var paintable = paintable_for(overlay);
+                if (paintable != null)
+                    body_drag.set_icon(paintable, (int) paintable.get_intrinsic_width() / 2,
+                                       (int) paintable.get_intrinsic_height() / 2);
+                overlay.add_css_class("dragging");
+            });
+            body_drag.drag_end.connect((d, action, delete_data) => overlay.remove_css_class("dragging"));
+            overlay.add_controller(body_drag);
+
+            var chrome = new WidgetChrome();
+            chrome.overlay = overlay;
+            chrome.content = content;
+            chrome.handle = handle;
+            chrome.badge = badge;
+            _widget_chromes.add(chrome);
+            sync_chrome(chrome);
 
             // Accept drops anywhere on the widget so dragged items can land
             // at its grid position, interspersed among the icons.
@@ -874,14 +965,32 @@ namespace Singularity {
         // Move `item` next to `anchor_key`. Dragging forward (item currently
         // before the anchor) drops it after the anchor; dragging backward drops
         // it before, which matches what the cursor position implies.
-        private void reorder_relative_to(string item, string anchor_key) {
+        private static bool folder_zone(Widget target, double x, double y) {
+            double w = target.get_width(), h = target.get_height();
+            if (w <= 0 || h <= 0) return true;
+            return Math.fabs(x - w / 2.0) < w * 0.22 && Math.fabs(y - h * 0.4) < h * 0.25;
+        }
+
+        public bool drop_on_empty(string dragged, double x) {
+            if (page_rows <= 0 || columns <= 0) return false;
+            int page_px = (cell_w + (int) grid.column_spacing) * columns;
+            if (page_px <= 0) return false;
+            int page = (int) (x / page_px);
+            string? last = _page_last_keys.lookup(page);
+            if (last == null || last == dragged) return false;
+            string anchor = last;
+            GLib.Idle.add(() => { reorder_relative_to(dragged, anchor, true); return GLib.Source.REMOVE; });
+            return true;
+        }
+
+        private void reorder_relative_to(string item, string anchor_key, bool? force_after = null) {
             var current = app_system.get_ordered_grid_items();
             int from = -1, to = -1;
             for (int i = 0; i < current.length; i++) {
                 if (current[i] == item) from = i;
                 if (current[i] == anchor_key) to = i;
             }
-            bool after = (from >= 0 && to >= 0 && from < to);
+            bool after = force_after ?? (from >= 0 && to >= 0 && from < to);
             string[] final_order = {};
             bool inserted = false;
             foreach (var o in current) {
@@ -918,7 +1027,7 @@ namespace Singularity {
                 var menu = new Singularity.Widgets.ContextMenu(box);
                 Gdk.Rectangle rect = { (int)x, (int)y, 1, 1 };
                 menu.set_pointing_to(rect);
-                menu.add_item("Remove from overview", "edit-delete-symbolic", () => {
+                menu.add_item(_("Remove"), "edit-delete-symbolic", () => {
                     app_system.remove_overview_widget(iid);
                 });
                 menu.popup();
@@ -936,7 +1045,7 @@ namespace Singularity {
 
             // Single "Resize" entry that toggles edge-handle mode - more
             // more intuitive than enumerating every possible size.
-            menu.add_item("Resize", "view-fullscreen-symbolic", () => {
+            menu.add_item(_("Resize"), "view-fullscreen-symbolic", () => {
                 // Attach the resize chrome to the existing widget overlay in
                 // place. Repopulating here reloaded every widget instance and
                 // bounced the scroll position to the top.
@@ -951,7 +1060,7 @@ namespace Singularity {
                 });
             }
             menu.add_separator();
-            menu.add_item("Remove from overview", "edit-delete-symbolic", () => {
+            menu.add_item(_("Remove"), "edit-delete-symbolic", () => {
                 app_system.remove_overview_widget(iid);
             });
             menu.popup();
@@ -1066,8 +1175,11 @@ namespace Singularity {
             string captured_app_id = app_id.dup();
             drop.drop.connect((val, x, y) => {
                 string? dragged = val.get_string();
+                btn_weak.remove_css_class("drop-target-hover");
+                btn_weak.remove_css_class("drop-target-shift");
                 if (dragged == null || dragged == captured_app_id) return false;
-                if (dragged.has_prefix("widget:") || dragged.has_prefix("folder:")) {
+                if (dragged.has_prefix("widget:") || dragged.has_prefix("folder:")
+                        || !folder_zone(btn_weak, x, y)) {
                     reorder_relative_to(dragged, captured_app_id);
                     return true;
                 }
@@ -1075,11 +1187,21 @@ namespace Singularity {
                 app_system.create_folder(folder_name, captured_app_id, dragged);
                 return true;
             });
-            drop.enter.connect((x, y) => {
-                btn_weak.add_css_class("drop-target-hover");
+            drop.motion.connect((x, y) => {
+                bool folder = folder_zone(btn_weak, x, y);
+                if (folder) {
+                    btn_weak.add_css_class("drop-target-hover");
+                    btn_weak.remove_css_class("drop-target-shift");
+                } else {
+                    btn_weak.add_css_class("drop-target-shift");
+                    btn_weak.remove_css_class("drop-target-hover");
+                }
                 return Gdk.DragAction.MOVE;
             });
-            drop.leave.connect(() => btn_weak.remove_css_class("drop-target-hover"));
+            drop.leave.connect(() => {
+                btn_weak.remove_css_class("drop-target-hover");
+                btn_weak.remove_css_class("drop-target-shift");
+            });
             btn.add_controller(drop);
 
             return btn;
@@ -1299,6 +1421,12 @@ namespace Singularity {
             menu.add_item("Add to Desktop", "user-desktop-symbolic", () => {
                 AppSystem.add_app_to_desktop(app);
             });
+
+            if (on_edit_requested != null && !_edit_mode) {
+                menu.add_item(_("Edit Home Screen"), "document-edit-symbolic", () => {
+                    if (on_edit_requested != null) on_edit_requested();
+                });
+            }
 
             menu.add_separator();
 
