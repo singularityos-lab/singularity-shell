@@ -32,6 +32,7 @@ namespace Singularity {
         private bool _swiping = false;
         private double _swipe_origin = 0;
         private double _scroll_x = 0;
+        private double _wheel_dx = 0;
 
         public bool editing { get { return _editing; } }
 
@@ -61,6 +62,7 @@ namespace Singularity {
             _pager = new ScrolledWindow();
             _pager.hscrollbar_policy = PolicyType.EXTERNAL;
             _pager.vscrollbar_policy = PolicyType.NEVER;
+            _pager.kinetic_scrolling = false;
             _pager.vexpand = true;
             _pager.child = _grid;
             _pager.add_css_class("phone-home-pages");
@@ -199,6 +201,13 @@ namespace Singularity {
             Singularity.Motion.spring_to(this, "scroll-x", _page * (double) _width, Singularity.Motion.Spring.SNAPPY);
         }
 
+        private void settle_from(double travel) {
+            int page = _page;
+            if (travel > _width * PAGE_COMMIT) page++;
+            else if (travel < -_width * PAGE_COMMIT) page--;
+            go_to_page(page);
+        }
+
         private bool over_item(Widget root, double x, double y) {
             Widget? hit = root.pick(x, y, PickFlags.DEFAULT);
             while (hit != null && hit != root) {
@@ -231,12 +240,38 @@ namespace Singularity {
             swipe.drag_end.connect((dx, dy) => {
                 if (!_swiping) return;
                 _swiping = false;
-                int page = _page;
-                if (dx < -_width * PAGE_COMMIT) page++;
-                else if (dx > _width * PAGE_COMMIT) page--;
-                go_to_page(page);
+                settle_from(-dx);
+            });
+            swipe.cancel.connect(() => {
+                if (!_swiping) return;
+                _swiping = false;
+                go_to_page(_page);
             });
             root.add_controller(swipe);
+
+            var wheel = new EventControllerScroll(EventControllerScrollFlags.BOTH_AXES);
+            wheel.scroll_begin.connect(() => {
+                Singularity.Motion.cancel(this, "scroll-x");
+                _swipe_origin = _pager.hadjustment.value;
+                _wheel_dx = 0;
+            });
+            wheel.scroll.connect((dx, dy) => {
+                double delta = Math.fabs(dx) >= Math.fabs(dy) ? dx : dy;
+                if (wheel.get_unit() == Gdk.ScrollUnit.WHEEL) {
+                    if (delta != 0) go_to_page(_page + (delta > 0 ? 1 : -1));
+                    return true;
+                }
+                double max = (int.max(1, _grid.page_count) - 1) * (double) _width;
+                _wheel_dx += delta;
+                scroll_x = (_swipe_origin + _wheel_dx).clamp(0, max);
+                return true;
+            });
+            wheel.scroll_end.connect(() => {
+                if (wheel.get_unit() == Gdk.ScrollUnit.WHEEL) return;
+                settle_from(_wheel_dx);
+                _wheel_dx = 0;
+            });
+            _grid.add_controller(wheel);
 
             var hold = new GestureLongPress();
             hold.pressed.connect((x, y) => {
