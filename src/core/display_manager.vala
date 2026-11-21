@@ -24,6 +24,7 @@ namespace Singularity {
         private const double MIN_SCALE = 1.0;
         private const double HANDHELD_DPI_PER_SCALE = 160.0;
         private const double HANDHELD_MAX_SCALE = 3.0;
+        private const double DESKTOP_HIDPI = 192.0;
         private const double MAX_SCALE = 16.0;
 
         /**
@@ -54,13 +55,7 @@ namespace Singularity {
                 return double.max(1.0, double.min(HANDHELD_MAX_SCALE, steps));
             }
 
-            // Fractional steps are deliberate -- 4K/27" lands near 163 dpi, where
-            // 2.0 is too large and 1.0 too small.
-            if (dpi >= 192.0) return 2.0;
-            if (dpi >= 168.0) return 1.75;
-            if (dpi >= 144.0) return 1.5;
-            if (dpi >= 120.0) return 1.25;
-            return 1.0;
+            return dpi >= DESKTOP_HIDPI ? 2.0 : 1.0;
         }
 
         private void apply_dpi_defaults() {
