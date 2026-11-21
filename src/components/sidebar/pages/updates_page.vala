@@ -430,7 +430,7 @@ namespace Singularity.SidebarPages {
 
         private void confirm_restart() {
             var app = GLib.Application.get_default() as Gtk.Application;
-            var dialog = new ConfirmDialog(app, _("Restart to Update?"), "singularity-updates",
+            var dialog = new Singularity.Shell.ShellConfirmDialog(app, _("Restart to Update?"), "singularity-updates",
                 _("Save your work first. Apps close, and the update installs before the system starts again."),
                 _("Restart"), ConfirmDialog.ActionStyle.SUGGESTED);
             dialog.response.connect((r) => {

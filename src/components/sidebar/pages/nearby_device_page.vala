@@ -129,7 +129,7 @@ namespace Singularity.SidebarPages {
             var d = device;
             if (d == null) return;
             var app = GLib.Application.get_default() as Gtk.Application;
-            var dlg = new ConfirmDialog(app, _("Unpair %s?").printf(d.name), d.icon_name,
+            var dlg = new Singularity.Shell.ShellConfirmDialog(app, _("Unpair %s?").printf(d.name), d.icon_name,
                 _("It will no longer share files, the clipboard or notifications with this computer until you pair again."),
                 _("Unpair"), ConfirmDialog.ActionStyle.DESTRUCTIVE);
             dlg.response.connect((r) => {

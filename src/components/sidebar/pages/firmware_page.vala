@@ -156,7 +156,7 @@ namespace Singularity.SidebarPages {
             string description = device.needs_restart
                 ? _("%s updates to version %s. The update finishes while the computer restarts, so save your work first.").printf(device.name, release.version)
                 : _("%s updates to version %s. Do not unplug it or turn off the computer until it finishes.").printf(device.name, release.version);
-            var dialog = new ConfirmDialog(app, _("Update Firmware?"), "singularity-firmware", description,
+            var dialog = new Singularity.Shell.ShellConfirmDialog(app, _("Update Firmware?"), "singularity-firmware", description,
                 _("Update"), ConfirmDialog.ActionStyle.SUGGESTED);
             if (device.requires_ac) {
                 var label = new Label(_("Connect the charger before you continue."));
@@ -274,13 +274,13 @@ namespace Singularity.SidebarPages {
 
         private void confirm_driver(UserspaceDriver driver, string mode, ActionRow row, Button button, Spinner spinner, ExpanderRow parent) {
             var app = GLib.Application.get_default() as Gtk.Application;
-            ConfirmDialog dialog;
+            Singularity.Shell.ShellConfirmDialog dialog;
             if (mode == "remove") {
-                dialog = new ConfirmDialog(app, _("Remove the Manufacturer's Driver?"), "user-trash",
+                dialog = new Singularity.Shell.ShellConfirmDialog(app, _("Remove the Manufacturer's Driver?"), "user-trash",
                     _("The %s stops working until the driver is installed again. Its settings are kept.").printf(driver.provider.name.down()),
                     _("Remove"), ConfirmDialog.ActionStyle.DESTRUCTIVE);
             } else {
-                dialog = new ConfirmDialog(app,
+                dialog = new Singularity.Shell.ShellConfirmDialog(app,
                     mode == "reinstall" ? _("Reinstall the Manufacturer's Driver?") : _("Install the Manufacturer's Driver?"),
                     "dialog-warning",
                     _("%s is proprietary software from %s. It is not part of Singularity, its source code is not available, and Singularity cannot review or update it.").printf(driver.name, driver.vendor),

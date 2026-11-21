@@ -179,13 +179,13 @@ namespace Singularity.SidebarPages {
                 if (driver == null) return;
                 bool removing = driver.installed;
                 var app = GLib.Application.get_default() as Gtk.Application;
-                ConfirmDialog dialog;
+                Singularity.Shell.ShellConfirmDialog dialog;
                 if (removing) {
-                    dialog = new ConfirmDialog(app, _("Remove the Manufacturer's Driver?"), "user-trash-symbolic",
+                    dialog = new Singularity.Shell.ShellConfirmDialog(app, _("Remove the Manufacturer's Driver?"), "user-trash-symbolic",
                         _("The fingerprint reader stops working until the driver is installed again. Enrolled fingerprints are kept."),
                         _("Remove"), ConfirmDialog.ActionStyle.DESTRUCTIVE);
                 } else {
-                    dialog = new ConfirmDialog(app, _("Install the Manufacturer's Driver?"), "dialog-warning-symbolic",
+                    dialog = new Singularity.Shell.ShellConfirmDialog(app, _("Install the Manufacturer's Driver?"), "dialog-warning-symbolic",
                         _("%s is proprietary software from %s. It is not part of Singularity, its source code is not available, and Singularity cannot review or update it.").printf(driver.name, driver.vendor),
                         _("Install"), ConfirmDialog.ActionStyle.SUGGESTED);
                     string[] details = {

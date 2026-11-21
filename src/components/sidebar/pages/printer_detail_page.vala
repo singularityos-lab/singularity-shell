@@ -334,7 +334,7 @@ namespace Singularity.SidebarPages {
             var app = GLib.Application.get_default() as Gtk.Application;
             if (app == null) return;
             string shown = printer != null ? printer.display_name : printer_name;
-            var dlg = new ConfirmDialog(app, _("Remove “%s”?").printf(shown),
+            var dlg = new Singularity.Shell.ShellConfirmDialog(app, _("Remove “%s”?").printf(shown),
                 printer != null ? printer.icon_name : "printer",
                 _("Documents waiting for this printer are cancelled. You can add the printer again later."),
                 _("Remove"), ConfirmDialog.ActionStyle.DESTRUCTIVE);

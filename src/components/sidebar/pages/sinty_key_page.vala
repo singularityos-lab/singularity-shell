@@ -352,7 +352,7 @@ namespace Singularity.SidebarPages {
                         return;
                     }
                     var app = GLib.Application.get_default() as Gtk.Application;
-                    var dlg = new ConfirmDialog(app, _("Use %s Anyway?").printf(drive.name), health.icon_name(),
+                    var dlg = new Singularity.Shell.ShellConfirmDialog(app, _("Use %s Anyway?").printf(drive.name), health.icon_name(),
                         "%s\n\n%s".printf(health.explain(), _("A Key on this drive may stop working and take your files with it.")),
                         _("Use Anyway"), ConfirmDialog.ActionStyle.DESTRUCTIVE);
                     dlg.response.connect((answer) => {

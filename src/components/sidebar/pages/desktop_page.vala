@@ -2259,7 +2259,7 @@ namespace Singularity {
 
         private void confirm_delete_pack(WallpaperCollectionInfo collection) {
             var app = GLib.Application.get_default() as Gtk.Application;
-            var dialog = new ConfirmDialog(app,
+            var dialog = new Singularity.Shell.ShellConfirmDialog(app,
                 _("Delete “%s”?").printf(collection.name), "user-trash-symbolic",
                 _("This permanently deletes every photo in this wallpaper pack."),
                 _("Delete Pack"), ConfirmDialog.ActionStyle.DESTRUCTIVE);
@@ -2464,7 +2464,7 @@ namespace Singularity {
                 }
             }
             var app = GLib.Application.get_default() as Gtk.Application;
-            var dialog = new ConfirmDialog(app,
+            var dialog = new Singularity.Shell.ShellConfirmDialog(app,
                 _("Delete “%s”?").printf(name), "user-trash-symbolic",
                 dynamic ? _("This dynamic wallpaper and the images it brought with it will be permanently deleted.")
                         : _("This photo will be permanently deleted."),

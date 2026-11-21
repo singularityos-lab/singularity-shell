@@ -375,7 +375,7 @@ namespace Singularity {
                             NetworkPage.ensure_hotspot_credentials(hs, out ssid, out pw, out wpa3);
                             if (network.hotspot_needs_disconnect()) {
                                 var app = GLib.Application.get_default() as Gtk.Application;
-                                var dlg = new Singularity.Widgets.ConfirmDialog(app, _("Start Wi-Fi Hotspot?"),
+                                var dlg = new Singularity.Shell.ShellConfirmDialog(app, _("Start Wi-Fi Hotspot?"),
                                     "network-wireless-hotspot-symbolic",
                                     _("Your current Wi-Fi connection will be disconnected, because the adapter can only join a network or host a hotspot, not both."),
                                     _("Start Hotspot"), Singularity.Widgets.ConfirmDialog.ActionStyle.SUGGESTED);

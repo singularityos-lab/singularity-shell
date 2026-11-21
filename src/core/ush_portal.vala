@@ -10,7 +10,7 @@ namespace Singularity.Shell {
 
             string decision = "deny";
 
-            var dlg = new Singularity.Widgets.ConfirmDialog(app,
+            var dlg = new Singularity.Shell.ShellConfirmDialog(app,
                 _("Permission Request"),
                 "dialog-password-symbolic",
                 "%s\n\n%s: %s".printf(reason, category, resource),
@@ -60,7 +60,7 @@ namespace Singularity.Shell {
             if (app == null) return false;
 
             bool granted = false;
-            var dlg = new Singularity.Widgets.ConfirmDialog(app,
+            var dlg = new Singularity.Shell.ShellConfirmDialog(app,
                 title, "dialog-question-symbolic", body,
                 _("Confirm"), Singularity.Widgets.ConfirmDialog.ActionStyle.SUGGESTED);
             bool answered = false;
@@ -91,7 +91,7 @@ namespace Singularity.Shell {
             if (app == null) return false;
 
             bool allowed = false;
-            var dlg = new Singularity.Widgets.ConfirmDialog(app,
+            var dlg = new Singularity.Shell.ShellConfirmDialog(app,
                 title, "dialog-warning", body,
                 block_label, Singularity.Widgets.ConfirmDialog.ActionStyle.SUGGESTED);
             dlg.set_secondary(allow_label);

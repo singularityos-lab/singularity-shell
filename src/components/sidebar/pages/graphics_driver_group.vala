@@ -173,13 +173,13 @@ namespace Singularity.SidebarPages {
 
         private void confirm() {
             var app = GLib.Application.get_default() as Gtk.Application;
-            ConfirmDialog dialog;
+            Singularity.Shell.ShellConfirmDialog dialog;
             if (chosen) {
-                dialog = new ConfirmDialog(app, _("Remove the NVIDIA Driver?"), "user-trash",
+                dialog = new Singularity.Shell.ShellConfirmDialog(app, _("Remove the NVIDIA Driver?"), "user-trash",
                     _("After a restart the open driver takes over. Games run slower and CUDA stops working."),
                     _("Remove"), ConfirmDialog.ActionStyle.DESTRUCTIVE);
             } else {
-                dialog = new ConfirmDialog(app, _("Install the NVIDIA Driver?"), "dialog-warning",
+                dialog = new Singularity.Shell.ShellConfirmDialog(app, _("Install the NVIDIA Driver?"), "dialog-warning",
                     _("The NVIDIA driver is proprietary software from NVIDIA. Its source code is not available, and only NVIDIA can fix it."),
                     _("Install"), ConfirmDialog.ActionStyle.SUGGESTED);
                 string[] details = {
