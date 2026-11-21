@@ -599,6 +599,7 @@ namespace Singularity {
 
                 if (icon_theme.has_icon("emblem-singularity")) {
                     logo.icon_name = "emblem-singularity";
+                    logo.add_css_class("panel-logo");
                 } else if (icon_theme.has_icon("computer-symbolic")) {
                     logo.icon_name = "computer-symbolic";
                 } else {
