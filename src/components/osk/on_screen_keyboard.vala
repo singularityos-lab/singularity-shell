@@ -92,6 +92,9 @@ namespace Singularity {
         private uint focus_hide_timeout = 0;
         private bool focus_was_wanted = false;
         private bool local_text_focused = false;
+        private bool suspended = false;
+        private bool shown_before_suspend = false;
+        private static unowned OnScreenKeyboard? current = null;
         private ulong window_added_handler = 0;
 
         public bool remote { get; private set; default = false; }
@@ -99,6 +102,7 @@ namespace Singularity {
 
         public OnScreenKeyboard(Gtk.Application app) {
             Object(application: app);
+            current = this;
             settings = new GLib.Settings("dev.sinty.desktop");
 
             init_for_window(this);
@@ -320,7 +324,31 @@ namespace Singularity {
             return InputMethodService.get_default().active || local_text_focused;
         }
 
+        public static void suspend_current(bool value) {
+            if (current != null) current.suspend(value);
+        }
+
+        public void suspend(bool value) {
+            if (suspended == value) return;
+            suspended = value;
+            if (value) {
+                cancel_focus_hide();
+                shown_before_suspend = visible;
+                if (visible) set_visible(false);
+                return;
+            }
+            bool restore = shown_before_suspend;
+            shown_before_suspend = false;
+            if (follows_focus) {
+                focus_was_wanted = false;
+                sync_input_focus();
+            } else if (restore) {
+                present();
+            }
+        }
+
         private void sync_input_focus() {
+            if (suspended) return;
             cancel_focus_hide();
             bool wanted = input_wanted();
             bool focused = wanted && !focus_was_wanted;
@@ -348,6 +376,7 @@ namespace Singularity {
         }
 
         public override void dispose() {
+            if (current == this) current = null;
             follow_input_focus(false);
             base.dispose();
         }

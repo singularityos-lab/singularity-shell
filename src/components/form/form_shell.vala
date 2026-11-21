@@ -259,6 +259,19 @@ namespace Singularity {
             return AppSystem.get_default().get_active_monitor() ?? Singularity.FormFactor.main_monitor();
         }
 
+        private HomeGesture home_gesture_for(Screen screen) {
+            var monitor = screen.monitor;
+            var gesture = new HomeGesture(monitor);
+            gesture.home_reached.connect(() => {
+                if (_switcher != null) _switcher.dismiss();
+                SnapController.get_default().dismiss_assist();
+                var current = screen_for(monitor);
+                if (current != null && current.home != null) current.home.leave_edit();
+            });
+            gesture.recents_requested.connect(() => show_recents(monitor));
+            return gesture;
+        }
+
         public bool go_home(Gdk.Monitor? monitor = null) {
             var target = monitor ?? active_monitor();
             var kind = kind_on(target);
@@ -333,6 +346,7 @@ namespace Singularity {
             switch (screen.kind) {
                 case Singularity.FormFactorKind.PHONE:
                     screen.nav = new PhoneNavBar(_app, monitor);
+                    screen.nav.gesture = home_gesture_for(screen);
                     screen.nav.back_requested.connect(() => go_back());
                     screen.nav.home_requested.connect(() => {
                         if (!go_home(monitor)) home_requested(monitor);
@@ -350,6 +364,7 @@ namespace Singularity {
                     break;
                 case Singularity.FormFactorKind.TABLET:
                     screen.nav = new PhoneNavBar(_app, monitor, true);
+                    screen.nav.gesture = home_gesture_for(screen);
                     screen.nav.home_requested.connect(() => {
                         if (!go_home(monitor)) home_requested(monitor);
                     });

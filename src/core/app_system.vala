@@ -1339,6 +1339,59 @@ namespace Singularity {
 
         // Resolve an app_id to its installed AppInfo, trying progressively looser
         // matches. Shared by initial window resolution and the post-scan re-resolve.
+        public bool app_ids_match(string? id_a, string? id_b) {
+            if (id_a == null || id_b == null || id_a.length < 2 || id_b.length < 2) return false;
+            // Basic sanity: reject strings with non-printable chars (garbage memory)
+            for (int i = 0; i < int.min(id_a.length, 64); i++)
+                if (id_a[i] < 0x20) return false;
+            for (int i = 0; i < int.min(id_b.length, 64); i++)
+                if (id_b[i] < 0x20) return false;
+            if (id_a == id_b) return true;
+            string a = strip_desktop_id(id_a);
+            string b = strip_desktop_id(id_b);
+            if (a == b) return true;
+            if (a.has_suffix("." + b) || b.has_suffix("." + a)) return true;
+            string an = dot_separators(a);
+            string bn = dot_separators(b);
+            if (an == bn) return true;
+            if (an.has_suffix("." + bn) || bn.has_suffix("." + an)) return true;
+            // StartupWMClass - the standard desktop-entry way
+            var dinfo_a = resolve_app_for_id(id_a) as GLib.DesktopAppInfo;
+            if (dinfo_a != null) {
+                string? wm = dinfo_a.get_startup_wm_class();
+                if (wm != null && wm.down() == b) return true;
+            }
+            var dinfo_b = resolve_app_for_id(id_b) as GLib.DesktopAppInfo;
+            if (dinfo_b != null) {
+                string? wm = dinfo_b.get_startup_wm_class();
+                if (wm != null && wm.down() == a) return true;
+            }
+            return false;
+        }
+
+        public string[] window_aliases(string app_id) {
+            string[] ids = {};
+            foreach (var win in get_windows()) {
+                if (win.app_id != null && app_ids_match(app_id, win.app_id) && !(win.app_id in ids)) ids += win.app_id;
+            }
+            return ids;
+        }
+
+        private static string strip_desktop_id(string id) {
+            string s = id.down();
+            if (s.has_suffix(".desktop")) return s[0:s.length - 8];
+            return s;
+        }
+
+        private static string dot_separators(string s) {
+            var sb = new StringBuilder();
+            for (int i = 0; i < s.length; i++) {
+                char c = s[i];
+                sb.append_c(c == '-' || c == '_' ? '.' : c);
+            }
+            return sb.str;
+        }
+
         public AppInfo? resolve_app_for_id(string app_id) {
             string icon_name = app_id.down();
             AppInfo? app_info = get_app_info(app_id);

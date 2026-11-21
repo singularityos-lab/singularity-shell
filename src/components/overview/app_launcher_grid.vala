@@ -89,6 +89,8 @@ namespace Singularity {
 
         public delegate void ToggleCallback();
         public ToggleCallback? on_app_launched;
+        public delegate void LaunchCallback(string app_id);
+        public LaunchCallback? on_app_launching;
 
         public AppLauncherGrid(Gtk.Application app, int icon_size = 96,
                                 int columns = 6, int spacing = 30) {
@@ -389,6 +391,25 @@ namespace Singularity {
             _reveal_count = visible_cells.length;
             Singularity.Motion.cascade(visible_cells, Singularity.Motion.Preset.FADE_SLIDE);
             if (is_populated() && _build_source == 0) _reveal_rows = -1;
+        }
+
+        public Gtk.Widget[] app_buttons() {
+            var found = new GenericArray<Gtk.Widget>();
+            for (var c = grid.get_first_child(); c != null; c = c.get_next_sibling()) {
+                collect_app_buttons(c, found, 0);
+            }
+            return found.data;
+        }
+
+        private void collect_app_buttons(Gtk.Widget widget, GenericArray<Gtk.Widget> found, int depth) {
+            if (widget.get_data<string>("app_id") != null) {
+                found.add(widget);
+                return;
+            }
+            if (depth > 4) return;
+            for (var c = widget.get_first_child(); c != null; c = c.get_next_sibling()) {
+                collect_app_buttons(c, found, depth + 1);
+            }
         }
 
         private bool in_reveal_rows(FixedCell cell) {
@@ -1098,6 +1119,7 @@ namespace Singularity {
         private Button create_app_button(AppInfo app, string app_id) {
             var btn = new Button();
             btn.add_css_class("app-grid-item");
+            btn.set_data<string>("app_id", app_id);
             btn.has_frame = false;
             btn.hexpand = true;
             btn.vexpand = true;
@@ -1130,6 +1152,7 @@ namespace Singularity {
             btn.set_child(box);
 
             btn.clicked.connect(() => {
+                if (on_app_launching != null) on_app_launching(app_id);
                 AppSystem.launch_app(app);
                 if (on_app_launched != null) on_app_launched();
             });
@@ -1414,6 +1437,7 @@ namespace Singularity {
             menu.set_pointing_to(rect);
 
             menu.add_item("Open", "system-run-symbolic", () => {
+                if (on_app_launching != null && app_id != null) on_app_launching(app_id);
                 AppSystem.launch_app(app);
                 if (on_app_launched != null) on_app_launched();
             });

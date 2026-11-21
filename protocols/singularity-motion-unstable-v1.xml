@@ -4,7 +4,7 @@
     Copyright © 2026 Singularity Desktop
   </copyright>
 
-  <interface name="zsingularity_motion_manager_v1" version="1">
+  <interface name="zsingularity_motion_manager_v1" version="2">
     <description summary="motion hints for window animations">
       Lets a shell tell the compositor where the launcher icon of each
       application is, so windows can open from it, close into it and
@@ -50,5 +50,78 @@
       </description>
       <arg name="app_id" type="string"/>
     </request>
+
+    <request name="get_card" since="2">
+      <description summary="hold a window by hand">
+        Creates a card for the toplevel: a picture of the window that the
+        shell moves while a finger drags it, for example when the user
+        swipes up from the bottom edge to go home. While the card exists
+        the window itself is not drawn; its focus and state do not change.
+        A minimized window can have a card too, so the shell can bring in
+        the next window of a horizontal swipe. Only one card per window
+        exists at a time; asking again replaces the previous one.
+      </description>
+      <arg name="id" type="new_id" interface="zsingularity_motion_card_v1"/>
+      <arg name="toplevel" type="object" interface="zwlr_foreign_toplevel_handle_v1"/>
+    </request>
+  </interface>
+
+  <interface name="zsingularity_motion_card_v1" version="2">
+    <description summary="a window held by the shell">
+      Rectangles are in output layout coordinates. The card starts where
+      the window is, or, for a minimized window, hidden until the first
+      set_rect.
+    </description>
+
+    <enum name="release_action">
+      <entry name="show" value="0" summary="the window is shown, raised and focused"/>
+      <entry name="minimize" value="1" summary="the window is minimized"/>
+    </enum>
+
+    <request name="destroy" type="destructor">
+      <description summary="drop the card">
+        Drops the card at once. A card that was never released leaves the
+        window as it was before the card existed.
+      </description>
+    </request>
+
+    <request name="set_rect">
+      <description summary="place the card">
+        Draws the card at the rectangle with rounded corners of the given
+        radius. Calls are applied on the next frame of the output.
+      </description>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+      <arg name="radius" type="int"/>
+    </request>
+
+    <request name="release">
+      <description summary="let the card go">
+        Moves the card from where it is to the rectangle with the system
+        spring, starting at the given velocity in layout pixels per
+        second, then applies the action and sends done. A rectangle with
+        zero width or height means the place of the window for show, and
+        the application icon for minimize. Later set_rect requests are
+        ignored.
+      </description>
+      <arg name="action" type="uint" enum="release_action"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+      <arg name="radius" type="int"/>
+      <arg name="velocity_x" type="int"/>
+      <arg name="velocity_y" type="int"/>
+    </request>
+
+    <event name="done">
+      <description summary="the card has landed">
+        Sent once the release finished and the action was applied, or when
+        the window went away. The card has no further effect; the client
+        destroys it.
+      </description>
+    </event>
   </interface>
 </protocol>

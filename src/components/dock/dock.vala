@@ -184,7 +184,9 @@ namespace Singularity {
                 update_dock_reservation();
             });
             center_wrapper.append(dock_box);
-            motion_hints = new DockMotionHints(this, dock_box, running_aliases);
+            motion_hints = new DockMotionHints(this, dock_box, (id) => {
+                return app_system.window_aliases(id);
+            });
             dock_visibility_changed.connect((hidden) => motion_hints.set_hidden(hidden));
             layout_items["applications"] = dock_box;
 
@@ -1293,7 +1295,7 @@ namespace Singularity {
                     btn_id = child.get_data<string>("app_id");
                 }
                 if (btn != null && btn_id != null) {
-                    bool match = app_id != null && dock_matches(btn_id, app_id);
+                    bool match = app_id != null && app_system.app_ids_match(btn_id, app_id);
                     if (match) {
                         btn.add_css_class("active");
                         (child as Gtk.Box)?.add_css_class("active-wrapper");
@@ -1312,7 +1314,7 @@ namespace Singularity {
             Widget? child = dock_box.get_first_child();
             while (child != null) {
                 string? wrapper_id = child.get_data<string>("app_id");
-                if (wrapper_id != null && dock_matches(wrapper_id, app_id)) {
+                if (wrapper_id != null && app_system.app_ids_match(wrapper_id, app_id)) {
                     var wrapper = child as Gtk.Box;
                     if (wrapper != null) {
                         DockLaunchFeedback.play(wrapper, _settings.get_string("dock-position"));
@@ -1375,7 +1377,7 @@ namespace Singularity {
                 Widget? child = dock_box.get_first_child();
                 while (child != null) {
                     string? wid = child.get_data<string>("app_id");
-                    if (wid != null && (app_id == "" || dock_matches(wid, app_id))) {
+                    if (wid != null && (app_id == "" || app_system.app_ids_match(wid, app_id))) {
                         var info = child.get_data<GLib.AppInfo?>("app_info_ref");
                         int sz = child.get_data<int>("icon_size");
                         apply_extensions_to_item(child, wid, info, sz > 0 ? sz : Singularity.FormShell.dock_icon_size(_settings, get_target_monitor()));
@@ -1537,7 +1539,7 @@ namespace Singularity {
             Widget? child = dock_box.get_first_child();
             while (child != null) {
                 string? wid = child.get_data<string>("app_id");
-                if (wid != null && dock_matches(wid, app_id)) {
+                if (wid != null && app_system.app_ids_match(wid, app_id)) {
                     var info = child.get_data<GLib.AppInfo?>("app_info_ref");
                     int sz = child.get_data<int>("icon_size");
                     apply_extensions_to_item(child, wid, info, sz > 0 ? sz : Singularity.FormShell.dock_icon_size(_settings, get_target_monitor()));
@@ -1871,7 +1873,7 @@ namespace Singularity {
             if (_menu_open) return;
             var wins = new Gee.ArrayList<AppSystem.Window>();
             foreach (var win in app_system.get_windows()) {
-                if (win.app_id != null && dock_matches(app_id, win.app_id)
+                if (win.app_id != null && app_system.app_ids_match(app_id, win.app_id)
                         && (handle == null || win.handle == handle)) wins.add(win);
             }
             if (wins.size == 0) return;
@@ -2113,25 +2115,6 @@ namespace Singularity {
             return s;
         }
 
-        // Safe single-char replacement (avoids string.replace() crash on this GLib version)
-
-        private static string replace_char(string s, char from, char to) {
-            var sb = new StringBuilder();
-            for (int i = 0; i < s.length; i++) {
-                sb.append_c(s[i] == from ? to : s[i]);
-            }
-            return sb.str;
-        }
-
-        // Normalized match: handles org.X.app <-> x-app.desktop, StartupWMClass, etc.
-
-        private string[] running_aliases(string app_id) {
-            string[] ids = {};
-            foreach (var win in app_system.get_windows()) {
-                if (win.app_id != null && dock_matches(app_id, win.app_id)) ids += win.app_id;
-            }
-            return ids;
-        }
 
         private void announce_launch(GLib.AppInfo? app_info, string? app_id = null) {
             if (motion_hints == null) return;
@@ -2139,44 +2122,14 @@ namespace Singularity {
             if (id != null) motion_hints.launch(id);
         }
 
-        private bool dock_matches(string? id_a, string? id_b) {
-            if (id_a == null || id_b == null || id_a.length < 2 || id_b.length < 2) return false;
-            // Basic sanity: reject strings with non-printable chars (garbage memory)
-            for (int i = 0; i < int.min(id_a.length, 64); i++)
-                if (id_a[i] < 0x20) return false;
-            for (int i = 0; i < int.min(id_b.length, 64); i++)
-                if (id_b[i] < 0x20) return false;
-            if (id_a == id_b) return true;
-            string a = strip_desktop(id_a);
-            string b = strip_desktop(id_b);
-            if (a == b) return true;
-            if (a.has_suffix("." + b) || b.has_suffix("." + a)) return true;
-            string an = replace_char(replace_char(a, '-', '.'), '_', '.');
-            string bn = replace_char(replace_char(b, '-', '.'), '_', '.');
-            if (an == bn) return true;
-            if (an.has_suffix("." + bn) || bn.has_suffix("." + an)) return true;
-            // StartupWMClass - the standard desktop-entry way
-            var dinfo_a = app_system.resolve_app_for_id(id_a) as GLib.DesktopAppInfo;
-            if (dinfo_a != null) {
-                string? wm = dinfo_a.get_startup_wm_class();
-                if (wm != null && wm.down() == b) return true;
-            }
-            var dinfo_b = app_system.resolve_app_for_id(id_b) as GLib.DesktopAppInfo;
-            if (dinfo_b != null) {
-                string? wm = dinfo_b.get_startup_wm_class();
-                if (wm != null && wm.down() == a) return true;
-            }
-            return false;
-        }
-
         private int count_app_windows(string app_id) {
             int n = 0;
             foreach (var win in app_system.get_windows()) {
-                if (win.app_id != null && dock_matches(app_id, win.app_id)) n++;
+                if (win.app_id != null && app_system.app_ids_match(app_id, win.app_id)) n++;
             }
             if (n == 0) {
                 foreach (var running_id in app_system.get_running_apps()) {
-                    if (dock_matches(app_id, running_id)) return 1;
+                    if (app_system.app_ids_match(app_id, running_id)) return 1;
                 }
             }
             return n;
@@ -2186,7 +2139,7 @@ namespace Singularity {
 
         private void* get_window_handle_for_app(string app_id) {
             foreach (var win in app_system.get_windows()) {
-                if (dock_matches(win.app_id, app_id)) return win.handle;
+                if (app_system.app_ids_match(win.app_id, app_id)) return win.handle;
             }
             return null;
         }
@@ -2209,7 +2162,7 @@ namespace Singularity {
 
         private bool is_covered_by_pinned(string running_id, string[] pinned) {
             foreach (var pinned_id in pinned) {
-                if (dock_matches(pinned_id, running_id)) return true;
+                if (app_system.app_ids_match(pinned_id, running_id)) return true;
             }
             return false;
         }
@@ -2220,7 +2173,7 @@ namespace Singularity {
         // entry and missing it for apps like Minecraft or Bitwig (#159, #161).
         private AppSystem.Window? find_window_for(string app_id) {
             foreach (var win in app_system.get_windows()) {
-                if (win.app_id == app_id || dock_matches(app_id, win.app_id)) return win;
+                if (win.app_id == app_id || app_system.app_ids_match(app_id, win.app_id)) return win;
             }
             return null;
         }
@@ -2388,7 +2341,7 @@ namespace Singularity {
                 menu.add_item("Quit", "application-exit-symbolic", () => {
                     // Close this app's own windows, not whatever is focused.
                     foreach (var win in app_system.get_windows()) {
-                        if (dock_matches(win.app_id, app_id))
+                        if (app_system.app_ids_match(win.app_id, app_id))
                             Singularity.close_window(win.handle);
                     }
                 });
@@ -2419,7 +2372,7 @@ namespace Singularity {
                     });
                 }
             }
-            if (dock_matches(app_id, "dev.sinty.leafs") && FileUtils.test("/usr/bin/ush", FileTest.IS_EXECUTABLE)) {
+            if (app_system.app_ids_match(app_id, "dev.sinty.leafs") && FileUtils.test("/usr/bin/ush", FileTest.IS_EXECUTABLE)) {
                 var host_separator = new Gtk.Separator(Gtk.Orientation.HORIZONTAL);
                 var host_row = new Singularity.Widgets.MenuRow(_("Host Shell"), "utilities-terminal-symbolic");
                 host_row.halign = Gtk.Align.FILL;
@@ -2494,7 +2447,7 @@ namespace Singularity {
             var terminator = new ProcessTerminator();
             bool has_windows = false;
             foreach (var win in app_system.get_windows()) {
-                if (!dock_matches(win.app_id, app_id)) continue;
+                if (!app_system.app_ids_match(win.app_id, app_id)) continue;
                 has_windows = true;
                 int pid;
                 uint source;
@@ -2696,7 +2649,7 @@ namespace Singularity {
                 pause.resume(app_id);
                 var app_wins = new Gee.ArrayList<AppSystem.Window>();
                 foreach (var w in app_system.get_windows())
-                    if (w.app_id != null && dock_matches(app_id, w.app_id)) app_wins.add(w);
+                    if (w.app_id != null && app_system.app_ids_match(app_id, w.app_id)) app_wins.add(w);
 
                 if (app_wins.size > 1) {
                     var focused = app_system.get_focused_window_handle();

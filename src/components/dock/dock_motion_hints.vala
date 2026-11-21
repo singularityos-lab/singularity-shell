@@ -1,34 +1,53 @@
 namespace Singularity {
 
     public delegate string[] DockAliasFunc(string app_id);
+    public delegate Gtk.Widget[] DockItemsFunc();
 
     public class DockMotionHints : Object {
 
         private unowned Gtk.Window window;
-        private unowned Gtk.Widget container;
+        private unowned Gtk.Widget? container;
+        private DockItemsFunc? items = null;
         private DockAliasFunc aliases;
         private HashTable<string, string> sent = new HashTable<string, string>(str_hash, str_equal);
         private bool hidden = false;
         private bool cleared = true;
         private ulong layout_id = 0;
+        private ulong opened_id = 0;
+        private ulong closed_id = 0;
         private unowned Gdk.FrameClock? clock = null;
 
         public DockMotionHints(Gtk.Window window, Gtk.Widget container, owned DockAliasFunc aliases) {
             this.window = window;
             this.container = container;
             this.aliases = (owned) aliases;
+            watch();
+        }
+
+        public DockMotionHints.for_items(Gtk.Window window, owned DockItemsFunc items, owned DockAliasFunc aliases) {
+            this.window = window;
+            this.container = null;
+            this.items = (owned) items;
+            this.aliases = (owned) aliases;
+            watch();
+        }
+
+        private void watch() {
             unowned Gtk.Widget widget = window;
             widget.realize.connect(attach_clock);
             widget.unrealize.connect(detach_clock);
             window.map.connect(() => {
                 sent.remove_all();
                 cleared = true;
+                watch_windows(true);
                 sync();
             });
             window.unmap.connect(() => {
+                watch_windows(false);
                 sent.remove_all();
                 cleared = true;
             });
+            if (window.get_mapped()) watch_windows(true);
             if (window.get_realized()) attach_clock();
         }
 
@@ -56,6 +75,24 @@ namespace Singularity {
             clock = null;
         }
 
+        private void watch_windows(bool active) {
+            var apps = AppSystem.get_default();
+            if (opened_id != 0) apps.disconnect(opened_id);
+            if (closed_id != 0) apps.disconnect(closed_id);
+            opened_id = 0;
+            closed_id = 0;
+            if (!active) return;
+            opened_id = apps.app_opened.connect(() => sync());
+            closed_id = apps.app_closed.connect(() => sync());
+        }
+
+        private Gtk.Widget[] current_items() {
+            if (items != null) return items();
+            Gtk.Widget[] children = {};
+            for (var child = container.get_first_child(); child != null; child = child.get_next_sibling()) children += child;
+            return children;
+        }
+
         public void sync() {
             if (!window.get_mapped()) return;
             if (hidden) {
@@ -71,7 +108,7 @@ namespace Singularity {
             int window_width = window.get_width();
             int window_height = window.get_height();
             var seen = new GenericSet<string>(str_hash, str_equal);
-            for (var child = container.get_first_child(); child != null; child = child.get_next_sibling()) {
+            foreach (var child in current_items()) {
                 string? app_id = child.get_data<string>("app_id");
                 if (app_id == null || app_id == "" || !child.get_mapped()) continue;
                 Graphene.Rect bounds;

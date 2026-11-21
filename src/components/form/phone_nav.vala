@@ -23,7 +23,10 @@ namespace Singularity {
         private Singularity.Animation.MotionBin _bar_motion;
         private bool _gesture_fired = false;
         private bool _pulling = false;
+        private bool _tracking = false;
         private Button _companion;
+
+        public HomeGesture? gesture { get; set; default = null; }
 
         public PhoneNavBar(Gtk.Application app, Gdk.Monitor monitor, bool handle_only = false) {
             Object(application: app);
@@ -55,7 +58,7 @@ namespace Singularity {
             _pill_motion.halign = Align.CENTER;
             _pill_motion.valign = Align.CENTER;
             home.child = _pill_motion;
-            home.clicked.connect(() => home_requested());
+            home.activate.connect(() => home_requested());
             var recents = nav_button("view-grid-symbolic", _("Recent Apps"));
             recents.clicked.connect(() => recents_requested());
             _companion = nav_button("input-touchpad-symbolic", _("Control Other Screen"));
@@ -75,11 +78,19 @@ namespace Singularity {
             drag.drag_begin.connect(() => {
                 _gesture_fired = false;
                 _pulling = false;
+                _tracking = gesture != null && gesture.begin();
             });
             drag.drag_update.connect((dx, dy) => follow_finger(drag, dx, dy));
             drag.drag_end.connect((dx, dy) => {
+                if (_tracking) gesture.end();
                 if (_pulling) pull_end(dy);
                 _pulling = false;
+                _tracking = false;
+                settle();
+            });
+            drag.cancel.connect(() => {
+                if (_tracking) gesture.cancel();
+                _tracking = false;
                 settle();
             });
             bar.add_controller(drag);
@@ -99,6 +110,15 @@ namespace Singularity {
         }
 
         private void follow_finger(GestureDrag drag, double dx, double dy) {
+            if (_tracking) {
+                _pill_motion.translate_y = double.max(-PILL_TRAVEL * 0.5, double.min(0.0, dy * 0.15));
+                _pill_motion.translate_x = double.max(-PILL_TRAVEL, double.min(PILL_TRAVEL, dx * 0.4));
+                if (gesture.update(dx, dy) && !_gesture_fired) {
+                    _gesture_fired = true;
+                    drag.set_state(EventSequenceState.CLAIMED);
+                }
+                return;
+            }
             if (_pulling) {
                 pull_update(dy);
                 return;

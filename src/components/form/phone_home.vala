@@ -22,6 +22,7 @@ namespace Singularity {
 
         private unowned Gdk.Monitor _monitor;
         private AppLauncherGrid _grid;
+        private DockMotionHints _motion_hints;
         private ScrolledWindow _pager;
         private Box _dots;
         private Singularity.Animation.MotionBin _stage;
@@ -63,6 +64,12 @@ namespace Singularity {
             _grid.margin_top = TOP_GAP;
             _grid.notify["page-count"].connect(() => refresh_pages());
             _grid.on_edit_requested = () => enter_edit();
+            _motion_hints = new DockMotionHints.for_items(this, () => {
+                return _grid.app_buttons();
+            }, (id) => {
+                return AppSystem.get_default().window_aliases(id);
+            });
+            _grid.on_app_launching = (app_id) => _motion_hints.launch(app_id);
 
             _pager = new ScrolledWindow();
             _pager.hscrollbar_policy = PolicyType.EXTERNAL;
