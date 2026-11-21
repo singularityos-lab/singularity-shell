@@ -156,8 +156,7 @@ namespace Singularity.Tablet {
                 warning("tablet: unknown key %s", key);
                 return;
             }
-            var settings = new GLib.Settings("dev.sinty.desktop");
-            Singularity.osk_set_layout(settings.get_string("xkb-layout"), settings.get_string("xkb-variant"));
+            ScreenKeymap.get_default().ensure();
             if (!Singularity.osk_press_keysym(keysym, modifiers))
                 warning("tablet: no key for %s in the current layout", key);
         }

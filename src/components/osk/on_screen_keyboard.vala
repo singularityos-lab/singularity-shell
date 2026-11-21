@@ -168,9 +168,8 @@ namespace Singularity {
             }
             set_child(rows);
 
-            settings.changed["xkb-layout"].connect(apply_layout);
-            settings.changed["xkb-variant"].connect(apply_layout);
-            apply_layout();
+            ScreenKeymap.get_default().changed.connect(refresh);
+            ScreenKeymap.get_default().ensure();
 
             var ime = InputMethodService.get_default();
             ime.suggestions_changed.connect(show_suggestions);
@@ -541,11 +540,6 @@ namespace Singularity {
                 row.append(button);
             }
             return row;
-        }
-
-        private void apply_layout() {
-            Singularity.osk_set_layout(settings.get_string("xkb-layout"), settings.get_string("xkb-variant"));
-            refresh();
         }
 
         private void toggle_modifier(uint modifier) {

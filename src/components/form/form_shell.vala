@@ -585,10 +585,7 @@ namespace Singularity {
             foreach (var screen in _screens) {
                 if (screen.home != null && screen.home.leave_edit()) return;
             }
-            if (!_keymap_ready) {
-                var settings = new GLib.Settings("dev.sinty.desktop");
-                _keymap_ready = Singularity.osk_set_layout(settings.get_string("xkb-layout"), settings.get_string("xkb-variant"));
-            }
+            if (!_keymap_ready) _keymap_ready = ScreenKeymap.get_default().ensure();
             Singularity.osk_press(ESCAPE_KEYCODE, 0);
         }
     }

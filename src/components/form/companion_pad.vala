@@ -241,10 +241,7 @@ namespace Singularity {
         }
 
         private void press(uint code) {
-            if (!_keymap_ready) {
-                var settings = new GLib.Settings("dev.sinty.desktop");
-                _keymap_ready = Singularity.osk_set_layout(settings.get_string("xkb-layout"), settings.get_string("xkb-variant"));
-            }
+            if (!_keymap_ready) _keymap_ready = ScreenKeymap.get_default().ensure();
             Singularity.osk_press(code, 0);
         }
     }
