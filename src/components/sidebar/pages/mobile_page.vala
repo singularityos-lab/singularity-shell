@@ -83,8 +83,11 @@ namespace Singularity.SidebarPages {
         private SwitchRow roaming_row;
         private EntryRow apn_row;
         private PreferencesGroup pin_group;
+        private Box operators_box;
         private PasswordRow pin_row;
-        private ActionRow puk_row;
+        private PasswordRow puk_row;
+        private PasswordRow new_pin_row;
+        private ActionRow unblock_row;
         private bool syncing = false;
 
         public MobilePage(SettingsView view) {
@@ -107,8 +110,14 @@ namespace Singularity.SidebarPages {
                 pin_row.text = "";
             });
             pin_group.add_row(pin_row);
-            puk_row = new ActionRow(_("SIM Blocked"), _("The PUK cannot be entered here yet. Ask your carrier to unblock the SIM."));
+            puk_row = new PasswordRow(_("PUK from Your Carrier"));
             pin_group.add_row(puk_row);
+            new_pin_row = new PasswordRow(_("New SIM PIN"));
+            new_pin_row.entry_activated.connect(() => unblock());
+            pin_group.add_row(new_pin_row);
+            unblock_row = action_row(pin_group, _("Unblock SIM"),
+                _("Too many wrong PUKs disable the SIM for good"), "dialog-password-symbolic");
+            unblock_row.activated.connect(() => unblock());
             pin_group.visible = false;
             add_group(pin_group);
 
@@ -121,6 +130,16 @@ namespace Singularity.SidebarPages {
             use_sim.activated.connect(() => apply.begin(MobileCommand.SELECT_SLOT,
                 new Variant("(u)", MobileNetwork.SIM_SLOT), _("Switched to the SIM card"), use_sim));
             add_group(sims);
+
+            var choice = new PreferencesGroup(_("Carrier Selection"));
+            var automatic = action_row(choice, _("Choose Automatically"), null, "emblem-ok-symbolic");
+            automatic.activated.connect(() => apply.begin(MobileCommand.SELECT_NETWORK,
+                new Variant("(s)", ""), _("The modem chooses the network"), automatic));
+            var search = action_row(choice, _("Search Networks"), _("Can take up to three minutes"), "system-search-symbolic");
+            search.activated.connect(() => search_networks.begin(search));
+            add_group(choice);
+            operators_box = new Box(Orientation.VERTICAL, 0);
+            add_widget(operators_box);
 
             var data = new PreferencesGroup(_("Mobile Data"));
             data_row = new SwitchRow(_("Mobile Data"), _("Internet away from Wi-Fi"));
@@ -151,6 +170,47 @@ namespace Singularity.SidebarPages {
                 if (syncing) return;
                 apply.begin(command, new Variant("(b)", row.active), _("Saved"), row);
             });
+        }
+
+        private async void search_networks(Widget row) {
+            row.sensitive = false;
+            report(_("Searching…"));
+            try {
+                show_operators(yield mobile.search_operators());
+                report(_("Search finished"));
+            } catch (Error e) {
+                report(_("The search did not work"), ModemError.describe(e));
+            }
+            row.sensitive = true;
+        }
+
+        private void show_operators(Gee.List<MobileOperator> found) {
+            Widget? child;
+            while ((child = operators_box.get_first_child()) != null) operators_box.remove(child);
+            var group = new PreferencesGroup(_("Networks Found"));
+            if (found.size == 0) group.add_row(new ActionRow(_("No network found"), null));
+            foreach (var op in found) {
+                string code = op.code;
+                string? state = null;
+                if (op.status == 2) state = _("In use");
+                else if (op.status == 3) state = _("Not allowed for this SIM");
+                string title = op.status == 2 && mobile.operator_name != "" ? mobile.operator_name : code;
+                var row = action_row(group, title, state, "network-cellular-symbolic");
+                row.activated.connect(() => apply.begin(MobileCommand.SELECT_NETWORK,
+                    new Variant("(s)", code), _("Network chosen"), row));
+            }
+            operators_box.append(group);
+        }
+
+        private void unblock() {
+            if (puk_row.text == "" || new_pin_row.text == "") {
+                report(_("Enter the PUK and a new PIN"));
+                return;
+            }
+            apply.begin(MobileCommand.SEND_PUK, new Variant("(ss)", puk_row.text, new_pin_row.text),
+                _("SIM unblocked"), unblock_row);
+            puk_row.text = "";
+            new_pin_row.text = "";
         }
 
         private async void show_imei(ActionRow row) {
@@ -193,7 +253,7 @@ namespace Singularity.SidebarPages {
             if (apn_row.get_focus_child() == null) apn_row.text = mobile.apn;
             pin_group.visible = mobile.unlock_required == 2 || mobile.unlock_required == 4;
             pin_row.visible = mobile.unlock_required == 2;
-            puk_row.visible = mobile.unlock_required == 4;
+            puk_row.visible = new_pin_row.visible = unblock_row.visible = mobile.unlock_required == 4;
             syncing = false;
         }
     }
