@@ -88,6 +88,9 @@ namespace Singularity.SidebarPages {
         private PasswordRow puk_row;
         private PasswordRow new_pin_row;
         private ActionRow unblock_row;
+        private PasswordRow current_pin_row;
+        private PasswordRow next_pin_row;
+        private ActionRow change_pin_row;
         private bool syncing = false;
 
         public MobilePage(SettingsView view) {
@@ -118,6 +121,14 @@ namespace Singularity.SidebarPages {
             unblock_row = action_row(pin_group, _("Unblock SIM"),
                 _("Too many wrong PUKs disable the SIM for good"), "dialog-password-symbolic");
             unblock_row.activated.connect(() => unblock());
+            current_pin_row = new PasswordRow(_("Current SIM PIN"));
+            pin_group.add_row(current_pin_row);
+            next_pin_row = new PasswordRow(_("New SIM PIN"));
+            next_pin_row.entry_activated.connect(() => change_pin());
+            pin_group.add_row(next_pin_row);
+            change_pin_row = action_row(pin_group, _("Change SIM PIN"),
+                _("Too many wrong PINs block the SIM"), "dialog-password-symbolic");
+            change_pin_row.activated.connect(() => change_pin());
             pin_group.visible = false;
             add_group(pin_group);
 
@@ -213,6 +224,17 @@ namespace Singularity.SidebarPages {
             new_pin_row.text = "";
         }
 
+        private void change_pin() {
+            if (current_pin_row.text == "" || next_pin_row.text == "") {
+                report(_("Enter the current PIN and a new one"));
+                return;
+            }
+            apply.begin(MobileCommand.CHANGE_PIN, new Variant("(ss)", current_pin_row.text, next_pin_row.text),
+                _("SIM PIN changed"), change_pin_row);
+            current_pin_row.text = "";
+            next_pin_row.text = "";
+        }
+
         private async void show_imei(ActionRow row) {
             var reply = yield apply(MobileCommand.GET_IMEI, null, _("IMEI shown"), row);
             if (reply != null) row.subtitle = reply.get_child_value(0).get_string();
@@ -251,7 +273,9 @@ namespace Singularity.SidebarPages {
             roaming_row.active = mobile.roaming_enabled;
             data_row.sensitive = roaming_row.sensitive = apn_row.sensitive = mobile.has_settings;
             if (apn_row.get_focus_child() == null) apn_row.text = mobile.apn;
-            pin_group.visible = mobile.unlock_required == 2 || mobile.unlock_required == 4;
+            bool can_change = mobile.unlock_required == 1 && !mobile.sim_missing;
+            pin_group.visible = mobile.unlock_required == 2 || mobile.unlock_required == 4 || can_change;
+            current_pin_row.visible = next_pin_row.visible = change_pin_row.visible = can_change;
             pin_row.visible = mobile.unlock_required == 2;
             puk_row.visible = new_pin_row.visible = unblock_row.visible = mobile.unlock_required == 4;
             syncing = false;
