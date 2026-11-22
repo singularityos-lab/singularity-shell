@@ -78,6 +78,7 @@ namespace Singularity.SidebarPages {
 
         private ActionRow status_row;
         private ActionRow signal_row;
+        private ActionRow calls_row;
         private SwitchRow radio_row;
         private SwitchRow data_row;
         private SwitchRow roaming_row;
@@ -102,6 +103,8 @@ namespace Singularity.SidebarPages {
             connection.add_row(status_row);
             signal_row = new ActionRow(_("Signal"), null);
             connection.add_row(signal_row);
+            calls_row = new ActionRow(_("Calls over 4G (VoLTE)"), null);
+            connection.add_row(calls_row);
             radio_row = new SwitchRow(_("Mobile Network"), _("Calls, messages and data"));
             connection.add_row(radio_row);
             add_group(connection);
@@ -271,6 +274,8 @@ namespace Singularity.SidebarPages {
             string network = generation(mobile.technology);
             signal_row.visible = network != "";
             signal_row.subtitle = "%s, %u%%".printf(network, mobile.signal_quality);
+            calls_row.visible = mobile.has_voice;
+            calls_row.subtitle = mobile.calls_ready ? _("Ready") : _("Not ready, emergency calls only");
             radio_row.active = mobile.available && mobile.state != 3;
             radio_row.sensitive = mobile.available;
             data_row.active = mobile.data_enabled;
