@@ -25,6 +25,7 @@ namespace Singularity {
             var nc = new NotificationCenter();
             nc.vexpand = true;
             add_widget(nc);
+            show_artwork("preferences-system-notifications");
         }
     }
 }

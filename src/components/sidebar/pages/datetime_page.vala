@@ -7,7 +7,10 @@ namespace Singularity.SidebarPages {
         private DateTimeManager manager;
         private GLib.Settings _desktop_settings;
         private SwitchRow ntp_row;
-        private ActionRow date_time_row;
+        private ExpanderRow date_time_row;
+        private TimePicker time_picker;
+        private Button apply_btn;
+        private DateTime picked_date = new DateTime.now_local();
         private SelectionRow timezone_row;
         private SwitchRow format_row;
         private Label time_label;
@@ -50,53 +53,64 @@ namespace Singularity.SidebarPages {
 
         // Manual date/time picker: only meaningful when NTP is off. Applies the
         // chosen local date and time through timedate1 (DateTimeManager.set_time).
-        private void show_time_picker(Widget anchor) {
-            var pop = new Popover();
-            pop.set_parent(anchor);
-            var box = new Box(Orientation.VERTICAL, 8);
-            box.margin_top = 12; box.margin_bottom = 12;
-            box.margin_start = 12; box.margin_end = 12;
-            var cal = new Gtk.Calendar();
-            box.append(cal);
-            var time_box = new Box(Orientation.HORIZONTAL, 6);
-            time_box.halign = Align.CENTER;
-            var now = new DateTime.now_local();
-            var time_picker = new TimePicker();
-            time_picker.hour = now.get_hour();
-            time_picker.minute = now.get_minute();
-            time_box.append(time_picker);
-            box.append(time_box);
-            var apply = new Button.with_label(_("Apply"));
-            apply.add_css_class("suggested-action");
-            apply.clicked.connect(() => {
-                var date = cal.get_date();
+        private ExpanderRow build_date_time_row() {
+            var row = new ExpanderRow(_("Date & Time"));
+            time_label = new Label("");
+            time_label.add_css_class("dim-label");
+            row.prepend_suffix(time_label);
+
+            var calendar = new CalendarNavPicker();
+            calendar.halign = Align.CENTER;
+            calendar.margin_top = 8;
+            row.add_row(calendar);
+
+            time_picker = new TimePicker();
+            var time_row = new ActionRow(_("Time"));
+            time_row.add_suffix(time_picker);
+            row.add_row(time_row);
+
+            apply_btn = new Button.with_label(_("Apply"));
+            apply_btn.add_css_class("suggested-action");
+            apply_btn.halign = Align.END;
+            apply_btn.margin_top = 8;
+            apply_btn.margin_end = 12;
+            apply_btn.margin_bottom = 12;
+            apply_btn.clicked.connect(() => {
                 var dt = new DateTime.local(
-                    date.get_year(), date.get_month(), date.get_day_of_month(),
+                    picked_date.get_year(), picked_date.get_month(), picked_date.get_day_of_month(),
                     time_picker.hour, time_picker.minute, 0);
                 manager.set_time(dt.to_unix() * 1000000);
-                pop.popdown();
+                row.expanded = false;
             });
-            box.append(apply);
-            pop.set_child(box);
-            pop.popup();
+            row.add_row(apply_btn);
+
+            calendar.date_selected.connect((date) => pick_date(date));
+            calendar.today_clicked.connect(() => pick_date(new DateTime.now_local()));
+            time_picker.changed.connect(() => apply_btn.sensitive = true);
+            calendar.map.connect(() => {
+                var now = new DateTime.now_local();
+                picked_date = now;
+                calendar.set_date(now);
+                time_picker.hour = now.get_hour();
+                time_picker.minute = now.get_minute();
+                apply_btn.sensitive = false;
+            });
+            return row;
+        }
+
+        private void pick_date(DateTime date) {
+            picked_date = date;
+            apply_btn.sensitive = true;
         }
 
         private void build_ui() {
-            var group = new PreferencesGroup(_("Date & Time"));
+            var group = new PreferencesGroup();
             ntp_row = new SwitchRow(_("Automatic Date & Time"), _("Requires internet access"), manager.ntp_active);
             ntp_row.switch_btn.notify["active"].connect(() => {
                 manager.set_ntp(ntp_row.active);
             });
             group.add_row(ntp_row);
-            date_time_row = new ActionRow(_("Date & Time"));
-            time_label = new Label("");
-            time_label.add_css_class("dim-label");
-            date_time_row.add_suffix(time_label);
-            var set_time_btn = new Button.with_label(_("Set"));
-            set_time_btn.add_css_class("flat");
-            set_time_btn.valign = Align.CENTER;
-            set_time_btn.clicked.connect(() => show_time_picker(set_time_btn));
-            date_time_row.add_suffix(set_time_btn);
+            date_time_row = build_date_time_row();
             group.add_row(date_time_row);
             string[] timezones = TimezoneUtil.list();
             timezone_row = new SelectionRow(_("Time Zone"), timezones, manager.timezone);
@@ -116,6 +130,7 @@ namespace Singularity.SidebarPages {
         private void update_ui() {
             ntp_row.active = manager.ntp_active;
             date_time_row.sensitive = !manager.ntp_active;
+            if (manager.ntp_active) date_time_row.expanded = false;
             timezone_row.current_value = manager.timezone;
             update_time_label();
         }

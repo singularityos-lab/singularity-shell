@@ -36,7 +36,6 @@ namespace Singularity {
             empty_label.title = _("No New Notifications");
             empty_label.description = _("Messages from your apps will appear here.");
             empty_label.vexpand = true;
-            empty_label.margin_bottom = 30;
             append(empty_label);
 
             var manager = SystemMonitor.get_default().notifications;
@@ -66,6 +65,8 @@ namespace Singularity {
 
             empty_label.visible = order.size == 0;
             list_box.visible = true;
+            list_box.margin_top = order.size == 0 ? 0 : 10;
+            list_box.margin_bottom = order.size == 0 ? 0 : 20;
 
             var gone = new Gee.ArrayList<string>();
             foreach (string key in _rows.keys) {
