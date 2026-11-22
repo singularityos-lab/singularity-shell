@@ -83,6 +83,7 @@ namespace Singularity.SidebarPages {
         private SwitchRow data_row;
         private SwitchRow roaming_row;
         private SwitchRow lte_row;
+        private ActionRow usage_row;
         private EntryRow apn_row;
         private PreferencesGroup pin_group;
         private Box operators_box;
@@ -163,6 +164,8 @@ namespace Singularity.SidebarPages {
             data.add_row(roaming_row);
             lte_row = new SwitchRow(_("4G Only"), _("No signal where there is no 4G"));
             data.add_row(lte_row);
+            usage_row = new ActionRow(_("Used This Month"), null);
+            data.add_row(usage_row);
             apn_row = new EntryRow(_("Access Point Name"));
             apn_row.placeholder_text = _("Automatic");
             apn_row.entry_activated.connect(() => apply.begin(MobileCommand.SET_APN,
@@ -282,6 +285,8 @@ namespace Singularity.SidebarPages {
             roaming_row.active = mobile.roaming_enabled;
             lte_row.active = mobile.lte_only;
             lte_row.visible = mobile.has_modes;
+            usage_row.visible = mobile.has_usage;
+            usage_row.subtitle = format_size(mobile.data_used);
             data_row.sensitive = roaming_row.sensitive = apn_row.sensitive = mobile.has_settings;
             if (apn_row.get_focus_child() == null) apn_row.text = mobile.apn;
             bool can_change = mobile.unlock_required == 1 && !mobile.sim_missing;
