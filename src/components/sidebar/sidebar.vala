@@ -54,10 +54,11 @@ namespace Singularity {
             });
             set_child(_content_bin);
             var shade_drag = new GestureDrag();
+            var shade_travel = Singularity.Animation.AnchoredDrag.attach(shade_drag);
             shade_drag.propagation_phase = PropagationPhase.CAPTURE;
             shade_drag.drag_begin.connect((x, y) => shade_drag_begin(shade_drag, x, y));
-            shade_drag.drag_update.connect((dx, dy) => shade_drag_update(shade_drag, dx, dy));
-            shade_drag.drag_end.connect((dx, dy) => shade_drag_end(dy));
+            shade_drag.drag_update.connect(() => shade_drag_update(shade_drag, shade_travel.travel_x, shade_travel.travel_y));
+            shade_drag.drag_end.connect(() => shade_drag_end(shade_travel.travel_y));
             shade_drag.cancel.connect(() => shade_drag_end(0.0));
             _content_bin.add_controller(shade_drag);
 

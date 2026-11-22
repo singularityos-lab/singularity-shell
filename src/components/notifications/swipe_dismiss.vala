@@ -19,10 +19,11 @@ namespace Singularity {
         public SwipeDismiss(Singularity.Animation.MotionBin bin) {
             Object(bin: bin);
             drag = new Gtk.GestureDrag();
+            var travel = Singularity.Animation.AnchoredDrag.attach(drag);
             drag.button = 1;
             drag.propagation_phase = Gtk.PropagationPhase.CAPTURE;
-            drag.drag_update.connect(on_update);
-            drag.drag_end.connect(on_end);
+            drag.drag_update.connect(() => on_update(travel.travel_x, travel.travel_y));
+            drag.drag_end.connect(() => on_end(travel.travel_x, travel.travel_y));
             drag.cancel.connect(() => {
                 if (dragging) settle(0.0, double.NAN);
             });

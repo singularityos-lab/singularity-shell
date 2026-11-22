@@ -69,9 +69,10 @@ namespace Singularity {
             _canvas.put(_handle, 0, 0);
 
             var drag = new GestureDrag();
+            var travel = Singularity.Animation.AnchoredDrag.attach(drag);
             drag.drag_begin.connect(() => begin_drag());
-            drag.drag_update.connect((dx, dy) => follow(dx));
-            drag.drag_end.connect((dx, dy) => release(dx));
+            drag.drag_update.connect(() => follow(travel.travel_x));
+            drag.drag_end.connect(() => release(travel.travel_x));
             _handle.add_controller(drag);
 
             set_child(_canvas);

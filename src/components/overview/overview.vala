@@ -219,8 +219,9 @@ namespace Singularity {
 
             // Right-click on empty grid area -> Add widget…
             var pull_close = new GestureDrag();
-            pull_close.drag_update.connect((dx, dy) => pull_close_update(pull_close, dx, dy));
-            pull_close.drag_end.connect((dx, dy) => pull_close_end(dy));
+            var pull_travel = Singularity.Animation.AnchoredDrag.attach(pull_close);
+            pull_close.drag_update.connect(() => pull_close_update(pull_close, pull_travel.travel_x, pull_travel.travel_y));
+            pull_close.drag_end.connect(() => pull_close_end(pull_travel.travel_y));
             main_box.add_controller(pull_close);
 
             var grid_rc = new GestureClick();
