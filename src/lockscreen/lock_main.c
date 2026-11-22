@@ -122,6 +122,8 @@ static void render_all(void) {
 
 /* ── Rendering ──────────────────────────────────────────────────────────── */
 
+#define PANEL_RADIUS 16
+
 static void rounded_rect(cairo_t *cr, double x, double y, double w, double h, double r) {
     double deg = 3.14159265 / 180.0;
     cairo_new_sub_path(cr);
@@ -160,7 +162,7 @@ static void load_assets(void) {
 
 static void draw_text_ellipsized(cairo_t *cr, const char *desc, const char *text,
                                  double x, double y, double max_w,
-                                 double r, double g, double b) {
+                                 LoginUiColor color) {
     PangoLayout *layout = pango_cairo_create_layout(cr);
     PangoFontDescription *fd = pango_font_description_from_string(desc);
     pango_layout_set_font_description(layout, fd);
@@ -168,7 +170,7 @@ static void draw_text_ellipsized(cairo_t *cr, const char *desc, const char *text
     pango_layout_set_text(layout, text, -1);
     pango_layout_set_width(layout, (int)(max_w * PANGO_SCALE));
     pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
-    cairo_set_source_rgb(cr, r, g, b);
+    loginui_set_color(cr, color);
     cairo_move_to(cr, x, y);
     pango_cairo_show_layout(cr, layout);
     g_object_unref(layout);
@@ -177,12 +179,15 @@ static void draw_text_ellipsized(cairo_t *cr, const char *desc, const char *text
 /* kind: 0 prev, 1 play, 2 pause, 3 next */
 static void media_button(cairo_t *cr, double cx, double cy, double r, int kind,
                          bool enabled, bool filled) {
+    const LoginUiStyle *style = loginui_style();
     if (filled) {
         cairo_arc(cr, cx, cy, r, 0, 2 * 3.14159265);
-        cairo_set_source_rgba(cr, 1, 1, 1, 0.14);
+        loginui_set_color(cr, style->key_pressed);
         cairo_fill(cr);
     }
-    cairo_set_source_rgba(cr, 0.96, 0.96, 0.98, enabled ? 0.96 : 0.35);
+    LoginUiColor glyph = style->text;
+    if (!enabled) glyph.a = 0.35;
+    loginui_set_color(cr, glyph);
     double s = r * (filled ? 0.42 : 0.5);
     switch (kind) {
     case 1:
@@ -231,11 +236,10 @@ static void render_media(cairo_t *cr, struct lock_output *o,
 
     /* Card body: solid base, then the cover art as a dim, scaled background
      * with a dark veil (mirrors the sidebar media widget). */
-    rounded_rect(cr, px, py, pw, ph, 18);
-    cairo_set_source_rgba(cr, 0.176, 0.176, 0.176, 0.97);
-    cairo_fill(cr);
+    const LoginUiStyle *style = loginui_style();
+    loginui_surface(cr, px, py, pw, ph, PANEL_RADIUS);
     if (m->cover) {
-        rounded_rect(cr, px, py, pw, ph, 18);
+        rounded_rect(cr, px, py, pw, ph, PANEL_RADIUS);
         cairo_save(cr);
         cairo_clip(cr);
         int cw = cairo_image_surface_get_width(m->cover);
@@ -247,12 +251,12 @@ static void render_media(cairo_t *cr, struct lock_output *o,
         cairo_set_source_surface(cr, m->cover, 0, 0);
         cairo_paint_with_alpha(cr, 0.20);
         cairo_restore(cr);
-        rounded_rect(cr, px, py, pw, ph, 18);
+        rounded_rect(cr, px, py, pw, ph, PANEL_RADIUS);
         cairo_set_source_rgba(cr, 0, 0, 0, 0.50);
         cairo_fill(cr);
     }
-    rounded_rect(cr, px + 0.5, py + 0.5, pw - 1, ph - 1, 18);
-    cairo_set_source_rgba(cr, 1, 1, 1, 0.08);
+    rounded_rect(cr, px + 0.5, py + 0.5, pw - 1, ph - 1, PANEL_RADIUS);
+    loginui_set_color(cr, style->border);
     cairo_set_line_width(cr, 1);
     cairo_stroke(cr);
 
@@ -270,7 +274,7 @@ static void render_media(cairo_t *cr, struct lock_output *o,
         cairo_set_source_surface(cr, m->cover, 0, 0);
         cairo_paint(cr);
     } else {
-        cairo_set_source_rgba(cr, 1, 1, 1, 0.06);
+        loginui_set_color(cr, style->card);
         cairo_paint(cr);
     }
     cairo_restore(cr);
@@ -291,34 +295,29 @@ static void render_media(cairo_t *cr, struct lock_output *o,
     double tw = (o->mb_cx[0] - small - 8) - tx;
     if (tw < 20) tw = 20;
     const char *title = m->title[0] ? m->title : "Unknown";
-    draw_text_ellipsized(cr, "Sans Bold 13", title, tx, cy - 21, tw, 0.96, 0.96, 0.98);
+    draw_text_ellipsized(cr, "Sans Bold 13", title, tx, cy - 21, tw, style->text);
     if (m->artist[0])
-        draw_text_ellipsized(cr, "Sans 11", m->artist, tx, cy + 1, tw, 0.78, 0.78, 0.82);
+        draw_text_ellipsized(cr, "Sans 11", m->artist, tx, cy + 1, tw, style->dim);
 }
 
 static void render_notifs(cairo_t *cr, struct lock_output *o, double x, double y, double w) {
     const LockNotifsState *ns = lock_notifs_get();
-    double row_h = 58, gap = 8, pad = 12;
+    double row_h = 64, gap = 8, pad = 12;
+    const LoginUiStyle *style = loginui_style();
     for (int i = 0; i < ns->count; i++) {
         if (y + row_h > o->height - 16) break;
         const LockNotification *n = &ns->items[i];
-        rounded_rect(cr, x, y, w, row_h, 16);
-        cairo_set_source_rgba(cr, 0.176, 0.176, 0.176, 0.88);
-        cairo_fill(cr);
-        rounded_rect(cr, x + 0.5, y + 0.5, w - 1, row_h - 1, 16);
-        cairo_set_source_rgba(cr, 1, 1, 1, 0.08);
-        cairo_set_line_width(cr, 1);
-        cairo_stroke(cr);
+        loginui_surface(cr, x, y, w, row_h, PANEL_RADIUS);
         char when[16] = "";
         time_t t = (time_t) n->timestamp;
         struct tm tm;
         localtime_r(&t, &tm);
         strftime(when, sizeof when, "%H:%M", &tm);
-        draw_text_ellipsized(cr, "Sans Bold 9", n->app_name, x + pad, y + 7, w - pad * 2 - 44, 0.72, 0.72, 0.76);
-        draw_text_ellipsized(cr, "Sans 9", when, x + w - pad - 40, y + 7, 40, 0.62, 0.62, 0.66);
-        draw_text_ellipsized(cr, "Sans Bold 11", n->summary, x + pad, y + 22, w - pad * 2, 0.96, 0.96, 0.98);
+        draw_text_ellipsized(cr, "Sans Bold 9", n->app_name, x + pad, y + 7, w - pad * 2 - 44, style->dim);
+        draw_text_ellipsized(cr, "Sans 9", when, x + w - pad - 40, y + 7, 40, style->dim);
+        draw_text_ellipsized(cr, "Sans Bold 11", n->summary, x + pad, y + 22, w - pad * 2, style->text);
         if (n->body[0])
-            draw_text_ellipsized(cr, "Sans 10", n->body, x + pad, y + 39, w - pad * 2, 0.80, 0.80, 0.84);
+            draw_text_ellipsized(cr, "Sans 10", n->body, x + pad, y + 39, w - pad * 2, style->dim);
         y += row_h + gap;
     }
 }
