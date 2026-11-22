@@ -132,6 +132,7 @@ namespace Singularity {
             shell_group.add_row (make_nav_row (_("Test Triggers"), _("Hot corners, notifications, portals and previews"),
                 "media-playback-start-symbolic", _test_triggers_page, "dev-test-triggers"));
             add_group (shell_group);
+            add_modem_group ();
             add_group (build_form_factor_group ());
 
             dsh_group = new PreferencesGroup (_("Developer Shell"));
@@ -674,6 +675,17 @@ namespace Singularity {
             } catch (SpawnError e) {
                 warning ("form preview: %s", e.message);
             }
+        }
+
+        private void add_modem_group () {
+            if (!MobileNetwork.get_default ().supported) return;
+            var group = new PreferencesGroup (_("Mobile Modem"));
+            var row = new ActionRow (_("Modem Recovery"), _("Restart, SIM slots, radio and logs"), "network-cellular-symbolic");
+            row.activatable = true;
+            row.add_suffix (Singularity.SidebarPages.PermissionRows.chevron ());
+            row.activated.connect (() => _view.navigate_to (Singularity.SidebarPages.ModemPage.PAGE));
+            group.add_row (row);
+            add_group (group);
         }
 
         private SettingsPage make_subpage (string title) {

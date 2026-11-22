@@ -125,6 +125,27 @@ namespace Singularity {
             return row;
         }
 
+        private void add_mobile_row(PreferencesGroup group) {
+            var mobile = MobileNetwork.get_default();
+            var row = new ActionRow(_("Mobile Network"), null, "network-cellular-symbolic");
+            row.activatable = true;
+            row.set_data<bool>("settings-search-skip", true);
+            row.add_suffix(Singularity.SidebarPages.PermissionRows.chevron());
+            row.activated.connect(() => settings_view.navigate_to(Singularity.SidebarPages.MobilePage.PAGE));
+            group.add_row(row);
+            SyncCallback sync = () => {
+                row.visible = mobile.supported;
+                row.subtitle = Singularity.SidebarPages.MobilePage.summary(mobile);
+            };
+            ulong changed = mobile.changed.connect(() => sync());
+            row.destroy.connect(() => {
+                if (changed == 0) return;
+                mobile.disconnect(changed);
+                changed = 0;
+            });
+            sync();
+        }
+
         private static string wifi_summary(NetworkManagerWrapper network) {
             if (!network.has_wifi) return _("No Wi-Fi adapter");
             if (!network.wifi_enabled) return _("Off");
@@ -155,6 +176,7 @@ namespace Singularity {
         private void build_overview(SettingsView view, NetworkManagerWrapper network) {
             var connections = new PreferencesGroup(_("Connections"));
             var wifi_row = section_row(connections, WIFI);
+            add_mobile_row(connections);
             var wired_row = section_row(connections, WIRED);
             var vpn_row = section_row(connections, VPN);
             add_group(connections);

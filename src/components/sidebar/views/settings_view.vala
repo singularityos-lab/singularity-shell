@@ -241,6 +241,7 @@ namespace Singularity {
                 case "accessibility": case "plugins": case "performance": case "agent": case "system": case "power":
                 case "autostart": case "notifications": case "updates": case "privacy": case "sharing":
                 case "wellbeing": case "sinty-key": case "profiles": case "storage": case "safety":
+                case "network-mobile": case "network-esim": case "dev-modem":
                     return true;
             }
             return false;
@@ -252,6 +253,8 @@ namespace Singularity {
                 case NetworkPage.WIFI: case NetworkPage.WIRED: case NetworkPage.VPN:
                 case NetworkPage.DYNAMIC: case NetworkPage.HOTSPOT:
                     return NetworkPage.section_icon(page_name);
+                case "network-mobile": case "dev-modem": return "network-cellular-symbolic";
+                case "network-esim": return "media-flash-symbolic";
                 case "sharing": return "folder-remote-symbolic";
                 case "apps": return "view-app-grid-symbolic";
                 case "users": return "system-users-symbolic";
@@ -288,10 +291,12 @@ namespace Singularity {
         }
 
         private string[] get_searchable_pages() {
-            return { "network", NetworkPage.WIFI, NetworkPage.WIRED, NetworkPage.VPN, NetworkPage.DYNAMIC,
+            string[] pages = { "network", NetworkPage.WIFI, NetworkPage.WIRED, NetworkPage.VPN, NetworkPage.DYNAMIC,
                      NetworkPage.HOTSPOT, "sharing", "apps", "autostart", "privacy", "users", "accounts", "displays", "region", "datetime",
                      "desktop", "sound", "notifications", "profiles", "wellbeing", "safety", "bluetooth", "connected-devices", "printers", "keyboard", "tablet", "developer", "accessibility",
                      "plugins", "power", "performance", "agent", "updates", "system", "sinty-key", "sinty-core", "storage" };
+            if (MobileNetwork.get_default().supported) pages += Singularity.SidebarPages.MobilePage.PAGE;
+            return pages;
         }
 
         private void setup_settings_search() {
@@ -592,6 +597,9 @@ namespace Singularity {
                 case "sinty-key": page = new Singularity.SidebarPages.SintyKeyPage(this); break;
                 case "storage": page = new Singularity.SidebarPages.StoragePage(this); break;
                 case "sinty-core": page = new Singularity.SidebarPages.SintyCorePage(this); break;
+                case "network-mobile": page = new Singularity.SidebarPages.MobilePage(this); break;
+                case "network-esim": page = new Singularity.SidebarPages.EsimPage(this); break;
+                case "dev-modem": page = new Singularity.SidebarPages.ModemPage(this); break;
                 case "sharing": page = new Singularity.SidebarPages.SharingPage(this); break;
                 case "sharing-files": page = new Singularity.SidebarPages.FileSharingPage(this); break;
                 case "sharing-media": page = new Singularity.SidebarPages.MediaSharingPage(this); break;

@@ -552,6 +552,7 @@ singularity_core_sources = files(
     'src/components/sidebar/views/power_confirm_dialog.vala',
     'src/components/sidebar/views/settings_view.vala',
     'src/components/sidebar/pages/connection_detail_page.vala',
+    'src/components/sidebar/pages/mobile_page.vala',
     'src/components/sidebar/pages/network_page.vala',
     'src/components/sidebar/pages/sharing_page.vala',
     'src/components/sidebar/pages/sharing_detail_pages.vala',
