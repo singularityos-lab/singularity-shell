@@ -28,14 +28,10 @@ namespace Singularity.SidebarPages {
             defaults_icon.pixel_size = 24;
             defaults_icon.margin_end = 8;
             defaults_row.add_prefix(defaults_icon);
-            var nav_btn = new Button.from_icon_name("go-next-symbolic");
-            nav_btn.add_css_class("flat");
-            nav_btn.valign = Align.CENTER;
-            nav_btn.clicked.connect(() => {
+            defaults_row.add_suffix(new Image.from_icon_name("go-next-symbolic"));
+            defaults_row.activated.connect(() => {
                 view.open_subpage(new DefaultAppsPage(view), "default-apps");
             });
-            defaults_row.add_suffix(nav_btn);
-            defaults_row.activatable = false;
             defaults_group.add_row(defaults_row);
             add_group(defaults_group);
 
