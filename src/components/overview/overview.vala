@@ -239,7 +239,6 @@ namespace Singularity {
                     return GLib.Source.REMOVE;
                 });
             });
-            place_under_search();
 
             // Search Results View
             var search_view_box = new Box(Orientation.VERTICAL, 0);
@@ -255,6 +254,7 @@ namespace Singularity {
 
             list_container = new Box(Orientation.VERTICAL, 0);
             list_container.margin_bottom = 100;
+            place_under_search();
             results_clamp = new Singularity.Widgets.Clamp(list_container, RESULTS_WIDTH);
             results_scrolled.set_child(results_clamp);
 
