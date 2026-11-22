@@ -8,3 +8,5 @@ option('crash-handler', type: 'boolean', value: true,
   description: 'Build singularity-crash-handler, a core_pattern helper that saves crash reports for the shell. It is installed but not enabled; see the example sysctl drop-in in datadir/singularity/crash')
 option('crash-spool-dir', type: 'string', value: '/var/lib/singularity/crashes',
   description: 'Directory where singularity-crash-handler keeps crash reports, one subdirectory per user')
+option('iride', type: 'feature', value: 'disabled',
+  description: 'Compile the Iride icon next to its SVG')
