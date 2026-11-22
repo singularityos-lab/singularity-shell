@@ -6,7 +6,7 @@ namespace Singularity.SidebarPages {
     public class DisplaysPage : SettingsPage {
         private DisplayManager display_manager;
         private Singularity.Shell.MonitorPreview preview;
-        private ListBox monitor_list;
+        private PreferencesGroup monitor_list;
         private PreferencesGroup settings_group;
         private SelectionRow resolution_row;
         private ActionRow scale_row;
@@ -60,14 +60,10 @@ namespace Singularity.SidebarPages {
             preview.shell_monitor_changed.connect(on_preview_shell_monitor_changed);
             preview_frame.child = preview;
             add_widget(preview_frame);
-            var list_frame = new Frame(null);
-            list_frame.add_css_class("card");
-            monitor_list = new ListBox();
-            monitor_list.selection_mode = SelectionMode.SINGLE;
-            monitor_list.add_css_class("content");
+            monitor_list = new PreferencesGroup();
+            monitor_list.selectable = true;
             monitor_list.row_selected.connect(on_monitor_selected);
-            list_frame.child = monitor_list;
-            add_widget(list_frame);
+            add_group(monitor_list);
             settings_group = new PreferencesGroup(_("Settings"));
             add_group(settings_group);
             build_settings_ui();
@@ -269,33 +265,20 @@ namespace Singularity.SidebarPages {
 
         private void on_monitors_changed() {
             string? prev_name = selected_monitor != null ? selected_monitor.name : null;
-            var child = monitor_list.get_first_child();
-            while (child != null) {
-                monitor_list.remove(child);
-                child = monitor_list.get_first_child();
-            }
+            monitor_list.clear();
             int restore_idx = 0;
             int i = 0;
             foreach (var m in display_manager.get_monitors()) {
-                var row = new Box(Orientation.HORIZONTAL, 12);
-                row.margin_top = 12; row.margin_bottom = 12; row.margin_start = 12; row.margin_end = 12;
-                var icon = new Image.from_icon_name("video-display-symbolic");
-                row.append(icon);
                 string title = m.description ?? m.name ?? _("Unknown Display");
-                var label = new Label(title);
-                label.hexpand = true;
-                label.halign = Align.FILL;
-                label.xalign = 0;
-                label.ellipsize = Pango.EllipsizeMode.END;
-                label.width_chars = 1;
-                label.tooltip_text = title;
-                row.append(label);
-                monitor_list.append(row);
+                var row = new ActionRow(title, null, "video-display-symbolic");
+                row.selectable = true;
+                row.tooltip_text = title;
+                monitor_list.add_row(row);
                 if (prev_name != null && m.name == prev_name) restore_idx = i;
                 i++;
             }
             if (display_manager.get_monitors().length() > 0) {
-                monitor_list.select_row(monitor_list.get_row_at_index(restore_idx));
+                monitor_list.select_index(restore_idx);
             }
             preview.shell_monitor_name = display_manager.shell_monitor_name;
             preview.queue_draw();

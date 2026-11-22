@@ -6,8 +6,6 @@ namespace Singularity {
         public string id { get { return "settings"; } }
         public string name { get { return "Settings"; } }
 
-        private bool warm_started = false;
-
         public SettingsSearchProvider() {
             Object();
         }
@@ -20,17 +18,15 @@ namespace Singularity {
             if (app == null) return results;
 
             if (_("Settings").down().has_prefix(q) || "settings".has_prefix(q)) {
-                var home = new SearchResult(this, _("Settings"), _("System settings"), "preferences-system-symbolic");
+                var home = new SearchResult(this, _("Settings"), _("System settings"), SettingsArtwork.GENERIC);
                 home.score = q == "settings" || q == _("Settings").down() ? 100.0 : 90.0;
                 home.activated.connect(() => app.open_settings_page("home"));
                 results.append(home);
             }
 
+            yield app.warm_settings_index();
+            if (cancellable != null && cancellable.is_cancelled()) return results;
             int count = 0;
-            if (!warm_started) {
-                warm_started = true;
-                app.warm_settings_index.begin();
-            }
             foreach (var entry in app.cached_settings_entries()) {
                 double score = 0.0;
                 string title = entry.title.down();
@@ -39,7 +35,8 @@ namespace Singularity {
                 else if ("%s %s %s".printf(entry.subtitle, entry.group, entry.page_title).down().contains(q)) score = 30.0;
                 if (score == 0.0) continue;
                 string path = entry.group != "" ? "%s / %s".printf(entry.page_title, entry.group) : entry.page_title;
-                var res = new SearchResult(this, entry.title, path, entry.icon_name);
+                string icon = SettingsArtwork.find(entry.page_name, entry.icon_name) ?? SettingsArtwork.GENERIC;
+                var res = new SearchResult(this, entry.title, path, icon);
                 res.score = score;
                 var target = entry;
                 res.activated.connect(() => app.reveal_setting(target, target.kind == SettingsEntryKind.LAUNCH));

@@ -50,10 +50,12 @@ namespace Singularity.SidebarPages {
     }
 
     public class ProfilesPage : SettingsPage {
+        private const string DEFAULT_ICON = "focus-custom-symbolic";
         private SettingsView view;
         private PreferencesGroup status_group;
         private PreferencesGroup list_group;
         private ProfileSet? _set = null;
+        private uint _reload_serial = 0;
         private Gee.ArrayList<ulong> _handlers = new Gee.ArrayList<ulong>();
 
         public ProfilesPage(SettingsView view) {
@@ -106,21 +108,28 @@ namespace Singularity.SidebarPages {
 
         private async void reload() {
             var client = Client.get_default();
+            uint serial = ++_reload_serial;
             status_group.clear();
             list_group.clear();
             if (!client.available) {
+                show_profile_artwork(null);
                 status_group.add_row(new ActionRow(_("Profiles Are Not Running"),
                     _("The profiles service did not start. Log out and back in to try again."), "dialog-warning-symbolic"));
                 return;
             }
             try {
-                _set = yield client.load();
+                var loaded = yield client.load();
+                if (serial != _reload_serial) return;
+                _set = loaded;
             } catch (Error e) {
+                if (serial != _reload_serial) return;
+                show_profile_artwork(null);
                 status_group.add_row(new ActionRow(_("Profiles Are Not Running"), e.message, "dialog-warning-symbolic"));
                 return;
             }
             string active = client.active_profile;
             var current = active != "" ? _set.find(active) : null;
+            show_profile_artwork(current);
             if (current != null) {
                 var row = new ActionRow(display_name(current), client.detail != "" ? client.detail : _("On"), current.icon_name);
                 var off = new Button.with_label(_("Turn Off"));
@@ -152,6 +161,11 @@ namespace Singularity.SidebarPages {
             add.add_suffix(NotificationSettingsPage.chevron());
             add.activated.connect(() => create.begin());
             list_group.add_row(add);
+        }
+
+        private void show_profile_artwork(Profile? profile) {
+            string symbolic = profile != null ? profile.icon_name : DEFAULT_ICON;
+            set_artwork(SettingsArtwork.find("", symbolic) ?? DEFAULT_ICON.replace("-symbolic", ""));
         }
 
         private async void create() {

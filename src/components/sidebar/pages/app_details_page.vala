@@ -64,7 +64,7 @@ namespace Singularity.SidebarPages {
             box.margin_start = 12;
             box.margin_end = 12;
             var icon = new Image.from_gicon(app_info.get_icon());
-            icon.pixel_size = 64;
+            icon.pixel_size = Singularity.Widgets.PageHero.ICON_SIZE;
             Singularity.Animation.IconMotion.play_when_shown(icon);
             box.append(icon);
             var vbox = new Box(Orientation.VERTICAL, 4);

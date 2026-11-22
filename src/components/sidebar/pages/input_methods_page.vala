@@ -58,7 +58,6 @@ namespace Singularity.SidebarPages {
             welcome.compact = true;
             welcome.app_icon_name = "singularity-input-methods";
             welcome.title = _("Input Methods");
-            welcome.subtitle = _("Type Chinese, Japanese, Korean and other languages that need more than a keyboard layout. Candidates appear next to the text cursor.");
             welcome.add_action("singularity-input-methods", _("Add an Input Method"),
                 _("Choose from the engines installed on this computer"), open_add);
             add_widget(welcome);

@@ -107,7 +107,6 @@ namespace Singularity.SidebarPages {
             picker.compact = true;
             picker.app_icon_name = "singularity-account-generic";
             picker.title = _("Add an Account");
-            picker.subtitle = _("Choose where your account is. Its mail, calendars, contacts, tasks and files appear in your apps.");
             foreach (var p in known()) {
                 string id = p.id;
                 string name = p.name;
@@ -178,11 +177,11 @@ namespace Singularity.SidebarPages {
             box.margin_top = 12;
             box.margin_start = 12;
             var icon = new Image.from_icon_name(providers.has_key(id) ? providers[id].icon_name : icon_for(id));
-            icon.pixel_size = 48;
+            icon.pixel_size = Singularity.Widgets.PageHero.ICON_SIZE;
             Singularity.Animation.IconMotion.play_when_shown(icon);
             box.append(icon);
             var label = new Label(name);
-            label.add_css_class("title-3");
+            label.add_css_class("title-2");
             label.valign = Align.CENTER;
             box.append(label);
             return box;

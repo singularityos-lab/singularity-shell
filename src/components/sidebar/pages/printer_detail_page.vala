@@ -143,7 +143,7 @@ namespace Singularity.SidebarPages {
             box.margin_start = 12;
             box.margin_end = 12;
             hero_icon = new Image.from_icon_name("printer");
-            hero_icon.pixel_size = 80;
+            hero_icon.pixel_size = Singularity.Widgets.PageHero.ICON_SIZE;
             Singularity.Animation.IconMotion.play_when_shown(hero_icon);
             hero_icon.valign = Align.CENTER;
             box.append(hero_icon);
@@ -152,7 +152,7 @@ namespace Singularity.SidebarPages {
             text.hexpand = true;
             var name_line = new Box(Orientation.HORIZONTAL, 8);
             hero_name = new Label(printer_name.replace("_", " "));
-            hero_name.add_css_class("title-3");
+            hero_name.add_css_class("title-2");
             hero_name.xalign = 0;
             hero_name.ellipsize = Pango.EllipsizeMode.END;
             name_line.append(hero_name);

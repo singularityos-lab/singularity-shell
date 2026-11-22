@@ -37,17 +37,6 @@ namespace Singularity.SidebarPages {
             copy_btn.clicked.connect(copy_info_markdown);
             header.append(copy_btn);
 
-            var logo_box = new Box(Orientation.VERTICAL, 12);
-            logo_box.margin_top = 12;
-            logo_box.margin_bottom = 4;
-            logo_box.halign = Align.CENTER;
-            var logo = new Image.from_icon_name("computer-symbolic");
-            logo.icon_name = get_distro_icon_name();
-            logo.pixel_size = 96;
-            Singularity.Animation.IconMotion.play_when_shown(logo);
-            logo.add_css_class("accent-color");
-            logo_box.append(logo);
-            add_widget(logo_box);
             var device_group = new PreferencesGroup();
             hostname_row = new EntryRow(_("Device Name"));
             hostname_row.text = GLib.Environment.get_host_name();
@@ -290,7 +279,7 @@ namespace Singularity.SidebarPages {
             }
         }
 
-        private string get_distro_icon_name() {
+        internal string get_distro_icon_name() {
             string? logo_icon = HardwareInfo.os_release("LOGO");
             string? distro_id = HardwareInfo.os_release("ID");
             var icon_theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default());

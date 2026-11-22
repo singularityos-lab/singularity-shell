@@ -178,6 +178,7 @@ namespace Singularity.SidebarPages {
             welcome.is_section = true;
             welcome.embedded = true;
             welcome.compact = true;
+            welcome.is_state = true;
             welcome.app_icon_name = "singularity-updates";
             welcome.add_action("dev.sinty.store", _("App Updates"), _("Apps are updated in Store"), open_store);
             welcome.add_action("document-open-recent", _("Update History"), _("See which updates were installed and when"), open_history);

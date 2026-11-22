@@ -33,7 +33,7 @@ namespace Singularity.SidebarPages {
             back_clicked.connect(() => view.navigate_to("accessibility"));
 
             missing = new StatusPage();
-            missing.icon_name = "audio-speakers-symbolic";
+            missing.icon_name = "audio-speakers";
             missing.title = _("Speech Not Available");
             missing.description = _("The speech service of the system is not running, so text cannot be read aloud.");
             missing.compact = true;

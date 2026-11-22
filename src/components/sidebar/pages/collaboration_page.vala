@@ -24,7 +24,7 @@ namespace Singularity.SidebarPages {
 
             unavailable = new StatusPage();
             unavailable.compact = true;
-            unavailable.icon_name = "system-users-symbolic";
+            unavailable.icon_name = "system-users";
             unavailable.title = _("Collaboration Is Not Installed");
             unavailable.description = _("Install Nearby to send things and work together with people around you.");
             unavailable.visible = false;

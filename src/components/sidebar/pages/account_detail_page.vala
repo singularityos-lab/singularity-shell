@@ -61,13 +61,13 @@ namespace Singularity.SidebarPages {
             box.margin_start = 12;
             box.margin_end = 12;
             var icon = new Image.from_icon_name(account.icon_name);
-            icon.pixel_size = 64;
+            icon.pixel_size = Singularity.Widgets.PageHero.ICON_SIZE;
             Singularity.Animation.IconMotion.play_when_shown(icon);
             box.append(icon);
             var text = new Box(Orientation.VERTICAL, 4);
             text.valign = Align.CENTER;
             var name = new Label(account.display_name);
-            name.add_css_class("title-3");
+            name.add_css_class("title-2");
             name.xalign = 0;
             name.ellipsize = Pango.EllipsizeMode.END;
             text.append(name);

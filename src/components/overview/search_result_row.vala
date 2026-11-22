@@ -8,6 +8,8 @@ namespace Singularity {
         private Revealer? _preview_revealer = null;
         private Box? _preview_content = null;
         private uint _hover_timer = 0;
+        private Image _icon;
+        private Singularity.Animation.IconHover _icon_hover = new Singularity.Animation.IconHover();
 
         public signal void request_close();
 
@@ -41,6 +43,11 @@ namespace Singularity {
             icon_img.pixel_size = 40;
             icon_img.valign = Align.CENTER;
             row_box.append(icon_img);
+            _icon = icon_img;
+            var icon_motion = new EventControllerMotion();
+            icon_motion.enter.connect((x, y) => _icon_hover.entered(_icon));
+            icon_motion.leave.connect(() => _icon_hover.left());
+            add_controller(icon_motion);
 
             var text_box = new Box(Orientation.VERTICAL, 2);
             text_box.valign = Align.CENTER;
@@ -164,6 +171,15 @@ namespace Singularity {
                 box.append(button);
             }
             return box;
+        }
+
+        public void animate_icon_keyboard() {
+            _icon_hover.left();
+            _icon_hover.entered(_icon);
+        }
+
+        public void rest_icon_keyboard() {
+            _icon_hover.left();
         }
 
         public void show_preview_keyboard() {

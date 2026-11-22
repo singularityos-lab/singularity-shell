@@ -388,7 +388,7 @@ namespace Singularity.SidebarPages {
             if (batteries.size == 0) {
                 var empty = new StatusPage();
                 empty.compact = true;
-                empty.icon_name = "battery-missing-symbolic";
+                empty.icon_name = "battery-missing";
                 empty.title = _("No Battery");
                 empty.description = _("This computer runs on external power only.");
                 groups_box.append(empty);

@@ -247,6 +247,16 @@ namespace Singularity {
             return false;
         }
 
+        private string page_artwork(string page_name, SettingsPage page) {
+            var system = page as Singularity.SidebarPages.SystemPage;
+            if (system != null) return system.get_distro_icon_name();
+            if (page_name.has_prefix("privacy-")) {
+                var category = Singularity.SidebarPages.PrivacyCategory.find(page_name.substring(8));
+                if (category != null) return category.large_icon;
+            }
+            return SettingsArtwork.find(page_name, get_page_icon(page_name)) ?? SettingsArtwork.GENERIC;
+        }
+
         private string get_page_icon(string page_name) {
             switch (page_name) {
                 case "network": return "network-wireless-symbolic";
@@ -673,6 +683,10 @@ namespace Singularity {
                 });
             }
 
+            var settings_page = page as SettingsPage;
+            if (settings_page != null) {
+                settings_page.show_artwork(page_artwork(page_name, settings_page));
+            }
             settings_stack.add_named(page, page_name);
             _page_cache[page_name] = page;
             return page;

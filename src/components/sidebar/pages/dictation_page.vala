@@ -59,7 +59,6 @@ namespace Singularity.SidebarPages {
             welcome.compact = true;
             welcome.app_icon_name = "singularity-dictation";
             welcome.title = _("Get a Speech Model");
-            welcome.subtitle = _("Dictation needs a speech model on this computer. Small models are quick, larger ones are more accurate.");
             welcome.add_action("singularity-dictation", _("Download a Speech Model"),
                 _("Pick a language and a size"), open_models);
             add_widget(welcome);

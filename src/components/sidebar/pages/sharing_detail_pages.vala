@@ -153,7 +153,6 @@ namespace Singularity.SidebarPages {
 
             welcome.app_icon_name = "folder-remote";
             welcome.title = _("Share Folders");
-            welcome.subtitle = _("Let other computers on your network open the folders you choose. They sign in with your user name and a password you set here.");
             welcome.add_action("folder-publicshare", _("Share a Folder"), _("Choose a folder to share"),
                 () => add_folder(true));
 
@@ -290,7 +289,6 @@ namespace Singularity.SidebarPages {
 
             welcome.app_icon_name = "folder-music";
             welcome.title = _("Share Your Media");
-            welcome.subtitle = _("TVs, game consoles and media players on your network can play music, photos and videos from this computer.");
             welcome.add_action("folder-music", _("Turn On Media Sharing"), _("Shares Music, Pictures and Videos"),
                 () => set_enabled(true));
 
@@ -372,7 +370,6 @@ namespace Singularity.SidebarPages {
 
             welcome.app_icon_name = "preferences-desktop-remote-desktop";
             welcome.title = _("Get Help or Connect From Anywhere");
-            welcome.subtitle = _("Someone you trust can see this screen and use it from another computer with a VNC app, such as Connections. You confirm every connection here.");
             welcome.add_action("preferences-desktop-remote-desktop", _("Turn On Remote Desktop"),
                 _("Other computers can ask to connect"), () => set_enabled(true));
 

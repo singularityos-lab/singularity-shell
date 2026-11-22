@@ -1981,6 +1981,16 @@ namespace Singularity {
             wrapper.append(indicator_row);
         }
 
+        private void animate_shell_button(Gtk.Box wrapper, Gtk.Box pill, Gtk.Button btn) {
+            wrapper.set_data("dock_button", btn);
+            unowned Gtk.Box item_weak = wrapper;
+            var hover = new Gtk.EventControllerMotion();
+            hover.enter.connect(() => DockIconMotion.entered(item_weak, magnifier.enabled));
+            hover.leave.connect(() => DockIconMotion.left(item_weak));
+            pill.add_controller(hover);
+            btn.clicked.connect(() => DockIconMotion.activated(item_weak));
+        }
+
         private Gtk.Widget? create_item_for_key(string key, string[] pinned, int icon_size) {
             if (key == "__update__") {
                 Gtk.Box wrapper, pill;
@@ -2085,6 +2095,7 @@ namespace Singularity {
                 });
                 btn.clicked.connect(() => { workspace_clicked(); });
                 pill.append(btn);
+                animate_shell_button(wrapper, pill, btn);
                 return wrapper;
             }
             if (key == "sep" || key == "ressep") {

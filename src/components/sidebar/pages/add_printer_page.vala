@@ -338,7 +338,7 @@ namespace Singularity.SidebarPages {
             head.margin_start = 12;
             head.margin_end = 12;
             var icon = new Image.from_icon_name(icon_for_target(name));
-            icon.pixel_size = 72;
+            icon.pixel_size = Singularity.Widgets.PageHero.ICON_SIZE;
             Singularity.Animation.IconMotion.play_when_shown(icon);
             icon.valign = Align.CENTER;
             head.append(icon);
@@ -346,7 +346,7 @@ namespace Singularity.SidebarPages {
             text.valign = Align.CENTER;
             text.hexpand = true;
             var title = new Label(name);
-            title.add_css_class("title-3");
+            title.add_css_class("title-2");
             title.xalign = 0;
             title.wrap = true;
             text.append(title);

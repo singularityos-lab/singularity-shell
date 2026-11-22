@@ -109,7 +109,6 @@ namespace Singularity {
             tools.compact = true;
             tools.app_icon_name = "applications-engineering";
             tools.title = _("Developer Tools");
-            tools.subtitle = _("Inspect and debug the system while it runs.");
             tools.add_action ("application-x-executable", _("Settings Editor"), _("Browse and change every setting on the system"),
                 () => _view.open_subpage (new Singularity.SidebarPages.DevSettingsEditorPage (_view), "dev-settings-editor"));
             tools.add_action ("network-workgroup", _("D-Bus Inspector"), _("Explore services, objects, properties and methods"),

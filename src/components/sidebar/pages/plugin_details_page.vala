@@ -34,7 +34,7 @@ namespace Singularity.SidebarPages {
             // Or use "extension-symbolic" or similar
             var icon_name = "application-x-addon";
             var icon = new Image.from_icon_name(icon_name);
-            icon.pixel_size = 64;
+            icon.pixel_size = Singularity.Widgets.PageHero.ICON_SIZE;
             Singularity.Animation.IconMotion.play_when_shown(icon);
             box.append(icon);
 

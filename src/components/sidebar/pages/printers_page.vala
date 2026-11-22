@@ -258,6 +258,7 @@ namespace Singularity.SidebarPages {
             welcome.is_section = true;
             welcome.embedded = true;
             welcome.compact = true;
+            welcome.is_state = true;
             welcome.app_icon_name = "dev.sinty.Printers";
             welcome.title = _("No Printers Yet");
             welcome.subtitle = _("Add a printer to print from every app. Modern printers work without installing drivers.");

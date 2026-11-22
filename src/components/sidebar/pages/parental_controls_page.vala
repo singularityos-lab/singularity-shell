@@ -100,7 +100,6 @@ namespace Singularity.SidebarPages {
             welcome.compact = true;
             welcome.app_icon_name = "singularity-parental-controls";
             welcome.title = display;
-            welcome.subtitle = _("Choose which apps %s can use, for how long, and which websites open.").printf(display);
             welcome.add_action("applications-games-symbolic", _("Apps"), _("Hide apps and stop them from starting"), open_apps);
             welcome.add_action("preferences-system-time-symbolic", _("Time Limits"), _("A daily limit and a bedtime"), open_time);
             welcome.add_action("web-browser-symbolic", _("Websites"), _("Filter what opens in the browser"), open_web);

@@ -45,7 +45,6 @@ namespace Singularity.SidebarPages {
             welcome.compact = true;
             welcome.app_icon_name = "dev.sinty.Nearby";
             welcome.title = _("Connect Your Phone");
-            welcome.subtitle = _("Send files and links, share the clipboard, and see the phone's notifications and messages here. Install KDE Connect on Android or iPhone, or GSConnect on another computer, and pair it below.");
             welcome.add_action("phone", _("Get the App for Your Phone"),
                 _("KDE Connect is free on Android and iPhone"), () => {
                     try {

@@ -9,7 +9,7 @@ namespace Singularity {
     public class Overview : Gtk.Window {
         private AppLauncherGrid launcher_grid;
         private ScrolledWindow scrolled_window;
-        private Singularity.Widgets.SearchEntry search_entry;
+        private Singularity.Widgets.SearchBubble search_entry;
         private AppSystem app_system;
         private SearchManager search_manager;
         private ListBox search_results_list;
@@ -17,8 +17,13 @@ namespace Singularity {
         private ScrolledWindow results_scrolled;
         private Gtk.Window? anchor_window;
         private Box main_box;
+        private Picture background_picture;
         private Box grid_container;
+        private Box list_container;
+        private Singularity.Widgets.Clamp results_clamp;
         private const int GRID_BOTTOM = 100;
+        private const int GRID_TOP = 40;
+        private const int RESULTS_TOP = 20;
         private const int DOCK_CLEARANCE = 56;
         private Singularity.Animation.MotionBin stage;
         private GLib.Settings desktop_settings;
@@ -50,8 +55,19 @@ namespace Singularity {
         public signal void hiding();
 
         private void update_background_effect() {
-            Singularity.Style.BackgroundEffect.apply(this,
-                Singularity.Style.BackgroundEffect.read(desktop_settings));
+            var mode = Singularity.Style.BackgroundEffect.read(desktop_settings);
+            Singularity.Style.BackgroundEffect.apply(this, mode);
+            update_wallpaper();
+        }
+
+        private void update_wallpaper() {
+            var texture = WallpaperManager.get_default().display_texture;
+            bool shown = texture != null && Singularity.Style.BackgroundEffect.read(desktop_settings)
+                == Singularity.Style.BackgroundEffectMode.DISABLED;
+            background_picture.paintable = shown ? texture : null;
+            background_picture.visible = shown;
+            if (shown) main_box.remove_css_class("overview-box");
+            else main_box.add_css_class("overview-box");
         }
 
         public Overview(Gtk.Application app, Gtk.Window? anchor = null) {
@@ -94,15 +110,15 @@ namespace Singularity {
                     var selected = search_results_list.get_selected_row();
                     if (selected == null) {
                         var first = search_results_list.get_row_at_index(0);
-                        if (first != null) search_results_list.select_row(first);
+                        if (first != null) select_result(first);
                     } else {
                         int idx = selected.get_index();
                         if (keyval == Gdk.Key.Down) {
                             var next = search_results_list.get_row_at_index(idx + 1);
-                            if (next != null) search_results_list.select_row(next);
+                            if (next != null) select_result(next);
                         } else if (idx > 0) {
                             var prev = search_results_list.get_row_at_index(idx - 1);
-                            if (prev != null) search_results_list.select_row(prev);
+                            if (prev != null) select_result(prev);
                         }
                     }
                     return true;
@@ -133,7 +149,7 @@ namespace Singularity {
                     !is_arrow &&
                     !is_editable_focused()) {
                     if (!search_entry.has_focus) {
-                        search_entry.grab_focus();
+                        search_entry.grab_focus_entry();
                     }
                 }
                 return false;
@@ -148,14 +164,23 @@ namespace Singularity {
             main_box.add_css_class("overview-box");
             main_box.vexpand = true;
             main_box.hexpand = true;
-            stage = new Singularity.Animation.MotionBin(main_box);
+            background_picture = new Picture();
+            background_picture.content_fit = ContentFit.COVER;
+            background_picture.can_shrink = true;
+            background_picture.visible = false;
+            background_picture.add_css_class("overview-background-wallpaper");
+            var backdrop = new Overlay();
+            backdrop.set_child(background_picture);
+            backdrop.add_overlay(main_box);
+            stage = new Singularity.Animation.MotionBin(backdrop);
             set_child(stage);
+            WallpaperManager.get_default().wallpaper_changed.connect(update_wallpaper);
             desktop_settings = new GLib.Settings("dev.sinty.desktop");
             desktop_settings.changed["background-effect"].connect(update_background_effect);
             map.connect_after(update_background_effect);
 
-            search_entry = new Singularity.Widgets.SearchEntry();
-            search_entry.placeholder_text = _("Type to search");
+            search_entry = new Singularity.Widgets.SearchBubble(_("Type to search"));
+            search_entry.large = true;
             search_entry.width_request = 400;
             search_entry.halign = Align.CENTER;
             search_entry.hexpand = false;
@@ -163,23 +188,25 @@ namespace Singularity {
             search_entry.margin_bottom = 12;
             search_entry.entry.search_delay = 0;
             search_entry.search_changed.connect(on_search_changed);
-            main_box.append(search_entry);
+            search_entry.valign = Align.START;
 
             content_stack = new Stack();
             content_stack.transition_type = StackTransitionType.CROSSFADE;
             content_stack.hexpand = true;
             content_stack.vexpand = true;
-            main_box.append(content_stack);
+            var floating = new Overlay();
+            floating.vexpand = true;
+            floating.set_child(content_stack);
+            floating.add_overlay(search_entry);
+            main_box.append(floating);
 
             // App Grid View
             scrolled_window = new ScrolledWindow();
             scrolled_window.hscrollbar_policy = PolicyType.NEVER;
             scrolled_window.vscrollbar_policy = PolicyType.AUTOMATIC;
-            scrolled_window.overlay_scrolling = false;
             content_stack.add_named(scrolled_window, "grid");
 
             grid_container = new Box(Orientation.VERTICAL, 0);
-            grid_container.margin_top = 40;
             grid_container.margin_bottom = GRID_BOTTOM;
             grid_container.margin_start = 12;
             grid_container.margin_end = 12;
@@ -205,6 +232,13 @@ namespace Singularity {
                 launcher_grid.show_widget_picker(launcher_grid, x, y);
             });
             launcher_grid.add_controller(grid_rc);
+            notify["focus-widget"].connect(() => {
+                GLib.Idle.add(() => {
+                    keep_focus_clear();
+                    return GLib.Source.REMOVE;
+                });
+            });
+            place_under_search();
 
             // Search Results View
             var search_view_box = new Box(Orientation.VERTICAL, 0);
@@ -214,16 +248,14 @@ namespace Singularity {
             results_scrolled = new ScrolledWindow();
             results_scrolled.hscrollbar_policy = PolicyType.NEVER;
             results_scrolled.vscrollbar_policy = PolicyType.AUTOMATIC;
-            results_scrolled.width_request = RESULTS_WIDTH;
             results_scrolled.hexpand = true;
             results_scrolled.vexpand = true;
-            results_scrolled.halign = Align.CENTER;
             search_view_box.append(results_scrolled);
 
-            var list_container = new Box(Orientation.VERTICAL, 0);
-            list_container.margin_top = 20;
+            list_container = new Box(Orientation.VERTICAL, 0);
             list_container.margin_bottom = 100;
-            results_scrolled.set_child(list_container);
+            results_clamp = new Singularity.Widgets.Clamp(list_container, RESULTS_WIDTH);
+            results_scrolled.set_child(results_clamp);
 
             search_results_list = new ListBox();
             search_results_list.add_css_class("search-results-list");
@@ -235,7 +267,10 @@ namespace Singularity {
                 Widget? child = search_results_list.get_first_child();
                 while (child != null) {
                     var r = child as SearchResultRow;
-                    if (r != null && r != row) r.hide_preview_keyboard();
+                    if (r != null && r != row) {
+                        r.hide_preview_keyboard();
+                        r.rest_icon_keyboard();
+                    }
                     child = child.get_next_sibling();
                 }
                 // Show preview on newly selected row
@@ -300,8 +335,8 @@ namespace Singularity {
             if (first != null && keep_top) search_results_list.select_row(first);
         }
 
-        private void on_search_changed(Singularity.Widgets.SearchEntry entry) {
-            string query = entry.text.strip();
+        private void on_search_changed(string text) {
+            string query = text.strip();
             if (query == "") {
                 content_stack.visible_child_name = "grid";
                 stop_search();
@@ -360,6 +395,8 @@ namespace Singularity {
                     }
                 }
                 update_grid_columns();
+                place_under_search();
+                scrolled_window.vadjustment.value = 0;
 
                 Gdk.Monitor? grid_mon = GtkLayerShell.get_monitor(this) ?? Singularity.FormFactor.main_monitor();
                 bool under_dock = Singularity.FormShell.wants_dock(grid_mon)
@@ -381,7 +418,7 @@ namespace Singularity {
                 animate_stage(true);
                 // Focus search entry so the user can type immediately;
                 // arrow keys still navigate the grid (see key_pressed handler).
-                search_entry.grab_focus();
+                search_entry.grab_focus_entry();
                 shown();
             }
         }
@@ -394,12 +431,40 @@ namespace Singularity {
 
         private const int GRID_COLUMN_SLOT = 232;
         private const int GRID_CELL = 200;
+        private const int GRID_ROW = 152;
         private const int GRID_SPACING = 16;
         private const int SEARCH_WIDTH = 400;
         private const int RESULTS_WIDTH = 640;
         private const int PHONE_GRID_COLUMNS = 4;
         private const int PHONE_GRID_SPACING = 8;
         private const int PHONE_CELL_HEIGHT = 104;
+
+        private void select_result(ListBoxRow row) {
+            search_results_list.select_row(row);
+            var result_row = row as SearchResultRow;
+            if (result_row != null) result_row.animate_icon_keyboard();
+        }
+
+        private int search_clearance() {
+            int natural;
+            search_entry.measure(Orientation.VERTICAL, -1, null, out natural, null, null);
+            return natural;
+        }
+
+        private void place_under_search() {
+            int clearance = search_clearance();
+            grid_container.margin_top = clearance + GRID_TOP;
+            list_container.margin_top = clearance + RESULTS_TOP;
+        }
+
+        private void keep_focus_clear() {
+            var focused = get_focus();
+            if (focused == null || !focused.is_ancestor(scrolled_window)) return;
+            Graphene.Rect bounds;
+            if (!focused.compute_bounds(scrolled_window, out bounds)) return;
+            double hidden = search_clearance() - bounds.origin.y;
+            if (hidden > 0) scrolled_window.vadjustment.value -= hidden;
+        }
 
         private void update_grid_columns() {
             Gdk.Monitor? grid_mon = GtkLayerShell.get_monitor(this);
@@ -422,11 +487,11 @@ namespace Singularity {
                 int slot = avail / PHONE_GRID_COLUMNS;
                 launcher_grid.set_cell_metrics(slot, slot - PHONE_GRID_SPACING, PHONE_CELL_HEIGHT, PHONE_GRID_SPACING, PHONE_GRID_COLUMNS);
                 search_entry.width_request = avail;
-                results_scrolled.width_request = avail;
+                results_clamp.maximum = avail;
             } else {
-                launcher_grid.set_cell_metrics(GRID_COLUMN_SLOT, GRID_CELL, GRID_CELL, GRID_SPACING, 0);
+                launcher_grid.set_cell_metrics(GRID_COLUMN_SLOT, GRID_CELL, GRID_ROW, GRID_SPACING, 0);
                 search_entry.width_request = SEARCH_WIDTH;
-                results_scrolled.width_request = RESULTS_WIDTH;
+                results_clamp.maximum = RESULTS_WIDTH;
             }
             launcher_grid.set_columns_for_width(avail);
             launcher_grid.viewport_hint = gg.height;
@@ -629,7 +694,7 @@ namespace Singularity {
                 is_showing = true;
                 showing = true;
                 set_keyboard_mode(this, GtkLayerShell.KeyboardMode.ON_DEMAND);
-                search_entry.grab_focus();
+                search_entry.grab_focus_entry();
             } else {
                 is_showing = false;
                 showing = false;

@@ -30,7 +30,7 @@ namespace Singularity.SidebarPages {
             card.margin_top = 12;
             card.halign = Align.CENTER;
             icon = new Image.from_icon_name("phone");
-            icon.pixel_size = 64;
+            icon.pixel_size = Singularity.Widgets.PageHero.ICON_SIZE;
             Singularity.Animation.IconMotion.play_when_shown(icon);
             card.append(icon);
             status = new Label("");

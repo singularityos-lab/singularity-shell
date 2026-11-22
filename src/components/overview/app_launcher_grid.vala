@@ -1136,6 +1136,7 @@ namespace Singularity {
             img.halign = Align.CENTER;
             img.valign = Align.CENTER;
             load_app_icon(img, app.get_icon());
+            Singularity.Animation.IconHover.attach(btn, img);
 
             box.append(img);
 
@@ -1264,6 +1265,7 @@ namespace Singularity {
                 img.icon_name = fallback;
                 return;
             }
+            Singularity.Animation.IconMotion.set_source(img, file);
             string key = "%s@%d".printf(file.get_uri(), icon_size * scale);
             var cached = _icon_textures.lookup(key);
             if (cached != null) {

@@ -4,7 +4,13 @@ using GtkLayerShell;
 namespace Singularity {
 
     private class SwitcherGridItem : Box {
+        public const int HEIGHT = 160;
+        public const int MAX_WIDTH = 284;
+        private const int MIN_WIDTH = 120;
+        private const int WAITING_WIDTH = 240;
+
         private AppSystem.Window win;
+        private Box thumb_box;
         private Picture preview_img;
         private Image fallback_icon;
         private bool is_destroyed = false;
@@ -15,11 +21,9 @@ namespace Singularity {
             this.win = win;
 
             add_css_class("app-switcher-item");
+            add_css_class("preview");
             if (selected) add_css_class("selected");
-            margin_top = 8;
-            margin_bottom = 8;
-            margin_start = 8;
-            margin_end = 8;
+            valign = Align.CENTER;
 
             this.destroy.connect(on_destroy);
             setup_ui();
@@ -35,58 +39,52 @@ namespace Singularity {
         }
 
         private void setup_ui() {
-            // Fixed-size clipping container for the thumbnail
-            var thumb_box = new Box(Orientation.VERTICAL, 0);
-            thumb_box.set_size_request(300, 200);
-            thumb_box.hexpand = false;
-            thumb_box.vexpand = false;
+            thumb_box = new Box(Orientation.VERTICAL, 0);
+            thumb_box.set_size_request(WAITING_WIDTH, HEIGHT);
             thumb_box.overflow = Overflow.HIDDEN;
             thumb_box.add_css_class("switcher-thumbnail-box");
 
             var overlay = new Overlay();
-            overlay.set_size_request(300, 200);
-            overlay.hexpand = false;
-            overlay.vexpand = false;
+            overlay.vexpand = true;
 
             preview_img = new Picture();
-            preview_img.content_fit = ContentFit.COVER;
-            preview_img.hexpand = false;
-            preview_img.vexpand = false;
-            preview_img.set_size_request(300, 200);
-            preview_img.add_css_class("switcher-thumbnail");
-            overlay.set_child(preview_img);
+            preview_img.content_fit = ContentFit.CONTAIN;
+            preview_img.can_shrink = true;
+            preview_img.add_css_class("window-preview-thumbnail");
+            var sized = new Box(Orientation.VERTICAL, 0);
+            overlay.set_child(sized);
+            overlay.add_overlay(preview_img);
 
-            // Fallback icon shown centered until capture succeeds
             fallback_icon = new Image();
-            fallback_icon.pixel_size = 48;
+            fallback_icon.pixel_size = 64;
             AppSwitcher.apply_window_icon(fallback_icon, win);
             fallback_icon.halign = Align.CENTER;
             fallback_icon.valign = Align.CENTER;
-            fallback_icon.add_css_class("switcher-thumbnail-fallback");
+            fallback_icon.margin_bottom = 24;
             overlay.add_overlay(fallback_icon);
 
-            // Small icon overlaid at bottom-left
-            var small_icon = new Image();
-            small_icon.pixel_size = 24;
-            AppSwitcher.apply_window_icon(small_icon, win);
-            small_icon.halign = Align.START;
-            small_icon.valign = Align.END;
-            small_icon.margin_start = 4;
-            small_icon.margin_bottom = 4;
-            small_icon.add_css_class("switcher-thumbnail-icon");
-            overlay.add_overlay(small_icon);
+            var title_bar = new Box(Orientation.HORIZONTAL, 6);
+            title_bar.add_css_class("window-preview-titlebar");
+            title_bar.halign = Align.CENTER;
+            title_bar.valign = Align.END;
+            title_bar.margin_start = 8;
+            title_bar.margin_end = 8;
+
+            var icon = new Image();
+            icon.pixel_size = 24;
+            AppSwitcher.apply_window_icon(icon, win);
+            icon.add_css_class("window-preview-icon");
+            title_bar.append(icon);
+
+            var label = new Label(sanitize_utf8(win.title ?? win.app_id ?? ""));
+            label.add_css_class("window-preview-label");
+            label.ellipsize = Pango.EllipsizeMode.END;
+            label.max_width_chars = 22;
+            title_bar.append(label);
+            overlay.add_overlay(title_bar);
 
             thumb_box.append(overlay);
             append(thumb_box);
-
-            var label = new Label(sanitize_utf8(win.title ?? win.app_id ?? ""));
-            label.add_css_class("caption");
-            label.halign = Align.CENTER;
-            label.ellipsize = Pango.EllipsizeMode.END;
-            label.max_width_chars = 32;
-            label.width_request = 300;
-            label.margin_top = 4;
-            append(label);
 
             capture_preview();
         }
@@ -102,6 +100,7 @@ namespace Singularity {
                 buf.length = h * s;
                 try {
                     var texture = new Gdk.MemoryTexture(w, h, Gdk.MemoryFormat.B8G8R8A8_PREMULTIPLIED, new Bytes(buf), s);
+                    thumb_box.set_size_request((HEIGHT * w / h).clamp(MIN_WIDTH, MAX_WIDTH), HEIGHT);
                     preview_img.set_paintable(texture);
                     fallback_icon.visible = false;
                 } catch (Error e) {
@@ -118,7 +117,15 @@ namespace Singularity {
 
     public class AppSwitcher : Singularity.Shell.ShellDialog {
         private Box outer_box;
+        private const int MAX_COLUMNS = 5;
+        private const int GRID_GAP = 12;
+        private const int GRID_INSET = 8;
+
         private FlowBox items_box;
+        private Box grid_box;
+        private Gee.ArrayList<Widget> items = new Gee.ArrayList<Widget>();
+        private int grid_width = 800;
+        private int grid_height = 500;
         private ScrolledWindow scroll;
         private List<AppSystem.Window> windows;
         private int selected_index = 0;
@@ -195,9 +202,12 @@ namespace Singularity {
             items_box.margin_bottom = 8;
             items_box.margin_start = 8;
             items_box.margin_end = 8;
+            grid_box = new Box(Orientation.VERTICAL, GRID_GAP);
+            grid_box.margin_top = GRID_INSET;
+            grid_box.margin_bottom = GRID_INSET;
+            grid_box.margin_start = GRID_INSET;
+            grid_box.margin_end = GRID_INSET;
             configure_layout();
-
-            scroll.set_child(items_box);
             outer_box.append(scroll);
             content_box.append(outer_box);
             hide();
@@ -263,34 +273,58 @@ namespace Singularity {
         }
 
         private void rebuild_ui() {
-            while (items_box.get_first_child() != null)
-                items_box.remove(items_box.get_first_child());
+            clear_items();
             if (windows.length() == 0) return;
+            int columns = grid_columns();
+            Box? row = null;
             int i = 0;
             foreach (var win in windows) {
                 if (win == null) { i++; continue; }
                 int idx = i;
-                var item = _list_mode ? build_list_item(win, idx == selected_index)
-                                      : build_grid_item(win, idx == selected_index);
+                Widget item;
+                if (_list_mode) {
+                    item = build_list_item(win, idx == selected_index);
+                    var child = new FlowBoxChild();
+                    child.set_child(item);
+                    items_box.append(child);
+                } else {
+                    item = build_grid_item(win, idx == selected_index);
+                    if (row == null || items.size % columns == 0) {
+                        row = new Box(Orientation.HORIZONTAL, GRID_GAP);
+                        row.halign = Align.CENTER;
+                        grid_box.append(row);
+                    }
+                    row.append(item);
+                }
                 var c = new GestureClick();
                 c.pressed.connect((n, x, y) => { selected_index = idx; activate_selected(); });
                 item.add_controller(c);
-                var child = new FlowBoxChild();
-                child.set_child(item);
-                items_box.append(child);
+                items.add(item);
                 i++;
             }
             update_viewport_size();
         }
 
+        private void clear_items() {
+            items.clear();
+            while (items_box.get_first_child() != null)
+                items_box.remove(items_box.get_first_child());
+            while (grid_box.get_first_child() != null)
+                grid_box.remove(grid_box.get_first_child());
+        }
+
         private int grid_columns() {
-            return int.max(1, default_width / 332);
+            int slot = SwitcherGridItem.MAX_WIDTH + GRID_GAP;
+            return ((grid_width - 2 * GRID_INSET + GRID_GAP) / slot).clamp(1, MAX_COLUMNS);
         }
 
         private void configure_layout() {
-            int columns = _list_mode ? 1 : grid_columns();
-            items_box.min_children_per_line = columns;
-            items_box.max_children_per_line = columns;
+            items_box.min_children_per_line = 1;
+            items_box.max_children_per_line = 1;
+            scroll.propagate_natural_width = !_list_mode;
+            scroll.max_content_width = _list_mode ? default_width : grid_width;
+            scroll.max_content_height = _list_mode ? default_height : grid_height;
+            scroll.set_child(_list_mode ? (Widget) items_box : (Widget) grid_box);
         }
 
         private void update_viewport_size() {
@@ -298,9 +332,10 @@ namespace Singularity {
             if (_list_mode) {
                 scroll.set_size_request(360, int.min(500, count * 48 + 16));
             } else {
-                int columns = int.min(count, grid_columns());
+                int columns = grid_columns();
                 int rows = (count + columns - 1) / columns;
-                scroll.set_size_request(columns * 332 + 16, int.min(default_height, rows * 260));
+                int height = rows * SwitcherGridItem.HEIGHT + (rows - 1) * GRID_GAP + 2 * GRID_INSET;
+                scroll.set_size_request(-1, int.min(grid_height, height));
             }
         }
 
@@ -381,25 +416,20 @@ namespace Singularity {
         }
 
         private void update_selection(int old_idx, int new_idx) {
-            var child = items_box.get_first_child();
-            int i = 0;
-            while (child != null) {
-                var item = ((FlowBoxChild)child).get_child();
-                if (i == old_idx) item.remove_css_class("selected");
-                if (i == new_idx) {
-                    item.add_css_class("selected");
-                    scroll_selected_into_view(child);
-                }
-                child = child.get_next_sibling();
-                i++;
+            if (old_idx < items.size) items[old_idx].remove_css_class("selected");
+            if (new_idx < items.size) {
+                items[new_idx].add_css_class("selected");
+                scroll_selected_into_view(items[new_idx]);
             }
         }
 
         private void scroll_selected_into_view(Gtk.Widget item) {
-            Gtk.Allocation alloc;
-            item.get_allocation(out alloc);
-            scroll_axis_into_view(scroll.hadjustment, alloc.x, alloc.width);
-            scroll_axis_into_view(scroll.vadjustment, alloc.y, alloc.height);
+            Gtk.Widget content = _list_mode ? (Gtk.Widget) items_box : (Gtk.Widget) grid_box;
+            Graphene.Rect bounds;
+            if (!item.compute_bounds(content, out bounds)) return;
+            int inset = GRID_INSET;
+            scroll_axis_into_view(scroll.hadjustment, (int) bounds.origin.x, (int) bounds.size.width + 2 * inset);
+            scroll_axis_into_view(scroll.vadjustment, (int) bounds.origin.y, (int) bounds.size.height + 2 * inset);
         }
 
         private void scroll_axis_into_view(Gtk.Adjustment adj, int item_start, int item_size) {
@@ -425,8 +455,7 @@ namespace Singularity {
             cancel_tap_check();
             // Remove grid items first so SwitcherGridItem.on_destroy() cancels
             // any in-flight captures before the window is hidden.
-            while (items_box.get_first_child() != null)
-                items_box.remove(items_box.get_first_child());
+            clear_items();
             hide();
         }
 
@@ -478,9 +507,9 @@ namespace Singularity {
                 int max_h = int.max(180, (int)(geom.height * 0.60));
                 default_width = int.min(800, max_w);
                 default_height = int.min(500, max_h);
-                scroll.max_content_width = default_width;
-                scroll.max_content_height = default_height;
-                if (items_box != null) configure_layout();
+                grid_width = int.max(320, (int)(geom.width * 0.9) - 80);
+                grid_height = int.max(180, (int)(geom.height * 0.8));
+                configure_layout();
             }
         }
     }
