@@ -141,10 +141,10 @@ namespace Singularity.SidebarPages {
             link_row(sims, _("eSIM"), _("Add, switch, rename and delete"), "media-flash-symbolic", EsimPage.PAGE);
             var use_esim = action_row(sims, _("Use the eSIM"), _("Moves the line to the built-in chip"), "media-flash-symbolic");
             use_esim.activated.connect(() => apply.begin(MobileCommand.SELECT_SLOT,
-                new Variant("(u)", MobileNetwork.ESIM_SLOT), _("Switched to the eSIM"), use_esim));
+                new Variant("(u)", MobileNetwork.ESIM_SLOT), _("Switching to the eSIM, the modem is restarting"), use_esim));
             var use_sim = action_row(sims, _("Use the SIM Card"), _("Moves the line to the card tray"), "media-flash-symbolic");
             use_sim.activated.connect(() => apply.begin(MobileCommand.SELECT_SLOT,
-                new Variant("(u)", MobileNetwork.SIM_SLOT), _("Switched to the SIM card"), use_sim));
+                new Variant("(u)", MobileNetwork.SIM_SLOT), _("Switching to the SIM card, the modem is restarting"), use_sim));
             add_group(sims);
 
             var choice = new PreferencesGroup(_("Carrier Selection"));
@@ -458,9 +458,9 @@ namespace Singularity.SidebarPages {
 
             var slots = new PreferencesGroup(_("SIM Line"));
             command_row(slots, _("Map the Line to the eSIM"), null,
-                MobileCommand.SELECT_SLOT, new Variant("(u)", MobileNetwork.ESIM_SLOT), _("Line moved to the eSIM"));
+                MobileCommand.SELECT_SLOT, new Variant("(u)", MobileNetwork.ESIM_SLOT), _("Switching to the eSIM, the modem is restarting"));
             command_row(slots, _("Map the Line to the Card Tray"), null,
-                MobileCommand.SELECT_SLOT, new Variant("(u)", MobileNetwork.SIM_SLOT), _("Line moved to the card tray"));
+                MobileCommand.SELECT_SLOT, new Variant("(u)", MobileNetwork.SIM_SLOT), _("Switching to the SIM card, the modem is restarting"));
             command_row(slots, _("Send eSIM Notices"), null,
                 MobileCommand.SEND_NOTIFICATIONS, null, _("Notices sent"));
             add_group(slots);
