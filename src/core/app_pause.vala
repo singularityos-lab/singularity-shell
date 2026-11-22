@@ -224,7 +224,7 @@ namespace Singularity {
             for (int i = 0; i < tree.length; i++) {
                 var list = children.lookup(tree[i]);
                 if (list == null) continue;
-                foreach (int child in list.data) tree += child;
+                for (uint j = 0; j < list.length; j++) tree += list[j];
             }
             return tree;
         }
