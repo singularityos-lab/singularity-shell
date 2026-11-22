@@ -179,6 +179,7 @@ namespace Singularity.SidebarPages {
             box.margin_start = 12;
             var icon = new Image.from_icon_name(providers.has_key(id) ? providers[id].icon_name : icon_for(id));
             icon.pixel_size = 48;
+            Singularity.Animation.IconMotion.play_when_shown(icon);
             box.append(icon);
             var label = new Label(name);
             label.add_css_class("title-3");

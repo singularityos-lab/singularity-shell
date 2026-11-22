@@ -144,6 +144,7 @@ namespace Singularity.SidebarPages {
             box.margin_end = 12;
             hero_icon = new Image.from_icon_name("printer");
             hero_icon.pixel_size = 80;
+            Singularity.Animation.IconMotion.play_when_shown(hero_icon);
             hero_icon.valign = Align.CENTER;
             box.append(hero_icon);
             var text = new Box(Orientation.VERTICAL, 3);

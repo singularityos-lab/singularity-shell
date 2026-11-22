@@ -33,6 +33,7 @@ namespace Singularity {
         private bool _app_items_dirty = false;
         private HashMap<string, Gtk.Widget> _item_cache = new HashMap<string, Gtk.Widget>();
         private int _cached_icon_size = -1;
+        private Gee.HashSet<string>? _open_apps = null;
         private bool _cached_extended = false;
         private bool _intro_played = false;
         private bool _refreshed_once = false;
@@ -1695,6 +1696,7 @@ namespace Singularity {
                 }
             }
 
+            announce_opened_apps(desired_keys);
             update_active_app(app_system.get_focused_app_id());
             this.queue_resize();
 
@@ -1705,6 +1707,20 @@ namespace Singularity {
                     play_intro();
                 }
             }
+        }
+
+        private void announce_opened_apps(Gee.Collection<string> keys) {
+            var open = new Gee.HashSet<string>();
+            foreach (var key in keys) {
+                if (!key.has_prefix("pin:") && !key.has_prefix("run:")) continue;
+                string app_id = key.substring(4);
+                if (count_app_windows(app_id) == 0) continue;
+                open.add(app_id);
+                if (_open_apps != null && !_open_apps.contains(app_id) && _item_cache.has_key(key)) {
+                    DockIconMotion.opened(_item_cache[key]);
+                }
+            }
+            _open_apps = open;
         }
 
         public void play_intro() {
@@ -2602,7 +2618,9 @@ namespace Singularity {
             var hover = new Gtk.EventControllerMotion();
             unowned Gtk.Box pill_weak = pill;
             unowned Gtk.Revealer rev_weak = suffix_revealer;
+            unowned Gtk.Box item_weak = wrapper;
             hover.enter.connect(() => {
+                DockIconMotion.entered(item_weak, magnifier.enabled);
                 if (suffix_box.get_first_child() != null && !rev_weak.reveal_child) {
                     pin_expansion();
                     pill_weak.add_css_class("expanded");
@@ -2616,6 +2634,7 @@ namespace Singularity {
                 arm_preview_show(pill_weak, app_id);
             });
             hover.leave.connect(() => {
+                DockIconMotion.left(item_weak);
                 if (!_kept_expanded.contains(app_id) && rev_weak.reveal_child) {
                     pill_weak.remove_css_class("expanded");
                     rev_weak.reveal_child = false;
@@ -2647,6 +2666,7 @@ namespace Singularity {
             btn.destroy.connect(() => pause.disconnect(pause_watch));
             btn.clicked.connect(() => {
                 pause.resume(app_id);
+                DockIconMotion.activated(wrapper_weak);
                 var app_wins = new Gee.ArrayList<AppSystem.Window>();
                 foreach (var w in app_system.get_windows())
                     if (w.app_id != null && app_system.app_ids_match(app_id, w.app_id)) app_wins.add(w);

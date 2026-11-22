@@ -233,7 +233,7 @@ namespace Singularity {
 
             if (info.get_file_type() == FileType.DIRECTORY) {
                 show_folder(gen);
-            } else if (mime.has_prefix("image/")) {
+            } else if (Singularity.FileSystem.ImageTypes.can_preview(mime)) {
                 show_image(gen, mime);
             } else if (mime.has_prefix("video/")) {
                 show_media(gen, true);

@@ -44,6 +44,7 @@ namespace Singularity.SidebarPages {
             var logo = new Image.from_icon_name("computer-symbolic");
             logo.icon_name = get_distro_icon_name();
             logo.pixel_size = 96;
+            Singularity.Animation.IconMotion.play_when_shown(logo);
             logo.add_css_class("accent-color");
             logo_box.append(logo);
             add_widget(logo_box);

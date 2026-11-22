@@ -354,7 +354,7 @@ namespace Singularity {
             string? path = file.get_path();
             if (content_type == "application/x-desktop" && path != null
                 && set_icon_from_desktop_entry(icon_widget, path)) {
-            } else if (content_type.has_prefix("image/") && path != null) {
+            } else if (Singularity.FileSystem.ImageTypes.can_preview(content_type) && path != null) {
                 uint64 mtime = info.get_attribute_uint64("time::modified");
                 string cache_key = path + ":" + mtime.to_string();
                 Gdk.Pixbuf? cached = _icon_pixbuf_cache.lookup(cache_key);

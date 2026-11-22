@@ -57,12 +57,106 @@ namespace Singularity {
         }
     }
 
+    public class DockIconMotion : Object {
+        private const uint DWELL = 80;
+
+        private uint pending = 0;
+        private bool played = false;
+        private bool hovered = false;
+        private bool launching = false;
+        private double detail = 1.0;
+
+        private static DockIconMotion of(Gtk.Widget wrapper) {
+            var state = wrapper.get_data<DockIconMotion>("icon_motion");
+            if (state != null) return state;
+            state = new DockIconMotion();
+            wrapper.set_data<DockIconMotion>("icon_motion", state);
+            return state;
+        }
+
+        public static void entered(Gtk.Widget wrapper, bool magnified) {
+            var state = of(wrapper);
+            if (state.hovered) return;
+            state.hovered = true;
+            state.detail = magnified ? DockMagnifier.MAX_SCALE : 1.0;
+            var item = WeakRef(wrapper);
+            state.pending = Timeout.add(DWELL, () => {
+                var alive = item.get() as Gtk.Widget;
+                if (alive == null) return Source.REMOVE;
+                var current = of(alive);
+                current.pending = 0;
+                current.played = current.animate(alive);
+                return Source.REMOVE;
+            });
+        }
+
+        public static void left(Gtk.Widget wrapper) {
+            var state = of(wrapper);
+            state.cancel();
+            state.hovered = false;
+            state.played = false;
+            state.detail = 1.0;
+        }
+
+        public static void activated(Gtk.Widget wrapper) {
+            var state = of(wrapper);
+            if (state.played) return;
+            state.cancel();
+            bool running = state.animate(wrapper);
+            if (state.hovered) state.played = running;
+        }
+
+        public static void launched(Gtk.Widget wrapper) {
+            of(wrapper).launching = true;
+            activated(wrapper);
+        }
+
+        public static void opened(Gtk.Widget wrapper) {
+            var state = of(wrapper);
+            if (state.launching) {
+                state.launching = false;
+                return;
+            }
+            if (wrapper.get_mapped()) {
+                activated(wrapper);
+                return;
+            }
+            wrapper.add_tick_callback((item, clock) => {
+                activated(item);
+                return Source.REMOVE;
+            });
+        }
+
+        private void cancel() {
+            if (pending == 0) return;
+            Source.remove(pending);
+            pending = 0;
+        }
+
+        private bool animate(Gtk.Widget wrapper) {
+            var button = wrapper.get_data<Gtk.Button>("dock_button");
+            if (button == null) return false;
+            var bin = button.get_child() as Singularity.Animation.MotionBin;
+            var content = bin != null ? bin.child : button.get_child();
+            var sharp = content as DockSharpIcon;
+            var image = sharp != null ? sharp.image : content as Gtk.Image;
+            if (image == null) return false;
+            return Singularity.Animation.IconMotion.play(image, Singularity.Animation.IconMotion.DOCK_LIMIT, detail);
+        }
+
+        public override void dispose() {
+            cancel();
+            base.dispose();
+        }
+    }
+
     public class DockLaunchFeedback : Object {
         public const double BOUNCE = 0.28;
         public const double STRETCH = 3.0;
         public const uint GIVE_UP_SECONDS = 10;
 
         public static void play(Gtk.Widget wrapper, string position) {
+            DockIconMotion.launched(wrapper);
             ripple(wrapper);
             bounce(wrapper, position);
             stretch_dot(wrapper);

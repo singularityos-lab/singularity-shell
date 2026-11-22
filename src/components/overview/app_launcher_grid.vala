@@ -1304,7 +1304,7 @@ namespace Singularity {
             try {
                 var path = job.file.get_path();
                 var pixbuf = path != null
-                    ? Singularity.Compute.load_scaled(path, job.px, job.px, true)
+                    ? Singularity.Compute.load_icon_scaled(path, job.px)
                     : new Gdk.Pixbuf.from_stream_at_scale(job.file.read(), job.px, job.px, true);
                 texture = new Gdk.MemoryTexture(pixbuf.width, pixbuf.height,
                     pixbuf.has_alpha ? Gdk.MemoryFormat.R8G8B8A8 : Gdk.MemoryFormat.R8G8B8,

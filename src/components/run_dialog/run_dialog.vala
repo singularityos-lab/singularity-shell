@@ -1235,7 +1235,7 @@ namespace Singularity {
             }
 
             string mime_type = result.mime_type;
-            if (mime_type.has_prefix("image/")) {
+            if (Singularity.FileSystem.ImageTypes.can_preview(mime_type)) {
                 show_image_preview(result);
             } else if (mime_type.has_prefix("text/")
                     || mime_type == "application/json"

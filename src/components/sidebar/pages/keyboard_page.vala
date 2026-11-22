@@ -574,6 +574,7 @@ namespace Singularity {
 
             var icon = new Image.from_icon_name(icon_name);
             icon.pixel_size = 48;
+            Singularity.Animation.IconMotion.play_when_shown(icon);
             content.append(icon);
 
             var title = new Label(name);

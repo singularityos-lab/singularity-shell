@@ -124,7 +124,7 @@ namespace Singularity {
         // File visual (thumbnail or themed icon)
         private void set_file_visual(Gtk.Image img, GLib.File file, string path, int icon_size) {
             string? ct = content_type_for(file);
-            if (ct != null && ct.has_prefix("image/")) {
+            if (Singularity.FileSystem.ImageTypes.can_preview(ct)) {
                 try {
                     var pb = Singularity.Compute.load_scaled(path, icon_size, icon_size, true);
                     img.set_from_paintable(Gdk.Texture.for_pixbuf(pb));
@@ -236,7 +236,7 @@ namespace Singularity {
                     var entry = build_popover_entry(child, info.get_name(), img, pop);
                     flow.append(entry);
 
-                    if (ct != null && ct.has_prefix("image/") && path != "") {
+                    if (Singularity.FileSystem.ImageTypes.can_preview(ct) && path != "") {
                         var job = new ThumbJob();
                         job.path = path; job.img = img;
                         pending.add(job);
@@ -317,7 +317,7 @@ namespace Singularity {
                 while ((info = en.next_file()) != null && result.length < max) {
                     if (info.get_is_hidden()) continue;
                     string? ct = info.get_content_type();
-                    if (ct != null && ct.has_prefix("image/")) {
+                    if (Singularity.FileSystem.ImageTypes.can_preview(ct)) {
                         var child = dir.resolve_relative_path(info.get_name());
                         string? p = child.get_path();
                         if (p != null) result += p;

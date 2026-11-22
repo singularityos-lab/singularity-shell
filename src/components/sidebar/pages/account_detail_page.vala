@@ -62,6 +62,7 @@ namespace Singularity.SidebarPages {
             box.margin_end = 12;
             var icon = new Image.from_icon_name(account.icon_name);
             icon.pixel_size = 64;
+            Singularity.Animation.IconMotion.play_when_shown(icon);
             box.append(icon);
             var text = new Box(Orientation.VERTICAL, 4);
             text.valign = Align.CENTER;

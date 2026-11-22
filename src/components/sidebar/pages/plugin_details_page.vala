@@ -35,6 +35,7 @@ namespace Singularity.SidebarPages {
             var icon_name = "application-x-addon";
             var icon = new Image.from_icon_name(icon_name);
             icon.pixel_size = 64;
+            Singularity.Animation.IconMotion.play_when_shown(icon);
             box.append(icon);
 
             var vbox = new Box(Orientation.VERTICAL, 4);

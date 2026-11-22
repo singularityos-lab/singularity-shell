@@ -207,7 +207,7 @@ namespace Singularity {
             string mime = result.mime_type ?? "";
             string uri = result.action_id;
 
-            if (mime.has_prefix("image/")) {
+            if (Singularity.FileSystem.ImageTypes.can_preview(mime)) {
                 load_image_preview(uri);
             } else if (mime.has_prefix("text/")) {
                 load_text_preview.begin(uri);
