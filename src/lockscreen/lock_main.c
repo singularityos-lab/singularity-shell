@@ -480,7 +480,7 @@ static void render_output(struct lock_output *o) {
     st.date_str = dbuf;
     st.avatar = avatar_surface;
     st.background = bg_surface;
-    st.password_dots = (int)password_len;
+    st.password_dots = loginui_password_chars(password, password_len);
     st.status_text = status_text[0] ? status_text : NULL;
     st.status_error = status_error;
     /* On Sinty OS the unlock field takes a PIN, not a password (the recoverd
@@ -1221,7 +1221,7 @@ int main(int argc, char **argv) {
             pfds[i + 1].revents = 0;
         }
 
-        int timeout = loginui_gesture_animating(&gesture) ? 16 : 1000;
+        int timeout = loginui_gesture_animating(&gesture) ? 16 : loginui_caret_timeout(1000);
         if (gl_timeout >= 0 && gl_timeout < timeout) timeout = gl_timeout;
 
         int pr = poll(pfds, nf + 1, timeout);
@@ -1240,7 +1240,7 @@ int main(int argc, char **argv) {
             g_main_context_release(ctx);
         }
 
-        if (loginui_gesture_tick(&gesture, now_s())) render_all();
+        if (loginui_gesture_tick(&gesture, now_s()) || loginui_caret_tick()) render_all();
         if (password_len == 0 && loginui_gesture_idle(&gesture, keypad_shown, now_s(), 30.0)) set_cover(1.0);
 
         /* Repaint clock once a minute. */
