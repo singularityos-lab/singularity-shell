@@ -65,8 +65,8 @@ namespace Singularity {
         public void cancel() {
             if (cancellable.is_cancelled()) return;
             cancellable.cancel();
-            foreach (var id in start_sources.data) {
-                if (id != 0) Source.remove(id);
+            for (uint i = 0; i < start_sources.length; i++) {
+                if (start_sources[i] != 0) Source.remove(start_sources[i]);
             }
             start_sources = new GenericArray<uint>();
             if (flush_source != 0) {
