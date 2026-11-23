@@ -87,9 +87,13 @@ namespace Singularity {
             queue_sync();
         }
 
-        private void on_device_removed(UPower.Device device) {
-            device.notify.disconnect(on_device_notify);
-            watched.remove(device);
+        private void on_device_removed(string object_path) {
+            foreach (var device in watched) {
+                if (device.get_object_path() != object_path) continue;
+                device.notify.disconnect(on_device_notify);
+                watched.remove(device);
+                break;
+            }
             queue_sync();
         }
 
