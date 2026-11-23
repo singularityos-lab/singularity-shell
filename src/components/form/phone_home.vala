@@ -233,6 +233,10 @@ namespace Singularity {
 
         private void fit() {
             if (_width <= 0 || _height <= 0) return;
+            if (_hub_open && !_hub_drag) {
+                Singularity.Motion.cancel(this, "hub-x");
+                hub_x = (double) _width;
+            }
             int columns = _wide ? (_width / WIDE_SLOT).clamp(WIDE_MIN_COLUMNS, WIDE_MAX_COLUMNS) : COLUMNS;
             int slot = _width / columns;
             int rows = int.max(1, (_height - TOP_GAP - DOTS_HEIGHT) / (CELL_HEIGHT + SPACING));

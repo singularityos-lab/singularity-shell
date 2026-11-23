@@ -100,6 +100,8 @@ namespace Singularity {
                 var split = new Singularity.Widgets.SplitView(list_column, _detail);
                 split.list_fraction = 0.45;
                 split.detail_min_width = 0;
+                list_column.remove_css_class("hub-sheet");
+                split.add_css_class("hub-sheet");
                 _sheet_layers.child = split;
             } else {
                 _sheet_layers.child = list_column;
