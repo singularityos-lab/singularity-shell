@@ -1989,6 +1989,7 @@ namespace Singularity {
             hover.leave.connect(() => DockIconMotion.left(item_weak));
             pill.add_controller(hover);
             btn.clicked.connect(() => DockIconMotion.activated(item_weak));
+            DockIconMotion.pressable(wrapper);
         }
 
         private Gtk.Widget? create_item_for_key(string key, string[] pinned, int icon_size) {
@@ -2655,6 +2656,7 @@ namespace Singularity {
                 if (_preview_popover != null) schedule_preview_dismiss();
             });
             pill.add_controller(hover);
+            DockIconMotion.pressable(wrapper);
 
             // No surface-recenter workaround needed: the dock window is
             // anchored on all perpendicular edges, so growing/shrinking the

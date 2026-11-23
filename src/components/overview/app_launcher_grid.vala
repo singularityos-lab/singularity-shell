@@ -1137,8 +1137,14 @@ namespace Singularity {
             img.valign = Align.CENTER;
             load_app_icon(img, app.get_icon());
             Singularity.Animation.IconHover.attach(btn, img);
+            var img_bin = new Singularity.Animation.MotionBin(img);
+            img_bin.halign = Align.CENTER;
+            img_bin.valign = Align.CENTER;
+            unowned Image pressed = img;
+            unowned Singularity.Animation.MotionBin pressed_bin = img_bin;
+            Singularity.Animation.IconPress.attach(btn, () => pressed_bin, () => pressed);
 
-            box.append(img);
+            box.append(img_bin);
 
             var label = new Label(app.get_name());
             label.max_width_chars = 14;

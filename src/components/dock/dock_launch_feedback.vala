@@ -102,6 +102,16 @@ namespace Singularity {
             });
         }
 
+        public static void pressable(Gtk.Widget wrapper) {
+            var button = wrapper.get_data<Gtk.Button>("dock_button");
+            if (button == null) return;
+            unowned Gtk.Widget item = wrapper;
+            unowned Gtk.Button pressed = button;
+            Singularity.Animation.IconPress.attach(button,
+                () => pressed.get_child() as Singularity.Animation.MotionBin,
+                () => icon_of(item));
+        }
+
         private static Gtk.Image? icon_of(Gtk.Widget wrapper) {
             var button = wrapper.get_data<Gtk.Button>("dock_button");
             if (button == null) return null;

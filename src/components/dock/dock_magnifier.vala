@@ -158,10 +158,9 @@ namespace Singularity {
                 Singularity.Motion.cancel(bin, "scale");
                 Singularity.Motion.cancel(bin, axis);
                 Singularity.Motion.cancel(bin, other);
-                bin.reset_transform();
                 bin.scale = scale;
-                if (vertical) bin.translate_y = offset;
-                else bin.translate_x = offset;
+                bin.translate_x = vertical ? 0.0 : offset;
+                bin.translate_y = vertical ? offset : 0.0;
                 sync_sharp(bin);
                 return;
             }
