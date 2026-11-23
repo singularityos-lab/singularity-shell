@@ -137,7 +137,7 @@ namespace Singularity {
             ai_text = new TextView();
             ai_text.wrap_mode = WrapMode.WORD_CHAR;
             ai_text.accepts_tab = false;
-            ai_text.left_margin = 28;
+            ai_text.left_margin = 40;
             ai_text.top_margin = 12;
             ai_text.bottom_margin = 12;
             ai_text.add_css_class("run-ai-text");
@@ -178,7 +178,7 @@ namespace Singularity {
             ai_placeholder.add_css_class("run-ai-placeholder");
             ai_placeholder.halign = Align.START;
             ai_placeholder.valign = Align.START;
-            ai_placeholder.margin_start = 28;
+            ai_placeholder.margin_start = 40;
             ai_placeholder.margin_top = 12;
             ai_placeholder.can_target = false;
             ai_placeholder.visible = false;
@@ -194,7 +194,7 @@ namespace Singularity {
             ai_orb = new AgentOrb(16);
             ai_orb.halign = Align.START;
             ai_orb.valign = Align.START;
-            ai_orb.margin_start = 3;
+            ai_orb.margin_start = 8;
             ai_orb.margin_top = 6;
             ai_orb.visible = false;
             entry_overlay.add_overlay(ai_orb);
@@ -244,6 +244,8 @@ namespace Singularity {
                 _("Asks only before what cannot be undone"), _("Finishes the task on its own")
             };
             ai_mode_select.icon_only = true;
+            ai_mode_select.add_css_class("flat");
+            ai_mode_select.add_css_class("circular");
             ai_mode_select.notify["selected"].connect(() => {
                 ai_mode_select.tooltip_text = _("Mode: %s").printf(choice_text(ai_mode_select));
             });
@@ -261,6 +263,8 @@ namespace Singularity {
                 "sinty-ai-openai-symbolic", "sinty-ai-ollama-symbolic"
             };
             ai_provider_select.icon_only = true;
+            ai_provider_select.add_css_class("flat");
+            ai_provider_select.add_css_class("circular");
             ai_provider_select.notify["selected"].connect(() => {
                 ai_provider_select.tooltip_text = _("Answers: %s").printf(choice_text(ai_provider_select));
             });
