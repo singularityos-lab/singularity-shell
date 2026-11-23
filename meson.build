@@ -657,6 +657,7 @@ singularity_core_sources = files(
     'src/components/displays/monitor_preview.vala',
     'src/components/displays/edge_approach.vala',
     'src/components/displays/edge_chooser.vala',
+    'src/components/displays/move_card.vala',
     'src/components/displays/scale_chooser.vala',
     'src/components/sidebar/pages/displays_page.vala',
     'src/components/sidebar/pages/led_matrix_page.vala',
