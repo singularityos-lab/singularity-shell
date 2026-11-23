@@ -14,6 +14,7 @@ namespace Singularity.SidebarPages {
         private Spinner os_spinner;
         private ProgressBar progress_bar;
         private ActionRow progress_row;
+        private Button cancel_btn;
         private ExpanderRow notes_row;
         private ActionRow later_row;
         private ActionRow newer_row;
@@ -50,6 +51,10 @@ namespace Singularity.SidebarPages {
             progress_bar.valign = Align.CENTER;
             progress_bar.width_request = 120;
             progress_row.add_suffix(progress_bar);
+            cancel_btn = new Button.with_label(_("Cancel"));
+            cancel_btn.valign = Align.CENTER;
+            cancel_btn.clicked.connect(() => run_action.begin("cancel"));
+            progress_row.add_suffix(cancel_btn);
             progress_row.visible = false;
             system_group.add_row(progress_row);
 
@@ -352,6 +357,7 @@ namespace Singularity.SidebarPages {
                 os_btn.remove_css_class("suggested-action");
             }
             progress_row.visible = provider.state == State.DOWNLOADING;
+            cancel_btn.visible = provider.can_cancel && !busy;
             if (provider.progress >= 0) {
                 progress_bar.fraction = provider.progress.clamp(0, 1);
                 progress_row.subtitle = "%d%%".printf((int) Math.round(provider.progress * 100));
@@ -458,6 +464,9 @@ namespace Singularity.SidebarPages {
                         break;
                     case "unschedule":
                         yield provider.unschedule();
+                        break;
+                    case "cancel":
+                        yield provider.cancel_download();
                         break;
                     case "apply-live":
                         var updated = provider as UpdatedProvider;
