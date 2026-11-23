@@ -54,19 +54,62 @@ namespace Singularity {
         public signal void hidden();
         public signal void hiding();
 
+        private bool windows_faded = false;
+        private bool compositor_fades = false;
+
+        private bool plain_background() {
+            return Singularity.Style.BackgroundEffect.read(desktop_settings)
+                == Singularity.Style.BackgroundEffectMode.DISABLED;
+        }
+
+        private void fade_windows(bool faded, uint ms) {
+            if (faded && !plain_background()) faded = false;
+            if (faded == windows_faded) return;
+            if (Singularity.MotionHints.fade_windows(this, faded, Singularity.Motion.get_default().scale(ms))) {
+                windows_faded = faded;
+                compositor_fades = true;
+            }
+            update_wallpaper();
+        }
+
+        private void update_input_region() {
+            var surface = get_surface();
+            int w = get_width();
+            int h = get_height();
+            if (surface == null || w <= 0 || h <= 0) return;
+            var region = new Cairo.Region.rectangle(Cairo.RectangleInt() { x = 0, y = 0, width = w, height = h });
+            var panel = anchor_window;
+            if (panel != null && panel.get_mapped() && GtkLayerShell.is_layer_window(panel)
+                    && GtkLayerShell.get_monitor(panel) == GtkLayerShell.get_monitor(this)) {
+                int ph = panel.get_height();
+                bool bottom = GtkLayerShell.get_anchor(panel, GtkLayerShell.Edge.BOTTOM)
+                    && !GtkLayerShell.get_anchor(panel, GtkLayerShell.Edge.TOP);
+                if (ph > 0 && ph < h) {
+                    region.subtract_rectangle(Cairo.RectangleInt() { x = 0, y = bottom ? h - ph : 0, width = w, height = ph });
+                }
+            }
+            surface.set_input_region(region);
+        }
+
+        public override void size_allocate(int width, int height, int baseline) {
+            base.size_allocate(width, height, baseline);
+            update_input_region();
+        }
+
         private void update_background_effect() {
             var mode = Singularity.Style.BackgroundEffect.read(desktop_settings);
             Singularity.Style.BackgroundEffect.apply(this, mode);
+            if (windows_faded && !plain_background()) fade_windows(false, 0);
             update_wallpaper();
         }
 
         private void update_wallpaper() {
             var texture = WallpaperManager.get_default().display_texture;
-            bool shown = texture != null && Singularity.Style.BackgroundEffect.read(desktop_settings)
-                == Singularity.Style.BackgroundEffectMode.DISABLED;
+            bool plain = texture != null && plain_background();
+            bool shown = plain && !compositor_fades;
             background_picture.paintable = shown ? texture : null;
             background_picture.visible = shown;
-            if (shown) main_box.remove_css_class("overview-box");
+            if (plain) main_box.remove_css_class("overview-box");
             else main_box.add_css_class("overview-box");
         }
 
@@ -406,6 +449,7 @@ namespace Singularity {
                     ? Singularity.FormShell.dock_icon_size(desktop_settings, grid_mon) + DOCK_CLEARANCE + GRID_BOTTOM
                     : GRID_BOTTOM;
                 set_layer(this, under_dock ? GtkLayerShell.Layer.TOP : GtkLayerShell.Layer.OVERLAY);
+                fade_windows(true, Singularity.Motion.Duration.LARGE.ms());
                 present();
                 // Populate AFTER present so the empty overview (background +
                 // search bar) paints immediately; the grid then streams in
@@ -522,6 +566,7 @@ namespace Singularity {
 
         private void begin_hide() {
             _closing = true;
+            fade_windows(false, Singularity.Motion.Duration.LARGE.exit_ms());
             if (_hide_guard != 0) GLib.Source.remove(_hide_guard);
             uint watchdog = Singularity.Motion.get_default().scale(
                 Singularity.Motion.Duration.SCENE.ms()) + 500;
@@ -552,6 +597,7 @@ namespace Singularity {
             Singularity.Motion.cancel(this, "opacity");
             opacity = 1.0;
             launcher_grid.close_folder_overlays();
+            fade_windows(false, 0);
             close_layer_window (this);
             PreviewCache.get_default().clear();
             hidden();

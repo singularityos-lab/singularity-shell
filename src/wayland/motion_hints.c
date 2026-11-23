@@ -25,7 +25,7 @@ registry_global(void *data, struct wl_registry *registry, uint32_t name,
 		return;
 	}
 	*manager = wl_registry_bind(registry, name,
-		&zsingularity_motion_manager_v1_interface, 1);
+		&zsingularity_motion_manager_v1_interface, version < 3 ? version : 3);
 }
 
 static void
@@ -127,6 +127,29 @@ singularity_motion_hints_clear(GtkWidget *window)
 	zsingularity_motion_manager_v1_clear_icon_rects(manager, surface);
 #else
 	(void)window;
+#endif
+}
+
+gboolean
+singularity_motion_hints_fade_windows(GtkWidget *window, gboolean faded, guint duration_ms)
+{
+#ifdef GDK_WINDOWING_WAYLAND
+	struct zsingularity_motion_manager_v1 *manager;
+	if (!resolve(window, &manager, NULL)
+			|| zsingularity_motion_manager_v1_get_version(manager)
+				< ZSINGULARITY_MOTION_MANAGER_V1_FADE_WINDOWS_SINCE_VERSION) {
+		return FALSE;
+	}
+	zsingularity_motion_manager_v1_fade_windows(manager, faded ? 1 : 0, duration_ms);
+	GdkDisplay *gdk_display = gtk_widget_get_display(window);
+	wl_display_flush(gdk_wayland_display_get_wl_display(
+		GDK_WAYLAND_DISPLAY(gdk_display)));
+	return TRUE;
+#else
+	(void)window;
+	(void)faded;
+	(void)duration_ms;
+	return FALSE;
 #endif
 }
 

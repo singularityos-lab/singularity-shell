@@ -4,7 +4,7 @@
     Copyright © 2026 Singularity Desktop
   </copyright>
 
-  <interface name="zsingularity_motion_manager_v1" version="2">
+  <interface name="zsingularity_motion_manager_v1" version="3">
     <description summary="motion hints for window animations">
       Lets a shell tell the compositor where the launcher icon of each
       application is, so windows can open from it, close into it and
@@ -64,9 +64,21 @@
       <arg name="id" type="new_id" interface="zsingularity_motion_card_v1"/>
       <arg name="toplevel" type="object" interface="zwlr_foreign_toplevel_handle_v1"/>
     </request>
+    <request name="fade_windows" since="3">
+      <description summary="fade every window out or back in">
+        Fades all windows, with their popups and decorations, out
+        (faded = 1) or back in (faded = 0) over duration milliseconds, for
+        example while the shell shows an overview above the wallpaper.
+        Faded windows are not drawn; their focus and state do not change.
+        The windows come back when the manager that faded them is
+        destroyed.
+      </description>
+      <arg name="faded" type="uint"/>
+      <arg name="duration" type="uint" summary="milliseconds"/>
+    </request>
   </interface>
 
-  <interface name="zsingularity_motion_card_v1" version="2">
+  <interface name="zsingularity_motion_card_v1" version="3">
     <description summary="a window held by the shell">
       Rectangles are in output layout coordinates. The card starts where
       the window is, or, for a minimized window, hidden until the first

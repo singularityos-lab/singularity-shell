@@ -1246,7 +1246,19 @@ namespace Singularity {
             } else {
                 main_box.remove_css_class("overview-mode");
             }
+            fade_window_items(!enabled, instant);
             update_overview_surface_mode();
+        }
+
+        private void fade_window_items(bool shown, bool instant) {
+            var duration = Singularity.Motion.Duration.LARGE;
+            uint ms = instant ? 0 : (shown ? duration.ms() : duration.exit_ms());
+            var curve = shown ? Singularity.Motion.Curve.ENTER : Singularity.Motion.Curve.EXIT;
+            foreach (Gtk.Widget? item in new Gtk.Widget?[] { app_title_label, menu_bar }) {
+                if (item == null) continue;
+                item.can_target = shown;
+                Singularity.Motion.tween(item, "opacity", shown ? 1.0 : 0.0, ms, curve);
+            }
         }
 
         private void update_overview_surface_mode() {

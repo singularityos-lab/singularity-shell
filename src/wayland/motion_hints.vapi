@@ -6,6 +6,8 @@ namespace Singularity.MotionHints {
     public void clear(Gtk.Widget window);
     [CCode (cname = "singularity_motion_hints_launch")]
     public void launch(Gtk.Widget window, string app_id);
+    [CCode (cname = "singularity_motion_hints_fade_windows")]
+    public bool fade_windows(Gtk.Widget window, bool faded, uint duration_ms);
     [CCode (cname = "singularity_motion_hints_available")]
     public bool available(Gtk.Widget window);
 }

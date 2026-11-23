@@ -7,6 +7,7 @@ void singularity_motion_hints_set_icon_rect(GtkWidget *window, const char *app_i
 	int x, int y, int width, int height);
 void singularity_motion_hints_clear(GtkWidget *window);
 void singularity_motion_hints_launch(GtkWidget *window, const char *app_id);
+gboolean singularity_motion_hints_fade_windows(GtkWidget *window, gboolean faded, guint duration_ms);
 gboolean singularity_motion_hints_available(GtkWidget *window);
 
 #endif
