@@ -140,6 +140,7 @@ namespace Singularity {
         }
 
         private static bool stays_in_hub(string action) {
+            if (action.has_prefix("attachment:")) return true;
             switch (action) {
                 case "mark-read":
                 case "mark-unread":

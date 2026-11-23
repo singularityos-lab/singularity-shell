@@ -61,7 +61,7 @@ namespace Singularity {
             var scroller = new ScrolledWindow();
             scroller.hscrollbar_policy = PolicyType.NEVER;
             scroller.vexpand = true;
-            scroller.child = Hub.Cards.build(item);
+            scroller.child = Hub.Cards.build(item, (action) => store.invoke(item, action));
             append(scroller);
 
             var actions = store.actions_for(item);
