@@ -2,8 +2,13 @@ namespace Singularity {
 
     public class PowerKeyManager : Object {
         private static PowerKeyManager? _instance = null;
+        private const int CHORD_MS = 400;
+
         private GLib.Settings settings;
         private UnixInputStream? inhibitor = null;
+        private int64 volume_down_at = 0;
+        private double volume_before = -1;
+        private uint pending_power = 0;
 
         public static PowerKeyManager get_default() {
             if (_instance == null) _instance = new PowerKeyManager();
@@ -32,6 +37,19 @@ namespace Singularity {
             }
         }
 
+        public bool volume_down_pressed(double volume) {
+            if (!Singularity.FormFactor.current().is_handheld()) return false;
+            if (pending_power != 0) {
+                Source.remove(pending_power);
+                pending_power = 0;
+                capture();
+                return true;
+            }
+            volume_down_at = GLib.get_monotonic_time();
+            volume_before = volume;
+            return false;
+        }
+
         public void power_pressed() {
             var idle = IdleManager.get_default();
             if (idle.blanked) {
@@ -39,6 +57,31 @@ namespace Singularity {
                 idle.wake();
                 return;
             }
+            if (!Singularity.FormFactor.current().is_handheld()) {
+                run_power_action();
+                return;
+            }
+            if (GLib.get_monotonic_time() - volume_down_at < CHORD_MS * 1000) {
+                volume_down_at = 0;
+                if (volume_before >= 0) SystemMonitor.get_default().audio.update_volume(volume_before);
+                capture();
+                return;
+            }
+            if (pending_power != 0) Source.remove(pending_power);
+            pending_power = Timeout.add(CHORD_MS, () => {
+                pending_power = 0;
+                run_power_action();
+                return Source.REMOVE;
+            });
+        }
+
+        private void capture() {
+            message("PowerKeyManager: power and volume down, taking a screenshot");
+            SystemMonitor.get_default().shortcuts.capture_fullscreen();
+        }
+
+        private void run_power_action() {
+            var idle = IdleManager.get_default();
             string action = settings.get_string("power-button-action");
             if (action == "auto") action = Singularity.FormFactor.current().is_handheld() ? "screen-off" : "ask";
             message("PowerKeyManager: power button, action %s", action);

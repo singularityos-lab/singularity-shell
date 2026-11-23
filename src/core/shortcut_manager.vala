@@ -1196,6 +1196,7 @@ namespace Singularity {
 
         public void volume_down() throws Error {
             var audio = SystemMonitor.get_default().audio;
+            if (PowerKeyManager.get_default().volume_down_pressed(audio.volume)) return;
             audio.update_volume((audio.volume - 5.0).clamp(0.0, 100.0));
             VolumeOsd.show(audio);
         }
