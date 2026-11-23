@@ -21,6 +21,8 @@ namespace Singularity {
 
         private Singularity.Animation.MotionBin _pill_motion;
         private Singularity.Animation.MotionBin _bar_motion;
+        private Singularity.Animation.MotionBin? _drop = null;
+        private Widget? _handle = null;
         private bool _gesture_fired = false;
         private bool _pulling = false;
         private bool _tracking = false;
@@ -108,9 +110,61 @@ namespace Singularity {
                     else remove_css_class("hub-covered");
                 });
             }
-            _bar_motion = new Singularity.Animation.MotionBin(shade);
+            if (handle_only) {
+                _handle = home;
+                _drop = new Singularity.Animation.MotionBin(shade);
+                _drop.transform_input = true;
+                _drop.valign = Align.START;
+                _bar_motion = new Singularity.Animation.MotionBin(_drop);
+                set_exclusive_zone(this, -1);
+                var cover = HomeCover.get_default();
+                var apps = AppSystem.get_default();
+                apps.config_changed.connect((key) => {
+                    if (key == "dock-reservation") place_handle(cover.amount(monitor));
+                });
+                cover.amount_changed.connect((m, amount) => {
+                    if (m == monitor) place_handle(amount);
+                });
+                map.connect_after(() => Idle.add(() => {
+                    place_handle(cover.amount(monitor));
+                    return Source.REMOVE;
+                }));
+            } else {
+                _bar_motion = new Singularity.Animation.MotionBin(shade);
+            }
             set_child(_bar_motion);
             map.connect(() => play_enter());
+        }
+
+        private void place_handle(double amount) {
+            int dock = int.max(0, AppSystem.get_default().shell_dock_height);
+            if (_drop.margin_bottom != dock) _drop.margin_bottom = dock;
+            _drop.translate_y = dock * amount.clamp(0.0, 1.0);
+            update_handle_region();
+        }
+
+        private void update_handle_region() {
+            var surface = get_surface();
+            if (_handle == null || surface == null) return;
+            Graphene.Rect bounds;
+            var region = new Cairo.Region();
+            if (_handle.compute_bounds(this, out bounds)) {
+                region.union_rectangle(Cairo.RectangleInt() {
+                    x = (int) Math.floor(bounds.origin.x),
+                    y = (int) Math.floor(bounds.origin.y),
+                    width = (int) Math.ceil(bounds.size.width),
+                    height = (int) Math.ceil(bounds.size.height)
+                });
+            }
+            surface.set_input_region(region);
+        }
+
+        public override void size_allocate(int width, int height, int baseline) {
+            base.size_allocate(width, height, baseline);
+            if (_handle != null) Idle.add(() => {
+                update_handle_region();
+                return Source.REMOVE;
+            });
         }
 
         public void set_companion(bool available, bool remote) {
