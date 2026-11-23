@@ -127,7 +127,29 @@ namespace Singularity {
             return list;
         }
 
+        private void expect_window(Hub.Item item) {
+            string app = item.app_id;
+            var acc = account(item.account);
+            if (app == "" && acc != null) app = acc.app_id;
+            if (app != "") HubPeek.get_default().expect(app);
+        }
+
+        private static bool stays_in_hub(string action) {
+            switch (action) {
+                case "mark-read":
+                case "mark-unread":
+                case "flag":
+                case "unflag":
+                case "delete":
+                case "restore":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         public void invoke(Hub.Item item, string action) {
+            if (!stays_in_hub(action)) expect_window(item);
             if (item.account == NOTIFICATIONS) {
                 SystemMonitor.get_default().notifications.invoke_action((uint) uint64.parse(item.id), action);
                 return;
@@ -141,6 +163,7 @@ namespace Singularity {
 
         public void open(Hub.Item item) {
             set_unread(item, false);
+            expect_window(item);
             if (item.account == NOTIFICATIONS) {
                 var notif = SystemMonitor.get_default().notifications.find((uint) uint64.parse(item.id));
                 if (notif != null) NotificationItem.open_notification(notif);

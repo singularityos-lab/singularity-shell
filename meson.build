@@ -506,6 +506,7 @@ singularity_core_sources = files(
     'src/components/form/watch_face.vala',
     'src/core/home_cover.vala',
     'src/components/hub/hub_config.vala',
+    'src/components/hub/hub_peek.vala',
     'src/components/hub/hub_store.vala',
     'src/components/hub/hub_reveal.vala',
     'src/components/hub/hub_card.vala',

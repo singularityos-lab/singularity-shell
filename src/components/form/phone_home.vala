@@ -165,7 +165,7 @@ namespace Singularity {
                 _hub_x = value;
                 _stage.translate_x = value;
                 if (_hub_reveal != null) _hub_reveal.reveal = value;
-                HomeCover.get_default().set_covered(_monitor, value > 0);
+                HomeCover.get_default().set_amount(_monitor, _width > 0 ? value / _width : 0.0);
             }
         }
 

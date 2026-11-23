@@ -537,7 +537,8 @@ namespace Singularity {
             main_box.orientation = Orientation.HORIZONTAL;
             main_box.add_css_class("panel");
             main_box.overflow = Overflow.VISIBLE;
-            intro_motion = new Singularity.Animation.MotionBin(main_box);
+            _hub_shade = new Singularity.Widgets.ShadeBin(main_box);
+            intro_motion = new Singularity.Animation.MotionBin(_hub_shade);
             overlay.set_child(intro_motion);
             if (is_primary && !is_greeter_mode) main_box.opacity = 0;
             if (!is_greeter_mode) {
@@ -947,6 +948,9 @@ namespace Singularity {
             HomeCover.get_default().changed.connect((m) => {
                 if (m == gdk_monitor) update_flat_mode();
             });
+            HomeCover.get_default().amount_changed.connect((m, amount) => {
+                if (m == gdk_monitor) _hub_shade.shade = amount;
+            });
             app_sys.any_maximized_changed.connect(() => {
                 update_flat_mode();
             });
@@ -1053,6 +1057,7 @@ namespace Singularity {
         }
 
         private static Gtk.CssProvider? _flat_provider = null;
+        private Singularity.Widgets.ShadeBin _hub_shade;
 
         private void update_background_effect() {
             Singularity.Style.BackgroundEffect.apply_shapes(this,

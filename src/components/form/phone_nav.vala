@@ -95,7 +95,18 @@ namespace Singularity {
             });
             bar.add_controller(drag);
 
-            _bar_motion = new Singularity.Animation.MotionBin(bar);
+            var shade = new Singularity.Widgets.ShadeBin(bar);
+            var cover = HomeCover.get_default();
+            shade.shade = cover.amount(monitor);
+            cover.amount_changed.connect((m, amount) => {
+                if (m == monitor) shade.shade = amount;
+            });
+            cover.changed.connect((m) => {
+                if (m != monitor) return;
+                if (cover.covered(m)) add_css_class("hub-covered");
+                else remove_css_class("hub-covered");
+            });
+            _bar_motion = new Singularity.Animation.MotionBin(shade);
             set_child(_bar_motion);
             map.connect(() => play_enter());
         }
