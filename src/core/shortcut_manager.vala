@@ -1256,32 +1256,33 @@ namespace Singularity {
         public void mic_mute() throws Error {
             var audio = SystemMonitor.get_default().audio;
             audio.toggle_input_mute();
-            Singularity.Shell.OsdOverlay.get_default().show_level("audio-input-microphone",
+            Singularity.Shell.OsdOverlay.get_default().show_level(
+                audio.input_muted ? "microphone-sensitivity-muted" : "microphone-sensitivity-high",
                 audio.input_volume, _("Microphone"), null, audio.input_muted);
         }
 
         public void brightness_up() throws Error {
             var b = SystemMonitor.get_default().brightness;
             b.step_up();
-            Singularity.Shell.OsdOverlay.get_default().show_level("video-display", b.brightness, _("Brightness"));
+            Singularity.Shell.OsdOverlay.get_default().show_level("display-brightness-high", b.brightness, _("Brightness"));
         }
 
         public void brightness_down() throws Error {
             var b = SystemMonitor.get_default().brightness;
             b.step_down();
-            Singularity.Shell.OsdOverlay.get_default().show_level("video-display", b.brightness, _("Brightness"));
+            Singularity.Shell.OsdOverlay.get_default().show_level("display-brightness-low", b.brightness, _("Brightness"));
         }
 
         public void kbd_brightness_up() throws Error {
             var k = SystemMonitor.get_default().kbd_brightness;
             k.step_up();
-            Singularity.Shell.OsdOverlay.get_default().show_level("input-keyboard", k.brightness, _("Keyboard Light"));
+            Singularity.Shell.OsdOverlay.get_default().show_level("keyboard-brightness-high", k.brightness, _("Keyboard Light"));
         }
 
         public void kbd_brightness_down() throws Error {
             var k = SystemMonitor.get_default().kbd_brightness;
             k.step_down();
-            Singularity.Shell.OsdOverlay.get_default().show_level("input-keyboard", k.brightness, _("Keyboard Light"));
+            Singularity.Shell.OsdOverlay.get_default().show_level("keyboard-brightness-low", k.brightness, _("Keyboard Light"));
         }
 
         public void toggle_launcher() throws Error {
