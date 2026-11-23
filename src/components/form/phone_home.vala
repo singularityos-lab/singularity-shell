@@ -143,6 +143,14 @@ namespace Singularity {
                     _hub_reveal.inset = _peek;
                     _hub.add_css_class("hub-floating");
                     _hub.overflow = Overflow.HIDDEN;
+                    var apps = AppSystem.get_default();
+                    apps.config_changed.connect((key) => {
+                        if (key == "dock-reservation") apply_dock_inset();
+                    });
+                    Idle.add(() => {
+                        apply_dock_inset();
+                        return Source.REMOVE;
+                    });
                 }
                 var layers = new Overlay();
                 layers.child = _hub_reveal;
@@ -177,6 +185,13 @@ namespace Singularity {
                 cover.set_shift(_monitor, value);
                 cover.set_amount(_monitor, _width > 0 ? value / hub_travel() : 0.0);
             }
+        }
+
+        private void apply_dock_inset() {
+            int dock = int.max(0, AppSystem.get_default().shell_dock_height);
+            set_margin(this, GtkLayerShell.Edge.BOTTOM, -dock);
+            _stage.margin_bottom = dock;
+            _bar.margin_bottom = 12 + dock;
         }
 
         private double hub_travel() {

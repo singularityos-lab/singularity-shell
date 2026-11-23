@@ -4,6 +4,7 @@ namespace Singularity {
 
     public class HubView : Box {
         private const int PEEK_EDGE = 64;
+        private const int DOCKED_ACCOUNTS = 300;
         private const string[] ACCOUNT_COLORS = {
             "#2f8fdd", "#e2a52b", "#3fae6a", "#d9534f", "#8e6bd8", "#1fa7a0", "#e0742f", "#c2499b"
         };
@@ -115,6 +116,11 @@ namespace Singularity {
             accounts_scroller.hscrollbar_policy = PolicyType.NEVER;
             accounts_scroller.child = _accounts;
             accounts_scroller.margin_end = PEEK_EDGE;
+            if (_docked) {
+                accounts_scroller.margin_end = 0;
+                accounts_scroller.halign = Align.START;
+                accounts_scroller.width_request = DOCKED_ACCOUNTS;
+            }
 
             var layers = new Overlay();
             layers.child = accounts_scroller;
@@ -131,6 +137,7 @@ namespace Singularity {
         }
 
         private double sidebar_travel() {
+            if (_docked) return double.min(DOCKED_ACCOUNTS, double.max(0, get_width() - PEEK_EDGE));
             return double.max(0, get_width() - PEEK_EDGE);
         }
 
