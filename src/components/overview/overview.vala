@@ -54,23 +54,7 @@ namespace Singularity {
         public signal void hidden();
         public signal void hiding();
 
-        private bool windows_faded = false;
-        private bool compositor_fades = false;
-
-        private bool plain_background() {
-            return Singularity.Style.BackgroundEffect.read(desktop_settings)
-                == Singularity.Style.BackgroundEffectMode.DISABLED;
-        }
-
-        private void fade_windows(bool faded, uint ms) {
-            if (faded && !plain_background()) faded = false;
-            if (faded == windows_faded) return;
-            if (Singularity.MotionHints.fade_windows(this, faded, Singularity.Motion.get_default().scale(ms))) {
-                windows_faded = faded;
-                compositor_fades = true;
-            }
-            update_wallpaper();
-        }
+        private WindowFade window_fade;
 
         private void update_input_region() {
             var surface = get_surface();
@@ -99,18 +83,19 @@ namespace Singularity {
         private void update_background_effect() {
             var mode = Singularity.Style.BackgroundEffect.read(desktop_settings);
             Singularity.Style.BackgroundEffect.apply(this, mode);
-            if (windows_faded && !plain_background()) fade_windows(false, 0);
             update_wallpaper();
         }
 
         private void update_wallpaper() {
             var texture = WallpaperManager.get_default().display_texture;
-            bool plain = texture != null && plain_background();
-            bool shown = plain && !compositor_fades;
+            bool plain = texture != null && window_fade.plain();
+            bool shown = plain && !window_fade.by_compositor;
             background_picture.paintable = shown ? texture : null;
             background_picture.visible = shown;
             if (plain) main_box.remove_css_class("overview-box");
             else main_box.add_css_class("overview-box");
+            if (plain && window_fade.by_compositor) main_box.add_css_class("overview-scrim");
+            else main_box.remove_css_class("overview-scrim");
         }
 
         public Overview(Gtk.Application app, Gtk.Window? anchor = null) {
@@ -219,6 +204,8 @@ namespace Singularity {
             set_child(stage);
             WallpaperManager.get_default().wallpaper_changed.connect(update_wallpaper);
             desktop_settings = new GLib.Settings("dev.sinty.desktop");
+            window_fade = new WindowFade(this, desktop_settings);
+            window_fade.changed.connect(update_wallpaper);
             desktop_settings.changed["background-effect"].connect(update_background_effect);
             map.connect_after(update_background_effect);
 
@@ -449,7 +436,7 @@ namespace Singularity {
                     ? Singularity.FormShell.dock_icon_size(desktop_settings, grid_mon) + DOCK_CLEARANCE + GRID_BOTTOM
                     : GRID_BOTTOM;
                 set_layer(this, under_dock ? GtkLayerShell.Layer.TOP : GtkLayerShell.Layer.OVERLAY);
-                fade_windows(true, Singularity.Motion.Duration.LARGE.ms());
+                window_fade.apply(true, Singularity.Motion.Duration.LARGE.ms());
                 present();
                 // Populate AFTER present so the empty overview (background +
                 // search bar) paints immediately; the grid then streams in
@@ -566,7 +553,7 @@ namespace Singularity {
 
         private void begin_hide() {
             _closing = true;
-            fade_windows(false, Singularity.Motion.Duration.LARGE.exit_ms());
+            window_fade.apply(false, Singularity.Motion.Duration.LARGE.exit_ms());
             if (_hide_guard != 0) GLib.Source.remove(_hide_guard);
             uint watchdog = Singularity.Motion.get_default().scale(
                 Singularity.Motion.Duration.SCENE.ms()) + 500;
@@ -597,7 +584,7 @@ namespace Singularity {
             Singularity.Motion.cancel(this, "opacity");
             opacity = 1.0;
             launcher_grid.close_folder_overlays();
-            fade_windows(false, 0);
+            window_fade.apply(false, 0);
             close_layer_window (this);
             PreviewCache.get_default().clear();
             hidden();

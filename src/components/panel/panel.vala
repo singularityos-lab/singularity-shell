@@ -1255,7 +1255,7 @@ namespace Singularity {
             } else {
                 main_box.remove_css_class("overview-mode");
             }
-            fade_window_items(!enabled, instant);
+            fade_window_items(!(enabled || _workspace_overview_active), instant);
             update_overview_surface_mode();
         }
 
@@ -1394,6 +1394,7 @@ namespace Singularity {
             _workspace_overview_active = active;
             if (active) main_box.add_css_class("workspace-overview-mode");
             else main_box.remove_css_class("workspace-overview-mode");
+            fade_window_items(!(active || _overview_active), false);
             workspace_btn.visible = _dock_hidden || _workspace_overview_active;
             update_overview_surface_mode();
         }

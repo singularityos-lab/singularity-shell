@@ -65,6 +65,8 @@ namespace Singularity {
         private Box ws_box;
         private Stack window_stack;
         private Picture background_picture;
+        private Box main_box;
+        private WindowFade window_fade;
         private GlassStrip ws_strip_container;
         private Gtk.Widget anim_box;
         private Singularity.Animation.MotionBin stage;
@@ -169,7 +171,7 @@ namespace Singularity {
             background_picture.add_css_class("overview-background-wallpaper");
             overlay.set_child(background_picture);
 
-            var main_box = new Box(Orientation.VERTICAL, 0);
+            main_box = new Box(Orientation.VERTICAL, 0);
             main_box.add_css_class("overview-content-box");
             main_box.vexpand = true;
             main_box.hexpand = true;
@@ -219,6 +221,8 @@ namespace Singularity {
 
             app_system.workspaces_changed.connect(schedule_refresh_overview);
 
+            window_fade = new WindowFade(this, gesture_settings);
+            window_fade.changed.connect(update_wallpaper);
             var wp_manager = WallpaperManager.get_default();
             wp_manager.wallpaper_changed.connect(update_wallpaper);
             update_wallpaper();
@@ -228,9 +232,11 @@ namespace Singularity {
 
         private void update_wallpaper() {
             var manager = WallpaperManager.get_default();
-            if (manager.display_texture != null) {
-                background_picture.set_paintable(manager.display_texture);
-            }
+            bool desktop = window_fade.shows_desktop();
+            background_picture.visible = !desktop;
+            background_picture.set_paintable(desktop ? null : manager.display_texture);
+            if (desktop) main_box.add_css_class("overview-scrim");
+            else main_box.remove_css_class("overview-scrim");
         }
 
         private void stack_add_unique(Widget w, string name) {
@@ -532,6 +538,7 @@ namespace Singularity {
                     app_system.activate_workspace(viewed_workspace);
                 }
                 closing = true;
+                window_fade.apply(false, Singularity.Motion.Duration.LARGE.exit_ms());
                 hiding();
                 animate_stage(false);
             } else {
@@ -541,6 +548,7 @@ namespace Singularity {
                 stage.opacity = 0.0;
                 stage.scale = Singularity.Motion.ENTER_SCALE;
                 opacity = 1;
+                window_fade.apply(true, Singularity.Motion.Duration.LARGE.ms());
                 present();
                 update_card_selection(false);
                 animate_stage(true);
@@ -575,6 +583,7 @@ namespace Singularity {
             stage.opacity = 0.0;
             stage.reset_transform();
             reset_spread_motion();
+            window_fade.apply(false, 0);
             close_layer_window (this);
             // Free all window preview textures - they'll be re-captured on next open
             clear_overview_content();
@@ -630,6 +639,7 @@ namespace Singularity {
             if (opening) {
                 pick_monitor();
                 refresh();
+                window_fade.apply(true, Singularity.Motion.Duration.LARGE.ms());
                 present();
                 update_card_selection(false);
                 shown();
@@ -718,6 +728,7 @@ namespace Singularity {
             if (!stay_open) {
                 if (chosen != null && !chosen.active) app_system.activate_workspace(chosen);
                 closing = true;
+                window_fade.apply(false, Singularity.Motion.Duration.MEDIUM.exit_ms());
                 hiding();
             }
             if (_gesture_spring != null) {

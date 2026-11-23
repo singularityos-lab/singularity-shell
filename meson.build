@@ -684,6 +684,7 @@ singularity_core_sources = files(
     'src/core/session_recovery.vala',
     'src/components/sidebar/views/session_restore_dialog.vala',
     'src/components/overview/overview.vala',
+    'src/components/overview/window_fade.vala',
     'src/components/overview/search_row_cache.vala',
     'src/components/overview/app_menu.vala',
     'src/components/overview/app_launcher_grid.vala',

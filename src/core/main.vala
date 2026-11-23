@@ -1219,7 +1219,11 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
             foreach (var p in secondary_panels) p.set_workspace_overview_active(true);
             foreach (var d in secondary_docks) d.set_overview_mode(true);
         });
-        ws_overview.hiding.connect(() => close_workspace_overviews());
+        ws_overview.hiding.connect(() => {
+            close_workspace_overviews();
+            if (panel != null) panel.set_workspace_overview_active(false);
+            foreach (var p in secondary_panels) p.set_workspace_overview_active(false);
+        });
         ws_overview.hidden.connect(() => {
             set_tiling_layout_hold(ws_overview, false);
             if (workspace_overviews_visible()) return;
