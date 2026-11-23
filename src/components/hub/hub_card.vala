@@ -16,8 +16,10 @@ namespace Singularity {
 
         public signal void closed();
 
-        public HubCard(Hub.Item item, Widget icon) {
-            Object(item: item, orientation: Orientation.VERTICAL, spacing: 0);
+        public bool docked { get; construct; }
+
+        public HubCard(Hub.Item item, Widget icon, bool docked = false) {
+            Object(item: item, docked: docked, orientation: Orientation.VERTICAL, spacing: 0);
             add_css_class("hub-card");
             store = HubStore.get_default();
 
@@ -28,6 +30,7 @@ namespace Singularity {
             back.tooltip_text = _("Back to Hub");
             back.valign = Align.CENTER;
             back.clicked.connect(() => dismiss());
+            back.visible = !docked;
             header.append(back);
             icon.valign = Align.CENTER;
             header.append(icon);
@@ -45,7 +48,7 @@ namespace Singularity {
             when.xalign = 0;
             who.append(when);
             header.append(who);
-            if (item.app_id != "" && item.account != HubStore.NOTIFICATIONS) {
+            if (item.app_id != "" && !HubStore.from_notifications(item.account)) {
                 var open = new Button.from_icon_name("view-paged-symbolic");
                 open.add_css_class("flat");
                 open.tooltip_text = _("Open in App");
@@ -85,7 +88,7 @@ namespace Singularity {
 
             frame = new Singularity.Animation.MotionBin(this);
             frame.transform_input = true;
-            install_back_swipe();
+            if (!docked) install_back_swipe();
         }
 
         public void present_from(double width) {
@@ -94,6 +97,10 @@ namespace Singularity {
         }
 
         public void dismiss(double velocity = 0.0) {
+            if (docked) {
+                closed();
+                return;
+            }
             double width = double.max(1.0, get_width());
             var anim = Singularity.Motion.spring_to(frame, "translate-x", width, Singularity.Motion.Spring.SNAPPY, velocity);
             anim.clamp = true;

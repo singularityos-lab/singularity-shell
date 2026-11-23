@@ -23,6 +23,8 @@ namespace Singularity {
         private bool _dragging = false;
         private GestureSwipe? _velocity = null;
         private uint _monitor_retry = 0;
+        private bool _pending_enter = false;
+        private string _app = "";
 
         public static HubPeek get_default() {
             if (instance == null) instance = new HubPeek();
@@ -36,7 +38,14 @@ namespace Singularity {
                 if (handle == AppSystem.get_default().get_focused_window_handle()) on_focused(handle);
             });
             apps.app_closed.connect((handle) => {
-                if (handle == _handle) untrack();
+                if (handle != _handle) return;
+                var next = sibling(handle);
+                if (next != null) {
+                    _handle = next;
+                    update_strip();
+                } else {
+                    untrack();
+                }
             });
             apps.window_state_changed.connect((handle) => {
                 if (handle == _handle) update_strip();
@@ -71,6 +80,14 @@ namespace Singularity {
             return dot > 0 && id == _expected.substring(dot + 1);
         }
 
+        private void* sibling(void* closing) {
+            if (_app == "") return null;
+            foreach (var win in AppSystem.get_default().get_windows()) {
+                if (win.handle != closing && !win.is_minimized && normalize(win.app_id) == _app) return win.handle;
+            }
+            return null;
+        }
+
         private AppSystem.Window? window_for(void* handle) {
             foreach (var win in AppSystem.get_default().get_windows()) {
                 if (win.handle == handle) return win;
@@ -88,9 +105,16 @@ namespace Singularity {
                 return;
             }
             var win = window_for(handle);
+            if (win != null && _handle != null && _app != "" && normalize(win.app_id) == _app) {
+                _handle = handle;
+                update_strip();
+                return;
+            }
             if (win != null && matches(win)) {
                 _expected = "";
+                _app = normalize(win.app_id);
                 _handle = handle;
+                _pending_enter = true;
                 update_strip();
                 return;
             }
@@ -99,6 +123,8 @@ namespace Singularity {
 
         private void untrack() {
             _handle = null;
+            _app = "";
+            _pending_enter = false;
             if (_monitor_retry != 0) {
                 Source.remove(_monitor_retry);
                 _monitor_retry = 0;
@@ -133,6 +159,10 @@ namespace Singularity {
             }
             if (_strip == null) build_strip(monitor);
             _strip.present();
+            if (_pending_enter) {
+                _pending_enter = false;
+                enter();
+            }
         }
 
         private void hide_strip() {
@@ -200,6 +230,32 @@ namespace Singularity {
             return true;
         }
 
+        private void enter() {
+            if (_handle == null || !WindowCardBridge.available() || Singularity.Motion.reduced()) return;
+            int x, y, w, h, maximized, fullscreen;
+            string? connector;
+            if (!Singularity.wayland_get_window_geometry(_handle, out x, out y, out w, out h,
+                    out maximized, out fullscreen, out connector) || w <= 0 || h <= 0) return;
+            var card = new WindowCard(_handle);
+            if (!card.valid) return;
+            var rect = Graphene.Rect().init(x, y, w, h);
+            card.place(Graphene.Rect().init(x + w, y, w, h), 0.0);
+            ulong id = 0;
+            id = card.landed.connect(() => {
+                card.disconnect(id);
+                card.close();
+            });
+            card.release(false, rect, 0.0, 0.0, 0.0);
+        }
+
+        private void minimize_siblings() {
+            foreach (var win in AppSystem.get_default().get_windows()) {
+                if (win.handle != _handle && !win.is_minimized && normalize(win.app_id) == _app) {
+                    Singularity.minimize_window(win.handle);
+                }
+            }
+        }
+
         private Graphene.Rect shifted(double dx) {
             return Graphene.Rect().init(_rect.origin.x + (float) dx, _rect.origin.y, _rect.size.width, _rect.size.height);
         }
@@ -224,7 +280,9 @@ namespace Singularity {
             });
             if (leave) {
                 card.release(true, shifted(_rect.size.width), 0.0, vx, 0.0);
+                minimize_siblings();
                 _handle = null;
+                _app = "";
                 hide_strip();
             } else {
                 card.release(false, _rect, 0.0, vx, 0.0);

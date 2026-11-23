@@ -39,6 +39,17 @@ namespace Singularity.SidebarPages {
             history.add_row(lock_row);
             add_group(history);
 
+            var form = Singularity.FormFactor.get_default().kind;
+            if (form == Singularity.FormFactorKind.PHONE || form == Singularity.FormFactorKind.TABLET) {
+                var hub_group = new PreferencesGroup(_("Hub"));
+                var hub_page = new HubPage(view);
+                hub_page.back_btn.visible = true;
+                hub_page.back_clicked.connect(() => view.navigate_to("notifications"));
+                var subpages = new SettingsSubpages(view, this, "notifications");
+                hub_group.add_row(subpages.link(_("Hub"), _("Messages, mail and calls in one list"), "mail-inbox-symbolic", hub_page, "hub"));
+                add_group(hub_group);
+            }
+
             apps_group = new PreferencesGroup(_("Apps"),
                 _("Apps appear here once they send a notification."));
             add_group(apps_group);

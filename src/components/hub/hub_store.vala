@@ -2,6 +2,11 @@ namespace Singularity {
 
     public class HubStore : Object {
         public const string NOTIFICATIONS = "notifications";
+        public const string APP_PREFIX = "app:";
+
+        public static bool from_notifications(string account) {
+            return account == NOTIFICATIONS || account.has_prefix(APP_PREFIX);
+        }
 
         private static HubStore? instance = null;
 
@@ -84,7 +89,7 @@ namespace Singularity {
         public void set_unread(Hub.Item item, bool unread) {
             if (item.unread == unread) return;
             item.unread = unread;
-            if (item.account == NOTIFICATIONS) {
+            if (from_notifications(item.account)) {
                 if (unread) _read_notifications.remove(item.id);
                 else _read_notifications.add(item.id);
             }
@@ -101,7 +106,7 @@ namespace Singularity {
 
         public void remove(Hub.Item item) {
             _items.unset(item.key);
-            if (item.account == NOTIFICATIONS) {
+            if (from_notifications(item.account)) {
                 uint id = (uint) uint64.parse(item.id);
                 SystemMonitor.get_default().notifications.remove_from_history(id);
             } else {
@@ -111,7 +116,7 @@ namespace Singularity {
         }
 
         public void restore(Hub.Item item) {
-            if (item.account == NOTIFICATIONS) return;
+            if (from_notifications(item.account)) return;
             _items[item.key] = item;
             action_requested(item.account, item.id, "restore");
             changed_and_save();
@@ -123,7 +128,7 @@ namespace Singularity {
                 var a = Hub.ItemAction.decode(spec);
                 if (a != null) list.add(a);
             }
-            if (list.size == 0 && item.account != NOTIFICATIONS) list.add_all(Hub.ItemAction.defaults(item.kind));
+            if (list.size == 0 && !from_notifications(item.account)) list.add_all(Hub.ItemAction.defaults(item.kind));
             return list;
         }
 
@@ -150,7 +155,7 @@ namespace Singularity {
 
         public void invoke(Hub.Item item, string action) {
             if (!stays_in_hub(action)) expect_window(item);
-            if (item.account == NOTIFICATIONS) {
+            if (from_notifications(item.account)) {
                 SystemMonitor.get_default().notifications.invoke_action((uint) uint64.parse(item.id), action);
                 return;
             }
@@ -164,7 +169,7 @@ namespace Singularity {
         public void open(Hub.Item item) {
             set_unread(item, false);
             expect_window(item);
-            if (item.account == NOTIFICATIONS) {
+            if (from_notifications(item.account)) {
                 var notif = SystemMonitor.get_default().notifications.find((uint) uint64.parse(item.id));
                 if (notif != null) NotificationItem.open_notification(notif);
                 return;
@@ -188,8 +193,36 @@ namespace Singularity {
             }
         }
 
+        private static bool conversation_app(string app) {
+            if (app == "") return false;
+            var info = new DesktopAppInfo(app + ".desktop");
+            if (info == null) return false;
+            string? cats = info.get_categories();
+            if (cats == null) return false;
+            foreach (unowned string c in cats.split(";")) {
+                if (c == "InstantMessaging" || c == "Chat" || c == "Email" || c == "Telephony") return true;
+            }
+            return false;
+        }
+
+        private string app_account(string app, string fallback_name) {
+            string id = APP_PREFIX + app;
+            if (account(id) != null) return id;
+            var info = new DesktopAppInfo(app + ".desktop");
+            string name = info != null ? info.get_display_name() : (fallback_name != "" ? fallback_name : app);
+            var a = new Hub.Account(id, name, Hub.AccountKind.MESSAGING);
+            a.app_id = app;
+            var themed = info != null ? info.get_icon() as ThemedIcon : null;
+            var theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default());
+            if (themed != null && themed.names.length > 0 && theme.has_icon(themed.names[0])) a.icon_name = themed.names[0];
+            else a.icon_name = "chat-message-new-symbolic";
+            _accounts.add(a);
+            return id;
+        }
+
         private void sync_notifications() {
             var keep = new Gee.HashSet<string>();
+            var used = new Gee.HashSet<string>();
             var owned_apps = new Gee.HashSet<string>();
             foreach (var a in _accounts) {
                 if (a.app_id != "") owned_apps.add(a.app_id.has_suffix(".desktop") ? a.app_id.substring(0, a.app_id.length - 8) : a.app_id);
@@ -203,7 +236,9 @@ namespace Singularity {
                 if (app.has_suffix(".desktop")) app = app.substring(0, app.length - 8);
                 if (owned_apps.contains(app)) continue;
                 keep.add(id);
-                var item = new Hub.Item(NOTIFICATIONS, id, Hub.ItemKind.NOTIFICATION);
+                string account = conversation_app(app) ? app_account(app, n.app_name) : NOTIFICATIONS;
+                if (account != NOTIFICATIONS) used.add(account);
+                var item = new Hub.Item(account, id, Hub.ItemKind.NOTIFICATION);
                 item.sender = n.app_name != "" ? n.app_name : _("System");
                 item.subject = n.summary;
                 item.preview = n.masked_body();
@@ -223,9 +258,14 @@ namespace Singularity {
             }
             var stale = new Gee.ArrayList<string>();
             foreach (var entry in _items.entries) {
-                if (entry.value.account == NOTIFICATIONS && !keep.contains(entry.value.id)) stale.add(entry.key);
+                if (from_notifications(entry.value.account) && !keep.contains(entry.value.id)) stale.add(entry.key);
             }
             foreach (var k in stale) _items.unset(k);
+            var gone = new Gee.ArrayList<Hub.Account>();
+            foreach (var a in _accounts) {
+                if (a.id.has_prefix(APP_PREFIX) && !used.contains(a.id)) gone.add(a);
+            }
+            foreach (var a in gone) _accounts.remove(a);
             _read_notifications.retain_all(keep);
             changed();
         }
@@ -246,9 +286,9 @@ namespace Singularity {
 
         private void save() {
             var accounts = new VariantBuilder(new VariantType("aa{sv}"));
-            foreach (var a in _accounts) if (a.id != NOTIFICATIONS) accounts.add_value(a.to_variant());
+            foreach (var a in _accounts) if (!from_notifications(a.id)) accounts.add_value(a.to_variant());
             var items = new VariantBuilder(new VariantType("aa{sv}"));
-            foreach (var item in _items.values) if (item.account != NOTIFICATIONS) items.add_value(item.to_variant());
+            foreach (var item in _items.values) if (!from_notifications(item.account)) items.add_value(item.to_variant());
             var read = new VariantBuilder(new VariantType("as"));
             foreach (var id in _read_notifications) read.add("s", id);
             var root = new Variant("(aa{sv}aa{sv}as)", accounts, items, read);
@@ -268,7 +308,7 @@ namespace Singularity {
                 var accounts = root.get_child_value(0);
                 for (size_t i = 0; i < accounts.n_children(); i++) {
                     var a = Hub.Account.from_variant(accounts.get_child_value(i));
-                    if (a != null && a.id != NOTIFICATIONS) _accounts.add(a);
+                    if (a != null && !from_notifications(a.id)) _accounts.add(a);
                 }
                 var items = root.get_child_value(1);
                 for (size_t i = 0; i < items.n_children(); i++) {
@@ -316,13 +356,13 @@ namespace Singularity {
 
         public void register_account(HashTable<string, Variant> account) throws DBusError, IOError {
             var a = Hub.Account.from_variant(dict(account));
-            if (a == null || a.id == HubStore.NOTIFICATIONS) throw new DBusError.INVALID_ARGS("invalid account");
+            if (a == null || HubStore.from_notifications(a.id)) throw new DBusError.INVALID_ARGS("invalid account");
             store.register_account(a);
         }
 
         public void publish(HashTable<string, Variant> item) throws DBusError, IOError {
             var i = Hub.Item.from_variant(dict(item));
-            if (i == null || i.account == HubStore.NOTIFICATIONS) throw new DBusError.INVALID_ARGS("invalid item");
+            if (i == null || HubStore.from_notifications(i.account)) throw new DBusError.INVALID_ARGS("invalid item");
             if (store.account(i.account) == null) throw new DBusError.INVALID_ARGS("unknown account %s".printf(i.account));
             store.publish(i);
         }

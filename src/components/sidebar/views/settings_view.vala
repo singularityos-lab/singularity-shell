@@ -627,7 +627,12 @@ namespace Singularity {
                 case "desktop": page = new DesktopPage(this); break;
                 case "sound": page = new SoundPage(this); break;
                 case "notifications": page = new Singularity.SidebarPages.NotificationSettingsPage(this); break;
-                case "hub": page = new Singularity.SidebarPages.HubPage(this); break;
+                case "hub":
+                    var hub_page = new Singularity.SidebarPages.HubPage(this);
+                    hub_page.back_btn.visible = true;
+                    hub_page.back_clicked.connect(() => navigate_to("notifications"));
+                    page = hub_page;
+                    break;
                 case "wellbeing": page = new Singularity.SidebarPages.WellbeingPage(this); break;
                 case "safety": page = new Singularity.SidebarPages.SafetyPage(this); break;
                 case "profiles": page = new Singularity.SidebarPages.ProfilesPage(this); break;
@@ -793,15 +798,6 @@ namespace Singularity {
                                "region", "datetime", "desktop", "sound", "notifications", "profiles", "wellbeing", "safety", "bluetooth",
                                "connected-devices", "printers", "keyboard", "tablet", "accessibility", "plugins",
                                "power", "performance", "updates", "storage", "system" };
-            var form = Singularity.FormFactor.get_default().kind;
-            if (form == Singularity.FormFactorKind.PHONE || form == Singularity.FormFactorKind.TABLET) {
-                string[] with_hub = {};
-                foreach (var p in pages) {
-                    with_hub += p;
-                    if (p == "notifications") with_hub += "hub";
-                }
-                pages = with_hub;
-            }
             if (_desktop_settings.get_boolean("developer-mode")) pages += "developer";
             if (AgentConfig.available()) pages += "agent";
             if (Singularity.SintyKey.Client.installed()) pages += "sinty-key";

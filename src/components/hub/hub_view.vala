@@ -25,6 +25,9 @@ namespace Singularity {
         private uint _refresh_source = 0;
         private Overlay _sheet_layers;
         private HubCard? _card = null;
+        private bool _docked = false;
+        private Box? _detail = null;
+        private Singularity.Widgets.StatusPage? _detail_empty = null;
 
         public signal void close_requested();
 
@@ -83,7 +86,24 @@ namespace Singularity {
             list_column.append(_filter_note);
             list_column.append(_scroller);
             _sheet_layers = new Overlay();
-            _sheet_layers.child = list_column;
+            _docked = Singularity.FormFactor.get_default().kind == Singularity.FormFactorKind.TABLET;
+            if (_docked) {
+                _detail = new Box(Orientation.VERTICAL, 0);
+                _detail.add_css_class("hub-detail");
+                _detail.hexpand = true;
+                _detail_empty = new Singularity.Widgets.StatusPage();
+                _detail_empty.icon_name = "mail-inbox-symbolic";
+                _detail_empty.title = _("Nothing Selected");
+                _detail_empty.description = _("Choose a message to read it here.");
+                _detail_empty.vexpand = true;
+                _detail.append(_detail_empty);
+                var split = new Singularity.Widgets.SplitView(list_column, _detail);
+                split.list_fraction = 0.45;
+                split.detail_min_width = 0;
+                _sheet_layers.child = split;
+            } else {
+                _sheet_layers.child = list_column;
+            }
             _sheet = new Singularity.Animation.MotionBin(_sheet_layers);
             _sheet.transform_input = true;
 
@@ -314,9 +334,12 @@ namespace Singularity {
             if (app_id == "") return null;
             string desktop = app_id.has_suffix(".desktop") ? app_id : app_id + ".desktop";
             var info = new DesktopAppInfo(desktop);
-            if (info != null && info.get_icon() != null) return info.get_icon();
-            string name = app_id.has_suffix(".desktop") ? app_id.substring(0, app_id.length - 8) : app_id;
             var theme = IconTheme.get_for_display(Gdk.Display.get_default());
+            if (info != null && info.get_icon() != null) {
+                var icon = info.get_icon();
+                if (!(icon is ThemedIcon) || theme.has_gicon(icon)) return icon;
+            }
+            string name = app_id.has_suffix(".desktop") ? app_id.substring(0, app_id.length - 8) : app_id;
             return theme.has_icon(name) ? new ThemedIcon(name) : null;
         }
 
@@ -327,7 +350,7 @@ namespace Singularity {
             GLib.Icon? gicon = null;
             if (item.icon.has_prefix("/")) {
                 gicon = new FileIcon(File.new_for_path(item.icon));
-            } else if (item.icon != "" && item.account != HubStore.NOTIFICATIONS
+            } else if (item.icon != "" && !HubStore.from_notifications(item.account)
                     && IconTheme.get_for_display(Gdk.Display.get_default()).has_icon(item.icon)) {
                 gicon = new ThemedIcon(item.icon);
             }
@@ -336,7 +359,7 @@ namespace Singularity {
             if (gicon == null) gicon = app_icon(item.kind.app_id());
             if (gicon != null) {
                 image.gicon = gicon;
-            } else if (item.account == HubStore.NOTIFICATIONS) {
+            } else if (HubStore.from_notifications(item.account)) {
                 load_notification_icon(image, item.icon, item.sender);
                 image.pixel_size = ROW_ICON;
             } else {
@@ -439,7 +462,7 @@ namespace Singularity {
                     read.activated.connect(() => store.set_unread(item, !item.unread));
                     return read;
                 case "flag":
-                    if (item.account == HubStore.NOTIFICATIONS) return null;
+                    if (HubStore.from_notifications(item.account)) return null;
                     var flag = new Singularity.Widgets.SwipeAction(item.flagged ? _("Unflag") : _("Flag"),
                         "emoji-flags-symbolic", Singularity.Widgets.SwipeStyle.WARNING);
                     flag.activated.connect(() => store.set_flagged(item, !item.flagged));
@@ -457,13 +480,21 @@ namespace Singularity {
             if (_card != null) drop_card();
             store.mark_seen(item);
             var icon = row_icon(item);
-            _card = new HubCard(item, icon);
+            _card = new HubCard(item, icon, _docked);
             var card = _card;
             card.closed.connect(() => {
                 if (_card == card) drop_card();
             });
-            _sheet_layers.add_overlay(card.frame);
-            card.present_from(double.max(1.0, _sheet_layers.get_width()));
+            if (_docked) {
+                _detail_empty.visible = false;
+                card.frame.vexpand = true;
+                _detail.append(card.frame);
+                card.frame.opacity = 0.0;
+                Singularity.Motion.spring_to(card.frame, "opacity", 1.0, Singularity.Motion.Spring.SNAPPY);
+            } else {
+                _sheet_layers.add_overlay(card.frame);
+                card.present_from(double.max(1.0, _sheet_layers.get_width()));
+            }
             card.frame.grab_focus();
         }
 
@@ -475,13 +506,18 @@ namespace Singularity {
 
         private void drop_card() {
             if (_card == null) return;
-            _sheet_layers.remove_overlay(_card.frame);
+            if (_docked) {
+                _detail.remove(_card.frame);
+                _detail_empty.visible = true;
+            } else {
+                _sheet_layers.remove_overlay(_card.frame);
+            }
             _card = null;
         }
 
         private void delete_item(Hub.Item item) {
             store.remove(item);
-            if (item.account == HubStore.NOTIFICATIONS) return;
+            if (HubStore.from_notifications(item.account)) return;
             var toast = new Singularity.Widgets.Toast(_("Deleted"));
             toast.button_label = _("Undo");
             toast.button_clicked.connect(() => store.restore(item));
@@ -509,7 +545,7 @@ namespace Singularity {
             }
             _accounts.append(account_row("mail-inbox-symbolic", _("Hub"), "", store.unread(), null));
             foreach (var a in store.accounts) {
-                if (a.id == HubStore.NOTIFICATIONS && !HubConfig.get_default().show_notifications) continue;
+                if (HubStore.from_notifications(a.id) && !HubConfig.get_default().show_notifications) continue;
                 _accounts.append(account_row(a.icon_name, a.name, a.detail, store.unread(a.id), a.id));
             }
         }
