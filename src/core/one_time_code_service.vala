@@ -188,17 +188,7 @@ namespace Singularity {
         private void delete_message(HeldCode h) {
             close_requested(h.notification);
             if (h.message == "" || h.app == "" || !GLib.DBus.is_name(h.app)) return;
-            string path = "/" + h.app.replace(".", "/").replace("-", "_");
-            Bus.get.begin(BusType.SESSION, null, (o, r) => {
-                try {
-                    var conn = Bus.get.end(r);
-                    var platform = new HashTable<string, Variant>(str_hash, str_equal);
-                    conn.call.begin(h.app, path, "org.freedesktop.Application", "ActivateAction",
-                        new Variant("(sav@a{sv})", "delete-one-time-code", new Variant[] { new Variant.string(h.message) }, platform),
-                        null, DBusCallFlags.NO_AUTO_START, 5000, null);
-                } catch (Error e) {
-                }
-            });
+            AppActions.activate.begin(h.app, "delete-one-time-code", new Variant.string(h.message), false);
         }
 
         [DBus (visible = false)]
