@@ -176,7 +176,7 @@ namespace Singularity.SidebarPages {
             var device = new PreferencesGroup(_("Identifiers and Help"));
             var imei_row = action_row(device, _("IMEI"), _("Tap to show"), "phone-symbolic");
             imei_row.activated.connect(() => show_imei.begin(imei_row));
-            link_row(device, _("Modem Recovery"), _("Restart, slots and diagnostics"), "view-refresh-symbolic", ModemPage.PAGE);
+            link_row(device, _("Modem Recovery"), _("Restart, lines, requests and diagnostics"), "view-refresh-symbolic", ModemPage.PAGE);
             add_group(device);
 
             bind_switch(radio_row, MobileCommand.SET_RADIO);
@@ -434,6 +434,9 @@ namespace Singularity.SidebarPages {
 
         private ActionRow state_row;
         private ActionRow firmware_row;
+        private EntryRow line_row;
+        private EntryRow code_row;
+        private EntryRow data_row;
 
         public ModemPage(SettingsView view) {
             base(view, _("Modem"), "developer");
@@ -463,7 +466,31 @@ namespace Singularity.SidebarPages {
                 MobileCommand.SELECT_SLOT, new Variant("(u)", MobileNetwork.SIM_SLOT), _("Switching to the SIM card, the modem is restarting"));
             command_row(slots, _("Send eSIM Notices"), null,
                 MobileCommand.SEND_NOTIFICATIONS, null, _("Notices sent"));
+            command_row(slots, _("Both Lines on Standby"), null,
+                MobileCommand.SET_STANDBY, new Variant("(b)", true), _("Both lines on standby"));
+            command_row(slots, _("One Line on Standby"), null,
+                MobileCommand.SET_STANDBY, new Variant("(b)", false), _("One line on standby"));
+            command_row(slots, _("Mobile Data on Line 1"), null,
+                MobileCommand.SET_DATA_LINE, new Variant("(u)", 0), _("Mobile data on line 1"));
+            command_row(slots, _("Mobile Data on Line 2"), null,
+                MobileCommand.SET_DATA_LINE, new Variant("(u)", 1), _("Mobile data on line 2"));
             add_group(slots);
+
+            var request = new PreferencesGroup(_("Modem Request"),
+                _("Sends one message to the modem as it is written and shows the raw answer."));
+            line_row = new EntryRow(_("Line"));
+            line_row.placeholder_text = "1";
+            line_row.input_purpose = InputPurpose.DIGITS;
+            request.add_row(line_row);
+            code_row = new EntryRow(_("Message Code"));
+            code_row.placeholder_text = "093f";
+            request.add_row(code_row);
+            data_row = new EntryRow(_("Data"));
+            data_row.placeholder_text = "01";
+            request.add_row(data_row);
+            var send_row = action_row(request, _("Send to the Modem"), null, "mail-send-symbolic");
+            send_row.activated.connect(() => send_request.begin(send_row));
+            add_group(request);
 
             var logs = new PreferencesGroup(_("Diagnostics"), _("Numbers, addresses and identifiers are hidden."));
             var copy_row = action_row(logs, _("Copy Logs"), null, "edit-copy-symbolic");
@@ -478,6 +505,62 @@ namespace Singularity.SidebarPages {
         private void command_row(PreferencesGroup group, string title, string? subtitle, MobileCommand command, Variant? args, string done) {
             var row = action_row(group, title, subtitle, "view-refresh-symbolic");
             row.activated.connect(() => apply.begin(command, args, done, row));
+        }
+
+        private static uint8[]? parse_hex(string text) {
+            var digits = new StringBuilder();
+            for (int i = 0; i < text.length; i++) {
+                char c = text[i];
+                if (c.isspace() || c == ':') continue;
+                if (!c.isxdigit()) return null;
+                digits.append_c(c);
+            }
+            if (digits.len % 2 != 0) return null;
+            var bytes = new uint8[digits.len / 2];
+            for (int i = 0; i < bytes.length; i++) {
+                bytes[i] = (uint8) (digits.str[2 * i].xdigit_value() * 16 + digits.str[2 * i + 1].xdigit_value());
+            }
+            return bytes;
+        }
+
+        private static string hex(Variant bytes) {
+            var out = new StringBuilder();
+            for (size_t i = 0; i < bytes.n_children(); i++) {
+                if (i > 0) out.append_c(' ');
+                out.append_printf("%02x", bytes.get_child_value(i).get_byte());
+            }
+            return out.str;
+        }
+
+        private async void send_request(Widget row) {
+            string line_text = line_row.text.strip();
+            uint64 line;
+            if (!uint64.try_parse(line_text == "" ? "1" : line_text, out line) || line < 1 || line > 4) {
+                report(_("Not a modem line"), _("Lines are numbered from 1"));
+                return;
+            }
+            var code = parse_hex(code_row.text);
+            if (code == null || code.length != 2) {
+                report(_("Not a message code"), _("Four hexadecimal digits, such as 093f"));
+                return;
+            }
+            var data = parse_hex(data_row.text);
+            if (data == null) {
+                report(_("Not hexadecimal data"), _("Bytes in pairs of hexadecimal digits, such as 01 ff"));
+                return;
+            }
+            var payload = new VariantBuilder(VariantType.BYTESTRING);
+            foreach (uint8 b in data) payload.add("y", b);
+            var args = new Variant("(uqay)", (uint) line - 1, (uint16) (code[0] << 8 | code[1]), payload);
+            var reply = yield apply(MobileCommand.MODEM_REQUEST, args, _("The modem answered"), row);
+            if (reply == null) return;
+            uint8 error = reply.get_child_value(0).get_byte();
+            string answer = hex(reply.get_child_value(1));
+            if (error != 0) {
+                report(_("The modem refused it with error %u").printf(error), answer);
+            } else {
+                report(_("The modem answered"), answer != "" ? answer : _("No data"));
+            }
         }
 
         private async void copy_logs(Widget row) {
