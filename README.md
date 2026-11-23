@@ -53,6 +53,14 @@ meson install -C build
   `shortcut-cheatsheet-hold` and `shortcut-cheatsheet-delay` in
   `dev.sinty.desktop` turn it off or change the delay.
 
+- Game overlay: Super+G (`toggle_game_overlay`) lays a layer-shell overlay
+  over a full-screen game without leaving full screen: the game and its
+  play time, the clock, the latest notifications, Game Mode, Allow
+  Tearing, Focus, Screenshot, volume and brightness. Arrow keys move
+  between the switches; Escape or Super+G closes it. Game Mode is shown as
+  on whenever gamemoded has a client, and the switch releases only the
+  shell's own request.
+
 - Window groups: an optional mode (`stage-manager` in `dev.sinty.desktop`,
   off by default, quick settings tile "Window Groups") that shows one group
   of windows at a time and the others as thumbnails in a strip on the left.
