@@ -21,7 +21,6 @@ namespace Singularity {
 
         private Singularity.Animation.MotionBin _pill_motion;
         private Singularity.Animation.MotionBin _bar_motion;
-        private Widget? _handle = null;
         private bool _gesture_fired = false;
         private bool _pulling = false;
         private bool _tracking = false;
@@ -36,8 +35,8 @@ namespace Singularity {
             set_namespace(this, "singularity-phone-nav");
             set_layer(this, handle_only ? GtkLayerShell.Layer.OVERLAY : GtkLayerShell.Layer.TOP);
             set_anchor(this, GtkLayerShell.Edge.BOTTOM, true);
-            set_anchor(this, GtkLayerShell.Edge.LEFT, true);
-            set_anchor(this, GtkLayerShell.Edge.RIGHT, true);
+            set_anchor(this, GtkLayerShell.Edge.LEFT, !handle_only);
+            set_anchor(this, GtkLayerShell.Edge.RIGHT, !handle_only);
             set_keyboard_mode(this, GtkLayerShell.KeyboardMode.NONE);
             if (!handle_only) auto_exclusive_zone_enable(this);
             add_css_class("singularity");
@@ -111,48 +110,7 @@ namespace Singularity {
             }
             _bar_motion = new Singularity.Animation.MotionBin(shade);
             set_child(_bar_motion);
-            if (handle_only) {
-                _handle = home;
-                _bar_motion.transform_input = true;
-                bar.halign = Align.FILL;
-                var cover = HomeCover.get_default();
-                _bar_motion.translate_x = cover.shift(monitor);
-                cover.shift_changed.connect((m, shift) => {
-                    if (m != monitor) return;
-                    _bar_motion.translate_x = shift;
-                    update_handle_region();
-                });
-                notify["default-width"].connect(() => update_handle_region());
-                map.connect_after(() => Idle.add(() => {
-                    update_handle_region();
-                    return Source.REMOVE;
-                }));
-            }
             map.connect(() => play_enter());
-        }
-
-        public override void size_allocate(int width, int height, int baseline) {
-            base.size_allocate(width, height, baseline);
-            if (_handle != null) Idle.add(() => {
-                update_handle_region();
-                return Source.REMOVE;
-            });
-        }
-
-        private void update_handle_region() {
-            var surface = get_surface();
-            if (_handle == null || surface == null) return;
-            Graphene.Rect bounds;
-            var region = new Cairo.Region();
-            if (_handle.compute_bounds(this, out bounds)) {
-                region.union_rectangle(Cairo.RectangleInt() {
-                    x = (int) Math.floor(bounds.origin.x),
-                    y = 0,
-                    width = (int) Math.ceil(bounds.size.width),
-                    height = get_height()
-                });
-            }
-            surface.set_input_region(region);
         }
 
         public void set_companion(bool available, bool remote) {
