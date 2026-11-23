@@ -26,7 +26,7 @@ namespace Singularity.Compositor {
         /** Absolute path to the labwc config directory, created if missing. */
         public string config_dir() {
             string dir = GLib.Path.build_filename(
-                GLib.Environment.get_home_dir(), ".config", "labwc");
+                GLib.Environment.get_user_config_dir(), "labwc");
             GLib.DirUtils.create_with_parents(dir, 0755);
             return dir;
         }
