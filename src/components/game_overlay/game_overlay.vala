@@ -30,11 +30,22 @@ namespace Singularity {
             });
             AppSystem.get_default().any_fullscreen_changed.connect(() => {
                 if (AppSystem.get_default().is_focused_window_fullscreen()) {
-                    if (playing_since == 0) playing_since = GLib.get_monotonic_time();
+                    if (playing_since == 0) {
+                        playing_since = GLib.get_monotonic_time();
+                        remind_shortcut();
+                    }
                 } else {
                     playing_since = 0;
                 }
             });
+        }
+
+        private static void remind_shortcut() {
+            if (instance != null && instance.visible) return;
+            string? accel = SystemMonitor.get_default().shortcuts.accelerator_label("toggle_game_overlay");
+            if (accel == null) return;
+            Singularity.Shell.OsdOverlay.get_default().show_osd("applications-games-symbolic", -1,
+                _("%s opens the game overlay").printf(accel));
         }
 
         public GameOverlay(Gtk.Application app) {
@@ -236,7 +247,8 @@ namespace Singularity {
             sliders.append(bri_box);
             area.append(sliders);
 
-            var hint = new Label(_("Esc or Super+G to get back to the game"));
+            string? accel = SystemMonitor.get_default().shortcuts.accelerator_label("toggle_game_overlay");
+            var hint = new Label(accel != null ? _("Esc or %s to get back to the game").printf(accel) : _("Esc to get back to the game"));
             hint.add_css_class("game-overlay-hint");
             area.append(hint);
             return area;

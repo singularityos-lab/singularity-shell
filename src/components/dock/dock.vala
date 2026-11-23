@@ -2088,10 +2088,10 @@ namespace Singularity {
                 ws_icon.pixel_size = icon_size;
                 btn.set_child(ws_icon);
                 var sc_ws = SystemMonitor.get_default().shortcuts;
-                btn.tooltip_text = format_dock_tooltip(_("Workspaces"), sc_ws, "toggle_workspace_overview");
+                btn.tooltip_text = sc_ws.tooltip_for(_("Workspaces"), "toggle_workspace_overview");
                 sc_ws.shortcut_changed.connect((action, accel) => {
                     if (action == "toggle_workspace_overview")
-                        btn.tooltip_text = format_dock_tooltip(_("Workspaces"), sc_ws, "toggle_workspace_overview");
+                        btn.tooltip_text = sc_ws.tooltip_for(_("Workspaces"), "toggle_workspace_overview");
                 });
                 btn.clicked.connect(() => { workspace_clicked(); });
                 pill.append(btn);
@@ -3165,34 +3165,6 @@ namespace Singularity {
                 _reveal_barrier = null;
             }
             base.dispose();
-        }
-
-        private string format_dock_tooltip(string label, ShortcutManager shortcuts, string action_name) {
-            foreach (var sc in shortcuts.shortcuts) {
-                if (sc.action_name == action_name && sc.accelerator != "") {
-                    return "%s  %s".printf(label, format_accel(sc.accelerator));
-                }
-            }
-            return label;
-        }
-
-        private string format_accel(string accel) {
-            var s = accel;
-            s = s.replace("<Super>", "Super+");
-            s = s.replace("<Shift>", "Shift+");
-            s = s.replace("<Control>", "Ctrl+");
-            s = s.replace("<Alt>", "Alt+");
-            s = s.replace("<Primary>", "Ctrl+");
-            var plus = s.last_index_of("+");
-            if (plus >= 0) {
-                var key = s.substring(plus + 1);
-                var prefix = s.substring(0, plus + 1);
-                if (key.length == 1)
-                    s = prefix + key.up();
-                else if (key.length > 1)
-                    s = prefix + key[0].toupper().to_string() + key.substring(1);
-            }
-            return s;
         }
 
         private bool app_has_window_on_monitor(string app_id) {

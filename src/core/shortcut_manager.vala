@@ -84,6 +84,27 @@ namespace Singularity {
         public signal void game_overlay_triggered();
         public signal void accessibility_feedback(string feature, bool enabled);
 
+        public string? accelerator_label(string action_name) {
+            foreach (var sc in shortcuts) {
+                if (sc.action_name == action_name && sc.accelerator != "") return label_for(sc.accelerator);
+            }
+            return null;
+        }
+
+        public string tooltip_for(string label, string action_name) {
+            string? accel = accelerator_label(action_name);
+            return accel != null ? "%s  %s".printf(label, accel) : label;
+        }
+
+        public static string label_for(string accel) {
+            uint key;
+            Gdk.ModifierType mods;
+            if (Gtk.accelerator_parse(accel, out key, out mods) && key != 0) {
+                return Gtk.accelerator_get_label(key, mods);
+            }
+            return accel;
+        }
+
         public ShortcutManager() {
             shortcuts = new List<Shortcut>();
             settings = new GLib.Settings("dev.sinty.desktop");

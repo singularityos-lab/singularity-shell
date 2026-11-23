@@ -588,10 +588,10 @@ namespace Singularity {
 
                 // Set tooltip with real-time shortcut
                 var shortcuts = SystemMonitor.get_default().shortcuts;
-                activities_btn.tooltip_text = format_tooltip(_("Overview"), shortcuts, "toggle_launcher");
+                activities_btn.tooltip_text = shortcuts.tooltip_for(_("Overview"), "toggle_launcher");
                 shortcuts.shortcut_changed.connect((action, accel) => {
                     if (action == "toggle_launcher")
-                        activities_btn.tooltip_text = format_tooltip(_("Overview"), shortcuts, "toggle_launcher");
+                        activities_btn.tooltip_text = shortcuts.tooltip_for(_("Overview"), "toggle_launcher");
                 });
 
                 var logo = new Image.from_icon_name("emblem-singularity");
@@ -1412,37 +1412,6 @@ namespace Singularity {
                 _sig_clock = 0;
             }
             base.dispose();
-        }
-
-        // Returns "Label  Accel" or just "Label" if no shortcut is found for the given action.
-
-        private string format_tooltip(string label, ShortcutManager shortcuts, string action_name) {
-            foreach (var sc in shortcuts.shortcuts) {
-                if (sc.action_name == action_name && sc.accelerator != "") {
-                    return "%s  %s".printf(label, format_accel(sc.accelerator));
-                }
-            }
-            return label;
-        }
-
-        // Converts a GTK accelerator string like "<Super>space" to "Super+Space".
-
-        private string format_accel(string accel) {
-            var s = accel;
-            s = s.replace("<Super>", "Super+");
-            s = s.replace("<Shift>", "Shift+");
-            s = s.replace("<Control>", "Ctrl+");
-            s = s.replace("<Alt>", "Alt+");
-            s = s.replace("<Primary>", "Ctrl+");
-            // Capitalise single-char keys
-            if (s.length >= 1) {
-                var last = s.substring(s.last_index_of("+") + 1);
-                if (last.length == 1)
-                    s = s.substring(0, s.length - 1) + last.up();
-                else if (last.length > 1)
-                    s = s.substring(0, s.length - last.length) + last[0].toupper().to_string() + last.substring(1);
-            }
-            return s;
         }
 
         private static Gdk.Monitor? find_shell_monitor() {
