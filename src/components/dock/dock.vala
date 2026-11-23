@@ -132,6 +132,12 @@ namespace Singularity {
             main_container.overflow = Overflow.VISIBLE;
             intro_motion = new Singularity.Animation.MotionBin(main_container);
             hide_motion = new Singularity.Animation.MotionBin(intro_motion);
+            HomeCover.get_default().shift_changed.connect((m, shift) => {
+                var mon = get_target_monitor() ?? _shell_mon;
+                if (m != mon || is_dock_vertical()) return;
+                hide_motion.translate_x = shift;
+                update_input_region();
+            });
             dock_overlay.set_child(hide_motion);
 
             layout_surface = new Box(Orientation.HORIZONTAL, 0);

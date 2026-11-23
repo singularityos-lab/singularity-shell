@@ -30,6 +30,8 @@ namespace Singularity {
         private Singularity.Animation.MotionBin _stage;
         private Singularity.Animation.MotionBin _bar;
         private int _width = 0;
+        private int _peek = 0;
+        private const int HUB_PEEK = 40;
         private int _height = 0;
         private int _page = 0;
         private bool _editing = false;
@@ -136,6 +138,12 @@ namespace Singularity {
                 _hub = new HubView();
                 _hub.close_requested.connect(() => leave_hub());
                 _hub_reveal = new HubReveal(_hub);
+                if (Singularity.FormFactor.get_default().kind == Singularity.FormFactorKind.TABLET) {
+                    _peek = HUB_PEEK;
+                    _hub_reveal.inset = _peek;
+                    _hub.add_css_class("hub-floating");
+                    _hub.overflow = Overflow.HIDDEN;
+                }
                 var layers = new Overlay();
                 layers.child = _hub_reveal;
                 layers.add_overlay(_stage);
@@ -165,8 +173,14 @@ namespace Singularity {
                 _hub_x = value;
                 _stage.translate_x = value;
                 if (_hub_reveal != null) _hub_reveal.reveal = value;
-                HomeCover.get_default().set_amount(_monitor, _width > 0 ? value / _width : 0.0);
+                var cover = HomeCover.get_default();
+                cover.set_shift(_monitor, value);
+                cover.set_amount(_monitor, _width > 0 ? value / hub_travel() : 0.0);
             }
+        }
+
+        private double hub_travel() {
+            return double.max(1.0, _width - _peek);
         }
 
         public void open_hub() {
@@ -174,7 +188,7 @@ namespace Singularity {
             leave_edit();
             _hub_open = true;
             _hub.grab_focus();
-            Singularity.Motion.spring_to(this, "hub-x", (double) _width, Singularity.Motion.Spring.SNAPPY);
+            Singularity.Motion.spring_to(this, "hub-x", hub_travel(), Singularity.Motion.Spring.SNAPPY);
         }
 
         public bool hub_back() {
@@ -192,7 +206,7 @@ namespace Singularity {
         }
 
         private void settle_hub(double velocity) {
-            bool open = _hub_x > _width * HUB_COMMIT;
+            bool open = _hub_x > hub_travel() * HUB_COMMIT;
             if (velocity > HUB_FLING) open = true;
             else if (velocity < -HUB_FLING) open = false;
             if (open) open_hub();
@@ -235,7 +249,7 @@ namespace Singularity {
             if (_width <= 0 || _height <= 0) return;
             if (_hub_open && !_hub_drag) {
                 Singularity.Motion.cancel(this, "hub-x");
-                hub_x = (double) _width;
+                hub_x = hub_travel();
             }
             int columns = _wide ? (_width / WIDE_SLOT).clamp(WIDE_MIN_COLUMNS, WIDE_MAX_COLUMNS) : COLUMNS;
             int slot = _width / columns;
@@ -312,6 +326,14 @@ namespace Singularity {
         }
 
         private void install_gestures(Widget root) {
+            var peek_tap = new GestureClick();
+            peek_tap.propagation_phase = PropagationPhase.CAPTURE;
+            peek_tap.pressed.connect((n, x, y) => {
+                if (!_hub_open || _peek == 0 || x < _hub_x) return;
+                peek_tap.set_state(EventSequenceState.CLAIMED);
+                leave_hub();
+            });
+            root.add_controller(peek_tap);
             var swipe = new GestureDrag();
             swipe.propagation_phase = PropagationPhase.CAPTURE;
             swipe.drag_begin.connect((x, y) => {
@@ -319,7 +341,7 @@ namespace Singularity {
                 _hub_drag = false;
                 _hub_closing_drag = false;
                 if (_hub_open) {
-                    if (x < _width - EDGE_ZONE) swipe.set_state(EventSequenceState.DENIED);
+                    if (x < _width - _peek - EDGE_ZONE) swipe.set_state(EventSequenceState.DENIED);
                     else _hub_closing_drag = true;
                     return;
                 }
@@ -341,7 +363,7 @@ namespace Singularity {
                     }
                 }
                 if (_hub_drag) {
-                    hub_x = (_hub_origin + dx).clamp(0, (double) _width);
+                    hub_x = (_hub_origin + dx).clamp(0, hub_travel());
                     return;
                 }
                 double scale = _editing ? EDIT_SCALE : 1.0;
