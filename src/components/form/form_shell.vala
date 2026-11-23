@@ -266,7 +266,10 @@ namespace Singularity {
                 if (_switcher != null) _switcher.dismiss();
                 SnapController.get_default().dismiss_assist();
                 var current = screen_for(monitor);
-                if (current != null && current.home != null) current.home.leave_edit();
+                if (current != null && current.home != null) {
+                    current.home.leave_edit();
+                    current.home.leave_hub();
+                }
             });
             gesture.recents_requested.connect(() => show_recents(monitor));
             return gesture;
@@ -291,6 +294,7 @@ namespace Singularity {
             if (screen != null && screen.watch != null) screen.watch.show_face();
             if (screen != null && screen.home != null) {
                 screen.home.leave_edit();
+                screen.home.leave_hub();
                 screen.home.go_to_page(0);
             }
             return true;
@@ -599,6 +603,8 @@ namespace Singularity {
             }
             foreach (var screen in _screens) {
                 if (screen.home != null && screen.home.leave_edit()) return;
+                if (screen.home != null && screen.home.hub_back()) return;
+                if (screen.home != null && screen.home.leave_hub()) return;
             }
             if (!_keymap_ready) _keymap_ready = ScreenKeymap.get_default().ensure();
             Singularity.osk_press(ESCAPE_KEYCODE, 0);

@@ -944,6 +944,9 @@ namespace Singularity {
             });
             // Auto-flatten when any window is maximized
             var app_sys = AppSystem.get_default();
+            HomeCover.get_default().changed.connect((m) => {
+                if (m == gdk_monitor) update_flat_mode();
+            });
             app_sys.any_maximized_changed.connect(() => {
                 update_flat_mode();
             });
@@ -1083,7 +1086,8 @@ namespace Singularity {
             bool flat_setting = _settings.get_boolean("panel-flat");
             bool force_flat = (gdk_monitor != null)
                 ? (AppSystem.get_default().has_maximized_window_on_monitor(gdk_monitor)
-                   || has_fullscreen_on_my_monitor())
+                   || has_fullscreen_on_my_monitor()
+                   || HomeCover.get_default().covered(gdk_monitor))
                 : (AppSystem.get_default().has_any_maximized_window()
                    || AppSystem.get_default().has_any_fullscreen_window());
             if (!_overview_active && !_workspace_overview_active

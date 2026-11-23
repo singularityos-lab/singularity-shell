@@ -19,6 +19,8 @@ namespace Singularity {
         private const int BAR_TRAVEL = 48;
         private const int EDGE_ZONE = 40;
         private const uint EDGE_DWELL_MS = 650;
+        private const double HUB_COMMIT = 0.3;
+        private const double HUB_FLING = 900.0;
 
         private unowned Gdk.Monitor _monitor;
         private AppLauncherGrid _grid;
@@ -38,6 +40,14 @@ namespace Singularity {
         private double _wheel_dx = 0;
         private int _edge_dir = 0;
         private uint _edge_source = 0;
+        private HubView? _hub = null;
+        private HubReveal? _hub_reveal = null;
+        private double _hub_x = 0;
+        private bool _hub_open = false;
+        private bool _hub_drag = false;
+        private bool _hub_closing_drag = false;
+        private double _hub_origin = 0;
+        private Gtk.GestureSwipe? _hub_velocity = null;
 
         public bool editing { get { return _editing; } }
 
@@ -122,7 +132,17 @@ namespace Singularity {
             _bar.visible = false;
 
             var root = new Overlay();
-            root.child = _stage;
+            if (!_wide || Singularity.FormFactor.get_default().kind == Singularity.FormFactorKind.TABLET) {
+                _hub = new HubView();
+                _hub.close_requested.connect(() => leave_hub());
+                _hub_reveal = new HubReveal(_hub);
+                var layers = new Overlay();
+                layers.child = _hub_reveal;
+                layers.add_overlay(_stage);
+                root.child = layers;
+            } else {
+                root.child = _stage;
+            }
             root.add_overlay(_bar);
             set_child(root);
 
@@ -136,6 +156,48 @@ namespace Singularity {
         public signal void wallpaper_requested();
 
         public Gdk.Monitor monitor { get { return _monitor; } }
+
+        public bool hub_open { get { return _hub_open; } }
+
+        public double hub_x {
+            get { return _hub_x; }
+            set {
+                _hub_x = value;
+                _stage.translate_x = value;
+                if (_hub_reveal != null) _hub_reveal.reveal = value;
+                HomeCover.get_default().set_covered(_monitor, value > 0);
+            }
+        }
+
+        public void open_hub() {
+            if (_hub == null || !HubConfig.get_default().enabled) return;
+            leave_edit();
+            _hub_open = true;
+            _hub.grab_focus();
+            Singularity.Motion.spring_to(this, "hub-x", (double) _width, Singularity.Motion.Spring.SNAPPY);
+        }
+
+        public bool hub_back() {
+            return _hub != null && _hub_open && _hub.close_card();
+        }
+
+        public bool leave_hub() {
+            if (_hub == null || (!_hub_open && _hub_x == 0)) return false;
+            _hub_open = false;
+            var settle = Singularity.Motion.spring_to(this, "hub-x", 0.0, Singularity.Motion.Spring.SNAPPY);
+            settle.done.connect(() => {
+                if (!_hub_open && _hub != null) _hub.reset();
+            });
+            return true;
+        }
+
+        private void settle_hub(double velocity) {
+            bool open = _hub_x > _width * HUB_COMMIT;
+            if (velocity > HUB_FLING) open = true;
+            else if (velocity < -HUB_FLING) open = false;
+            if (open) open_hub();
+            else leave_hub();
+        }
 
         public double scroll_x {
             get { return _scroll_x; }
@@ -250,15 +312,33 @@ namespace Singularity {
             swipe.propagation_phase = PropagationPhase.CAPTURE;
             swipe.drag_begin.connect((x, y) => {
                 _swiping = false;
+                _hub_drag = false;
+                _hub_closing_drag = false;
+                if (_hub_open) {
+                    if (x < _width - EDGE_ZONE) swipe.set_state(EventSequenceState.DENIED);
+                    else _hub_closing_drag = true;
+                    return;
+                }
                 if (_editing && over_item(root, x, y)) swipe.set_state(EventSequenceState.DENIED);
             });
             swipe.drag_update.connect((dx, dy) => {
                 if (!_swiping) {
                     if (Math.fabs(dx) < SWIPE_SLOP || Math.fabs(dx) < Math.fabs(dy)) return;
+                    if (_hub_closing_drag && dx > 0) return;
                     _swiping = true;
                     swipe.set_state(EventSequenceState.CLAIMED);
                     Singularity.Motion.cancel(this, "scroll-x");
                     _swipe_origin = _pager.hadjustment.value;
+                    bool at_first = _page == 0 && _pager.hadjustment.value <= 1.0;
+                    _hub_drag = _hub != null && !_editing && (_hub_closing_drag || (at_first && dx > 0 && HubConfig.get_default().enabled) || _hub_x > 0);
+                    if (_hub_drag) {
+                        Singularity.Motion.cancel(this, "hub-x");
+                        _hub_origin = _hub_x;
+                    }
+                }
+                if (_hub_drag) {
+                    hub_x = (_hub_origin + dx).clamp(0, (double) _width);
+                    return;
                 }
                 double scale = _editing ? EDIT_SCALE : 1.0;
                 double max = (int.max(1, _grid.page_count) - 1) * (double) _width;
@@ -267,17 +347,33 @@ namespace Singularity {
             swipe.drag_end.connect((dx, dy) => {
                 if (!_swiping) return;
                 _swiping = false;
+                if (_hub_drag) {
+                    _hub_drag = false;
+                    double vx = 0, vy = 0;
+                    if (_hub_velocity == null || !_hub_velocity.get_velocity(out vx, out vy)) vx = 0;
+                    settle_hub(vx);
+                    return;
+                }
                 settle_from(-dx);
             });
             swipe.cancel.connect(() => {
                 if (!_swiping) return;
                 _swiping = false;
+                if (_hub_drag) {
+                    _hub_drag = false;
+                    settle_hub(0);
+                    return;
+                }
                 go_to_page(_page);
             });
             root.add_controller(swipe);
+            _hub_velocity = new GestureSwipe();
+            _hub_velocity.propagation_phase = PropagationPhase.CAPTURE;
+            root.add_controller(_hub_velocity);
 
             var wheel = new EventControllerScroll(EventControllerScrollFlags.BOTH_AXES);
             wheel.scroll_begin.connect(() => {
+                if (_hub_open) return;
                 Singularity.Motion.cancel(this, "scroll-x");
                 _swipe_origin = _pager.hadjustment.value;
                 _wheel_dx = 0;
@@ -307,7 +403,7 @@ namespace Singularity {
 
             var hold = new GestureLongPress();
             hold.pressed.connect((x, y) => {
-                if (_editing || over_item(root, x, y)) return;
+                if (_hub_open || _editing || over_item(root, x, y)) return;
                 show_home_menu(root, x, y);
             });
             root.add_controller(hold);
@@ -315,7 +411,7 @@ namespace Singularity {
             var context = new GestureClick();
             context.button = Gdk.BUTTON_SECONDARY;
             context.pressed.connect((n, x, y) => {
-                if (_editing || over_item(root, x, y)) return;
+                if (_hub_open || _editing || over_item(root, x, y)) return;
                 show_home_menu(root, x, y);
             });
             root.add_controller(context);

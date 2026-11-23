@@ -239,7 +239,7 @@ namespace Singularity {
                 case "displays": case "region": case "datetime": case "desktop":
                 case "sound": case "bluetooth": case "printers": case "keyboard": case "tablet": case "developer": case "connected-devices":
                 case "accessibility": case "plugins": case "performance": case "agent": case "system": case "power":
-                case "autostart": case "notifications": case "updates": case "privacy": case "sharing":
+                case "autostart": case "notifications": case "hub": case "updates": case "privacy": case "sharing":
                 case "wellbeing": case "sinty-key": case "profiles": case "storage": case "safety":
                 case "network-mobile": case "network-esim": case "dev-modem":
                     return true;
@@ -275,6 +275,7 @@ namespace Singularity {
                 case "desktop": return "preferences-desktop-wallpaper-symbolic";
                 case "sound": return "audio-volume-high-symbolic";
                 case "notifications": return "preferences-system-notifications-symbolic";
+                case "hub": return "mail-inbox-symbolic";
                 case "wellbeing": return "preferences-system-time-symbolic";
                 case "safety": return "aegis-security-symbolic";
                 case "profiles": return "focus-custom-symbolic";
@@ -303,7 +304,7 @@ namespace Singularity {
         private string[] get_searchable_pages() {
             string[] pages = { "network", NetworkPage.WIFI, NetworkPage.WIRED, NetworkPage.VPN, NetworkPage.DYNAMIC,
                      NetworkPage.HOTSPOT, "sharing", "apps", "autostart", "privacy", "users", "accounts", "displays", "region", "datetime",
-                     "desktop", "sound", "notifications", "profiles", "wellbeing", "safety", "bluetooth", "connected-devices", "printers", "keyboard", "tablet", "developer", "accessibility",
+                     "desktop", "sound", "notifications", "hub", "profiles", "wellbeing", "safety", "bluetooth", "connected-devices", "printers", "keyboard", "tablet", "developer", "accessibility",
                      "plugins", "power", "performance", "agent", "updates", "system", "sinty-key", "sinty-core", "storage" };
             if (MobileNetwork.get_default().supported) pages += Singularity.SidebarPages.MobilePage.PAGE;
             return pages;
@@ -626,6 +627,7 @@ namespace Singularity {
                 case "desktop": page = new DesktopPage(this); break;
                 case "sound": page = new SoundPage(this); break;
                 case "notifications": page = new Singularity.SidebarPages.NotificationSettingsPage(this); break;
+                case "hub": page = new Singularity.SidebarPages.HubPage(this); break;
                 case "wellbeing": page = new Singularity.SidebarPages.WellbeingPage(this); break;
                 case "safety": page = new Singularity.SidebarPages.SafetyPage(this); break;
                 case "profiles": page = new Singularity.SidebarPages.ProfilesPage(this); break;
@@ -791,6 +793,15 @@ namespace Singularity {
                                "region", "datetime", "desktop", "sound", "notifications", "profiles", "wellbeing", "safety", "bluetooth",
                                "connected-devices", "printers", "keyboard", "tablet", "accessibility", "plugins",
                                "power", "performance", "updates", "storage", "system" };
+            var form = Singularity.FormFactor.get_default().kind;
+            if (form == Singularity.FormFactorKind.PHONE || form == Singularity.FormFactorKind.TABLET) {
+                string[] with_hub = {};
+                foreach (var p in pages) {
+                    with_hub += p;
+                    if (p == "notifications") with_hub += "hub";
+                }
+                pages = with_hub;
+            }
             if (_desktop_settings.get_boolean("developer-mode")) pages += "developer";
             if (AgentConfig.available()) pages += "agent";
             if (Singularity.SintyKey.Client.installed()) pages += "sinty-key";
@@ -812,6 +823,7 @@ namespace Singularity {
                 case "desktop": return _("Desktop");
                 case "sound": return _("Sound");
                 case "notifications": return _("Notifications");
+                case "hub": return _("Hub");
                 case "wellbeing": return _("Wellbeing");
                 case "safety": return _("Safety");
                 case "profiles": return _("Profiles");

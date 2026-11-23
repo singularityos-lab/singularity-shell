@@ -108,6 +108,7 @@ namespace Singularity {
                 case "datetime": return "document-open-recent";
                 case "desktop": return "singularity-dynamic-wallpaper";
                 case "sound": return "audio-speakers";
+                case "hub": return "mail-archive";
                 case "wellbeing": return "singularity-screen-time";
                 case "bluetooth": return "singularity-bluetooth";
                 case "autostart": return "singularity-autostart";
