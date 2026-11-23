@@ -113,6 +113,7 @@ namespace Singularity {
             set_child(_bar_motion);
             if (handle_only) {
                 _handle = home;
+                _bar_motion.transform_input = true;
                 bar.halign = Align.FILL;
                 var cover = HomeCover.get_default();
                 _bar_motion.translate_x = cover.shift(monitor);

@@ -30,8 +30,6 @@ namespace Singularity {
         private Singularity.Animation.MotionBin _stage;
         private Singularity.Animation.MotionBin _bar;
         private int _width = 0;
-        private int _peek = 0;
-        private const int HUB_PEEK = 40;
         private int _height = 0;
         private int _page = 0;
         private bool _editing = false;
@@ -139,10 +137,6 @@ namespace Singularity {
                 _hub.close_requested.connect(() => leave_hub());
                 _hub_reveal = new HubReveal(_hub);
                 if (Singularity.FormFactor.get_default().kind == Singularity.FormFactorKind.TABLET) {
-                    _peek = HUB_PEEK;
-                    _hub_reveal.inset = _peek;
-                    _hub.add_css_class("hub-floating");
-                    _hub.overflow = Overflow.HIDDEN;
                     var apps = AppSystem.get_default();
                     apps.config_changed.connect((key) => {
                         if (key == "dock-reservation") apply_dock_inset();
@@ -195,7 +189,7 @@ namespace Singularity {
         }
 
         private double hub_travel() {
-            return double.max(1.0, _width - _peek);
+            return double.max(1.0, _width);
         }
 
         public void open_hub() {
@@ -341,14 +335,6 @@ namespace Singularity {
         }
 
         private void install_gestures(Widget root) {
-            var peek_tap = new GestureClick();
-            peek_tap.propagation_phase = PropagationPhase.CAPTURE;
-            peek_tap.pressed.connect((n, x, y) => {
-                if (!_hub_open || _peek == 0 || x < _hub_x) return;
-                peek_tap.set_state(EventSequenceState.CLAIMED);
-                leave_hub();
-            });
-            root.add_controller(peek_tap);
             var swipe = new GestureDrag();
             swipe.propagation_phase = PropagationPhase.CAPTURE;
             swipe.drag_begin.connect((x, y) => {
@@ -356,7 +342,7 @@ namespace Singularity {
                 _hub_drag = false;
                 _hub_closing_drag = false;
                 if (_hub_open) {
-                    if (x < _width - _peek - EDGE_ZONE) swipe.set_state(EventSequenceState.DENIED);
+                    if (x < _width - EDGE_ZONE) swipe.set_state(EventSequenceState.DENIED);
                     else _hub_closing_drag = true;
                     return;
                 }
