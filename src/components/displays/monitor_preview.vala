@@ -15,7 +15,8 @@ namespace Singularity.Shell {
     }
 
     public class MonitorPreview : DrawingArea {
-        private const double TILE_SHARE = 0.62;
+        private const double TILE_SHARE = 0.78;
+        private const double REMOTE_GAP = 14.0;
         private GenericArray<RemoteTile> remotes = new GenericArray<RemoteTile>();
         private RemoteTile? dragging_remote = null;
         private double remote_drag_x;
@@ -160,56 +161,15 @@ namespace Singularity.Shell {
                 double y = m.y * view_scale + offset_y;
                 double dw = w * view_scale;
                 double dh = h * view_scale;
-                // Monitor body
-                rounded_rect(cr, x, y, dw, dh, 4.0);
-                cr.set_source_rgba(0.18, 0.18, 0.18, 1.0);
-                cr.fill_preserve();
-                if (m == dragging_monitor) {
-                    cr.set_source_rgba(0.3, 0.6, 1.0, 1.0);
-                    cr.set_line_width(2.0);
-                } else {
-                    cr.set_source_rgba(0.38, 0.38, 0.38, 1.0);
-                    cr.set_line_width(1.0);
-                }
-                cr.stroke();
-
                 bool is_shell = (m.name == shell_monitor_name && shell_monitor_name != "");
                 double bar_alpha = is_shell ? 0.70 : 0.38;
-
-                // Topbar skeleton
-                double topbar_h = double.max(4.0, dh * 0.06);
-                rounded_rect(cr, x + 2, y + 2, dw - 4, topbar_h, 2.0);
-                cr.set_source_rgba(0.55, 0.55, 0.55, bar_alpha);
-                cr.fill();
-
-                // Tiny dots in topbar (clock / icons hint)
-                double dot_y = y + 2 + topbar_h / 2;
-                double dot_r = double.max(1.0, topbar_h * 0.18);
-                for (int d = 0; d < 3; d++) {
-                    cr.arc(x + dw - 6 - d * (dot_r * 2 + 2), dot_y, dot_r, 0, 2 * Math.PI);
-                    cr.set_source_rgba(0.75, 0.75, 0.75, bar_alpha);
-                    cr.fill();
-                }
-
-                // Dock skeleton
-                double dock_h = double.max(6.0, dh * 0.10);
-                double dock_w = dw * 0.55;
-                double dock_x = x + (dw - dock_w) / 2;
-                double dock_y = y + dh - dock_h - 3;
-                rounded_rect(cr, dock_x, dock_y, dock_w, dock_h, 3.0);
-                cr.set_source_rgba(0.50, 0.50, 0.50, bar_alpha);
-                cr.fill();
-
-                // Tiny icon dots in dock
-                int n_icons = (int)(dock_w / (dock_h * 1.4));
-                if (n_icons > 8) n_icons = 8;
-                double icon_r = double.max(1.5, dock_h * 0.22);
-                double icon_spacing = dock_w / (n_icons + 1);
-                for (int d = 0; d < n_icons; d++) {
-                    cr.arc(dock_x + icon_spacing * (d + 1), dock_y + dock_h / 2, icon_r, 0, 2 * Math.PI);
-                    cr.set_source_rgba(0.80, 0.80, 0.80, bar_alpha);
-                    cr.fill();
-                }
+                bool dragged = m == dragging_monitor;
+                draw_screen(cr, x, y, dw, dh, 1.0, bar_alpha);
+                rounded_rect(cr, x, y, dw, dh, 4.0);
+                if (dragged) cr.set_source_rgba(0.3, 0.6, 1.0, 1.0);
+                else cr.set_source_rgba(0.38, 0.38, 0.38, 1.0);
+                cr.set_line_width(dragged ? 2.0 : 1.0);
+                cr.stroke();
 
                 // Monitor number badge
                 cr.select_font_face("Inter", FontSlant.NORMAL, FontWeight.BOLD);
@@ -232,6 +192,43 @@ namespace Singularity.Shell {
             foreach (var r in remotes.data) draw_remote(cr, r);
         }
 
+        private void draw_screen(Context cr, double x, double y, double dw, double dh, double alpha, double bar_alpha) {
+            rounded_rect(cr, x, y, dw, dh, 4.0);
+            cr.set_source_rgba(0.18, 0.18, 0.18, alpha);
+            cr.fill();
+
+            double topbar_h = double.max(4.0, dh * 0.06);
+            rounded_rect(cr, x + 2, y + 2, dw - 4, topbar_h, 2.0);
+            cr.set_source_rgba(0.55, 0.55, 0.55, bar_alpha);
+            cr.fill();
+
+            double dot_y = y + 2 + topbar_h / 2;
+            double dot_r = double.max(1.0, topbar_h * 0.18);
+            for (int d = 0; d < 3; d++) {
+                cr.arc(x + dw - 6 - d * (dot_r * 2 + 2), dot_y, dot_r, 0, 2 * Math.PI);
+                cr.set_source_rgba(0.75, 0.75, 0.75, bar_alpha);
+                cr.fill();
+            }
+
+            double dock_h = double.max(6.0, dh * 0.10);
+            double dock_w = dw * 0.55;
+            double dock_x = x + (dw - dock_w) / 2;
+            double dock_y = y + dh - dock_h - 3;
+            rounded_rect(cr, dock_x, dock_y, dock_w, dock_h, 3.0);
+            cr.set_source_rgba(0.50, 0.50, 0.50, bar_alpha);
+            cr.fill();
+
+            int n_icons = (int)(dock_w / (dock_h * 1.4));
+            if (n_icons > 8) n_icons = 8;
+            double icon_r = double.max(1.5, dock_h * 0.22);
+            double icon_spacing = dock_w / (n_icons + 1);
+            for (int d = 0; d < n_icons; d++) {
+                cr.arc(dock_x + icon_spacing * (d + 1), dock_y + dock_h / 2, icon_r, 0, 2 * Math.PI);
+                cr.set_source_rgba(0.80, 0.80, 0.80, bar_alpha);
+                cr.fill();
+            }
+        }
+
         private void draw_remote(Context cr, RemoteTile r) {
             double x, y, w, h;
             if (r == dragging_remote) {
@@ -246,24 +243,71 @@ namespace Singularity.Shell {
             }
             double dw = w * view_scale, dh = h * view_scale;
             bool live = r.state == "connected" || r.state == "active";
+            bool active = r.state == "active";
             var accent = get_color();
-            rounded_rect(cr, x + 3, y + 3, dw - 6, dh - 6, 6.0);
-            cr.set_source_rgba(0.14, 0.14, 0.16, live ? 0.95 : 0.6);
+            double gap = double.min(REMOTE_GAP, double.min(dw, dh) * 0.2);
+            double bx = x, by = y;
+            switch (r.side) {
+                case "left": dw -= gap; bx = x + dw + gap / 2; by = y + dh / 2; break;
+                case "right": x += gap; dw -= gap; bx = x - gap / 2; by = y + dh / 2; break;
+                case "top": dh -= gap; bx = x + dw / 2; by = y + dh + gap / 2; break;
+                default: y += gap; dh -= gap; bx = x + dw / 2; by = y - gap / 2; break;
+            }
+            bool vertical = r.side == "left" || r.side == "right";
+            for (int i = -1; i <= 1; i++) {
+                double px = vertical ? bx : bx + i * gap * 0.55;
+                double py = vertical ? by + i * gap * 0.55 : by;
+                cr.arc(px, py, double.max(1.6, gap * 0.13), 0, 2 * Math.PI);
+                if (live) cr.set_source_rgba(accent.red, accent.green, accent.blue, i == 0 ? 0.95 : 0.6);
+                else cr.set_source_rgba(0.6, 0.6, 0.6, 0.6);
+                cr.fill();
+            }
+
+            cr.push_group();
+            draw_screen(cr, x, y, dw, dh, 1.0, active ? 0.55 : 0.38);
+            cr.pop_group_to_source();
+            cr.paint_with_alpha(live ? 0.9 : 0.5);
+            rounded_rect(cr, x, y, dw, dh, 4.0);
+            cr.set_source_rgba(accent.red, accent.green, accent.blue, live ? 0.10 : 0.0);
             cr.fill_preserve();
-            cr.set_line_width(r == dragging_remote || r.state == "active" ? 2.0 : 1.0);
+            cr.set_line_width(r == dragging_remote || active ? 2.0 : 1.2);
             if (live) cr.set_source_rgba(accent.red, accent.green, accent.blue, 0.9);
-            else cr.set_source_rgba(0.5, 0.5, 0.5, 0.7);
-            cr.set_dash(live ? new double[0] : new double[] { 4.0, 3.0 }, 0);
+            else cr.set_source_rgba(0.6, 0.6, 0.6, 0.8);
+            cr.set_dash(new double[] { 5.0, 3.0 }, 0);
             cr.stroke();
             cr.set_dash(new double[0], 0);
+
+            double cx = x + dw / 2, cy = y + dh / 2;
+            cr.arc(cx, cy, 16, 0, 2 * Math.PI);
+            if (live) cr.set_source_rgba(accent.red, accent.green, accent.blue, 1.0);
+            else cr.set_source_rgba(0.85, 0.85, 0.85, 0.8);
+            cr.fill();
+            if (live) cr.set_source_rgba(1, 1, 1, 1);
+            else cr.set_source_rgba(0.1, 0.1, 0.1, 1);
+            cr.set_line_width(2.0);
+            cr.set_line_cap(LineCap.ROUND);
+            double wy = cy + 5;
+            for (int i = 1; i <= 2; i++) {
+                cr.arc(cx, wy, 4.5 * i, Math.PI * 1.25, Math.PI * 1.75);
+                cr.stroke();
+            }
+            cr.arc(cx, wy, 1.6, 0, 2 * Math.PI);
+            cr.fill();
+            cr.set_line_cap(LineCap.BUTT);
+
             var layout = create_pango_layout(r.name);
-            layout.set_width((int) ((dw - 16) * Pango.SCALE));
+            var font = get_pango_context().get_font_description().copy();
+            font.set_weight(Pango.Weight.BOLD);
+            font.set_size((int) (font.get_size() * 0.85));
+            layout.set_font_description(font);
+            layout.set_width((int) (double.max(dw + 40, 80) * Pango.SCALE));
             layout.set_ellipsize(Pango.EllipsizeMode.END);
             layout.set_alignment(Pango.Alignment.CENTER);
             int tw, th;
             layout.get_pixel_size(out tw, out th);
-            cr.set_source_rgba(1, 1, 1, live ? 0.92 : 0.55);
-            cr.move_to(x + 8, y + (dh - th) / 2);
+            if (live) cr.set_source_rgba(accent.red, accent.green, accent.blue, 1.0);
+            else cr.set_source_rgba(0.75, 0.75, 0.75, 0.9);
+            cr.move_to(cx - double.max(dw + 40, 80) / 2, y + dh + 4);
             Pango.cairo_show_layout(cr, layout);
         }
 
