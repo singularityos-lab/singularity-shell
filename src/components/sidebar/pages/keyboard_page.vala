@@ -357,6 +357,9 @@ namespace Singularity {
                 case "volume_down":
                 case "volume_mute":
                 case "mic_mute":
+                case "media_play_pause":
+                case "media_next":
+                case "media_previous":
                 case "brightness_up":
                 case "brightness_down":
                 case "kbd_brightness_up":
@@ -526,6 +529,9 @@ namespace Singularity {
                 case "volume_down": return "audio-volume-low-symbolic";
                 case "volume_mute": return "audio-volume-muted-symbolic";
                 case "mic_mute": return "microphone-sensitivity-muted-symbolic";
+                case "media_play_pause": return "media-playback-start-symbolic";
+                case "media_next": return "media-skip-forward-symbolic";
+                case "media_previous": return "media-skip-backward-symbolic";
                 case "brightness_up":
                 case "brightness_down": return "display-brightness-symbolic";
                 case "kbd_brightness_up":

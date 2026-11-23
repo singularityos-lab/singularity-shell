@@ -116,6 +116,9 @@ namespace Singularity {
             register_shortcut("Volume Down", "Decrease volume", "", "volume_down", null, "XF86AudioLowerVolume");
             register_shortcut("Mute", "Toggle mute", "<Super>m", "volume_mute", null, "XF86AudioMute");
             register_shortcut("Mute Microphone", "Toggle microphone mute", "", "mic_mute", null, "XF86AudioMicMute");
+            register_shortcut("Play or Pause", "Play or pause the current media", "", "media_play_pause", null, "XF86AudioPlay");
+            register_shortcut("Next Track", "Skip to the next track", "", "media_next", null, "XF86AudioNext");
+            register_shortcut("Previous Track", "Go back to the previous track", "", "media_previous", null, "XF86AudioPrev");
             register_shortcut("Brightness Up", "Increase brightness", "", "brightness_up", null, "XF86MonBrightnessUp");
             register_shortcut("Brightness Down", "Decrease brightness", "", "brightness_down", null, "XF86MonBrightnessDown");
             register_shortcut("Snap Window Left", "Snap the focused window to the left half", "<Super>Left", "snap_left");
@@ -766,6 +769,10 @@ namespace Singularity {
             xml.append_printf("    <keybind key=\"XF86AudioLowerVolume\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s volume_down</command></action></keybind>\n", dbus_shorts);
             xml.append_printf("    <keybind key=\"XF86AudioMute\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s volume_mute</command></action></keybind>\n", dbus_shorts);
             xml.append_printf("    <keybind key=\"XF86AudioMicMute\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s mic_mute</command></action></keybind>\n", dbus_shorts);
+            xml.append_printf("    <keybind key=\"XF86AudioPlay\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s media_play_pause</command></action></keybind>\n", dbus_shorts);
+            xml.append_printf("    <keybind key=\"XF86AudioPause\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s media_play_pause</command></action></keybind>\n", dbus_shorts);
+            xml.append_printf("    <keybind key=\"XF86AudioNext\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s media_next</command></action></keybind>\n", dbus_shorts);
+            xml.append_printf("    <keybind key=\"XF86AudioPrev\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s media_previous</command></action></keybind>\n", dbus_shorts);
             xml.append_printf("    <keybind key=\"XF86MonBrightnessUp\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s brightness_up</command></action></keybind>\n", dbus_shorts);
             xml.append_printf("    <keybind key=\"XF86MonBrightnessDown\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s brightness_down</command></action></keybind>\n", dbus_shorts);
             xml.append_printf("    <keybind key=\"XF86PowerOff\" overrideInhibition=\"yes\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s power_button</command></action></keybind>\n", dbus_shorts);
@@ -1073,6 +1080,9 @@ namespace Singularity {
                     case "volume_down":  volume_down(); break;
                     case "volume_mute":  volume_mute(); break;
                     case "mic_mute":     mic_mute(); break;
+                    case "media_play_pause": MediaOsd.play_pause(); break;
+                    case "media_next":       MediaOsd.next(); break;
+                    case "media_previous":   MediaOsd.previous(); break;
                     case "brightness_up":   brightness_up(); break;
                     case "brightness_down": brightness_down(); break;
                     case "kbd_brightness_up":   kbd_brightness_up(); break;
@@ -1202,7 +1212,7 @@ namespace Singularity {
 
         public void volume_up() throws Error {
             var audio = SystemMonitor.get_default().audio;
-            audio.update_volume((audio.volume + 5.0).clamp(0.0, 100.0));
+            audio.update_volume((audio.volume + 5.0).clamp(0.0, audio.max_volume));
             VolumeOsd.show(audio);
         }
 
@@ -1246,38 +1256,32 @@ namespace Singularity {
         public void mic_mute() throws Error {
             var audio = SystemMonitor.get_default().audio;
             audio.toggle_input_mute();
-            Singularity.Shell.OsdOverlay.get_default().show_osd(
-                audio.input_muted ? "microphone-disabled-symbolic" : "audio-input-microphone-symbolic",
-                audio.input_muted ? -1 : audio.input_volume
-            );
+            Singularity.Shell.OsdOverlay.get_default().show_level("audio-input-microphone",
+                audio.input_volume, _("Microphone"), null, audio.input_muted);
         }
 
         public void brightness_up() throws Error {
             var b = SystemMonitor.get_default().brightness;
             b.step_up();
-            Singularity.Shell.OsdOverlay.get_default().show_osd(
-                "display-brightness-symbolic", b.brightness);
+            Singularity.Shell.OsdOverlay.get_default().show_level("video-display", b.brightness, _("Brightness"));
         }
 
         public void brightness_down() throws Error {
             var b = SystemMonitor.get_default().brightness;
             b.step_down();
-            Singularity.Shell.OsdOverlay.get_default().show_osd(
-                "display-brightness-symbolic", b.brightness);
+            Singularity.Shell.OsdOverlay.get_default().show_level("video-display", b.brightness, _("Brightness"));
         }
 
         public void kbd_brightness_up() throws Error {
             var k = SystemMonitor.get_default().kbd_brightness;
             k.step_up();
-            Singularity.Shell.OsdOverlay.get_default().show_osd(
-                "keyboard-brightness-symbolic", k.brightness);
+            Singularity.Shell.OsdOverlay.get_default().show_level("input-keyboard", k.brightness, _("Keyboard Light"));
         }
 
         public void kbd_brightness_down() throws Error {
             var k = SystemMonitor.get_default().kbd_brightness;
             k.step_down();
-            Singularity.Shell.OsdOverlay.get_default().show_osd(
-                "keyboard-brightness-symbolic", k.brightness);
+            Singularity.Shell.OsdOverlay.get_default().show_level("input-keyboard", k.brightness, _("Keyboard Light"));
         }
 
         public void toggle_launcher() throws Error {

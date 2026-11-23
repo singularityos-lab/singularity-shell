@@ -1474,23 +1474,14 @@ namespace Singularity {
                 // Use Gtk.Image (not Picture) so the paintable is rendered at
                 // exactly icon_size - Picture's natural size = the texture's
                 // natural size, which would blow up the dock.
-                var cover = new Image.from_paintable(icon_override);
-                cover.pixel_size = icon_size;
-                cover.halign = Align.CENTER;
-                cover.valign = Align.CENTER;
-                cover.add_css_class("dock-mpris-icon-cover");
-                cover.overflow = Overflow.HIDDEN;
-                btn.set_child(magnifier.wrap(cover));
-
-                var app_badge = new Image();
-                app_badge.pixel_size = 18;
-                app_badge.halign = Align.END;
-                app_badge.valign = Align.END;
-                app_badge.can_target = false;
-                app_badge.add_css_class("dock-mpris-app-badge");
-                load_app_icon(app_badge, app_id, app_info);
-                item_overlay.add_overlay(app_badge);
-                added.add(app_badge);
+                var artwork = new Singularity.Widgets.MediaArtwork(icon_size, 18);
+                artwork.halign = Align.CENTER;
+                artwork.valign = Align.CENTER;
+                artwork.add_css_class("dock-mpris-artwork");
+                artwork.cover = icon_override;
+                artwork.app_icon = app_info != null && app_info.get_icon() != null
+                    ? app_info.get_icon() : new ThemedIcon(strip_desktop(app_id));
+                btn.set_child(magnifier.wrap(artwork));
             } else {
                 var img = new Image();
                 img.pixel_size = icon_size;

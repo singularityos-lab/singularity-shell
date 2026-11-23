@@ -4,14 +4,13 @@ namespace Singularity {
         public const string HEARING_RISK_ICON = "audio-headphones-hearing-risk-symbolic";
 
         public static void show(AudioManager audio) {
-            var osd = Singularity.Shell.OsdOverlay.get_default();
-            if (audio.is_muted) {
-                osd.show_osd(audio.icon_name, -1);
-            } else if (audio.hearing_risk) {
-                osd.show_osd(HEARING_RISK_ICON, audio.volume, _("High volume can damage your hearing"));
-            } else {
-                osd.show_osd(audio.icon_name, audio.volume);
-            }
+            string device = audio.default_sink_friendly;
+            if (device == "") device = audio.headphones ? _("Headphones") : _("Speakers");
+            Singularity.Shell.OsdOverlay.get_default().show_level(
+                audio.headphones ? "audio-headphones" : "audio-speakers",
+                audio.volume, device,
+                audio.hearing_risk ? _("High volume can damage your hearing") : null,
+                audio.is_muted, audio.max_volume);
         }
     }
 }
