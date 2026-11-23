@@ -215,7 +215,8 @@ namespace Singularity {
         }
 
         private void settle_hub(double velocity) {
-            bool open = _hub_x > hub_travel() * HUB_COMMIT;
+            double commit = _hub_origin >= hub_travel() ? 1.0 - HUB_COMMIT : HUB_COMMIT;
+            bool open = _hub_x > hub_travel() * commit;
             if (velocity > HUB_FLING) open = true;
             else if (velocity < -HUB_FLING) open = false;
             if (open) open_hub();
@@ -342,7 +343,7 @@ namespace Singularity {
                 _hub_drag = false;
                 _hub_closing_drag = false;
                 if (_hub_open) {
-                    if (x < _width - EDGE_ZONE) swipe.set_state(EventSequenceState.DENIED);
+                    if (x < _hub.close_swipe_from(_width - EDGE_ZONE)) swipe.set_state(EventSequenceState.DENIED);
                     else _hub_closing_drag = true;
                     return;
                 }

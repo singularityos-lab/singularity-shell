@@ -27,6 +27,7 @@ namespace Singularity {
         private Overlay _sheet_layers;
         private HubCard? _card = null;
         private bool _docked = false;
+        private Widget _list_column;
         private Box? _detail = null;
         private Singularity.Widgets.StatusPage? _detail_empty = null;
 
@@ -82,6 +83,7 @@ namespace Singularity {
             _scroller.child = _groups;
 
             var list_column = new Box(Orientation.VERTICAL, 0);
+            _list_column = list_column;
             list_column.add_css_class("hub-sheet");
             list_column.append(header);
             list_column.append(_filter_note);
@@ -134,6 +136,13 @@ namespace Singularity {
             store.changed.connect(queue_refresh);
             HubConfig.get_default().changed.connect(queue_refresh);
             refresh();
+        }
+
+        public double close_swipe_from(double fallback) {
+            if (!_docked || _sidebar_open) return fallback;
+            Graphene.Rect bounds;
+            if (!_list_column.compute_bounds(this, out bounds)) return fallback;
+            return double.min(fallback, bounds.origin.x + bounds.size.width);
         }
 
         private double sidebar_travel() {
