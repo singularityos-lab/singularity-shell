@@ -68,7 +68,7 @@ namespace Singularity.SidebarPages {
             var manual_row = new SwitchRow(_("Game Mode Active"),
                 "Manually force performance mode right now");
             manual_row.sensitive = gm.available;
-            manual_row.active = gm.active;
+            manual_row.active = gm.requested;
             manual_row.switch_btn.notify["active"].connect(() => {
                 if (manual_row.active) gm.activate("manual");
                 else gm.deactivate();
@@ -82,7 +82,7 @@ namespace Singularity.SidebarPages {
             gm_group.add_row(tearing_row);
 
             gm.state_changed.connect(() => {
-                manual_row.active = gm.active;
+                manual_row.active = gm.requested;
                 auto_row.sensitive = gm.available;
                 manual_row.sensitive = gm.available;
             });

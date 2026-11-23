@@ -81,6 +81,7 @@ namespace Singularity {
         public signal void emoji_picker_triggered();
         public signal void clipboard_history_triggered();
         public signal void shortcut_cheatsheet_triggered();
+        public signal void game_overlay_triggered();
         public signal void accessibility_feedback(string feature, bool enabled);
 
         public ShortcutManager() {
@@ -109,6 +110,7 @@ namespace Singularity {
             register_shortcut("Emoji Picker", "Open the emoji picker", "<Super>period", "toggle_emoji_picker");
             register_shortcut("Clipboard History", "Open the clipboard history", "<Super>v", "toggle_clipboard_history");
             register_shortcut("Keyboard Shortcuts", "Show the keyboard shortcuts", "<Super>slash", "toggle_shortcut_cheatsheet");
+            register_shortcut("Game Overlay", "Show the game overlay over a full screen game", "<Super>g", "toggle_game_overlay");
             register_shortcut("Command Palette", "Open the command palette", "<Super>Tab", "run_command");
             register_shortcut("Command Palette (alt)", "Open the command palette", "<Shift><Alt>F2", "run_command", "run_command_alt");
             register_shortcut("Sinty AI", "Ask the configured AI", "<Super>a", "toggle_agent");
@@ -1066,6 +1068,7 @@ namespace Singularity {
                     case "toggle_emoji_picker": emoji_picker_triggered(); break;
                     case "toggle_clipboard_history": clipboard_history_triggered(); break;
                     case "toggle_shortcut_cheatsheet": shortcut_cheatsheet_triggered(); break;
+                    case "toggle_game_overlay": game_overlay_triggered(); break;
                     case "switch_windows_next": switch_windows_next(); break;
                     case "switch_windows_prev": switch_windows_prev(); break;
                     case "retile_windows": retile_windows(); break;

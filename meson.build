@@ -629,6 +629,7 @@ singularity_core_sources = files(
     'src/core/shortcut_cheatsheet_model.vala',
     'src/core/app_accels_reader.vala',
     'src/components/shortcut_cheatsheet/shortcut_cheatsheet.vala',
+    'src/components/game_overlay/game_overlay.vala',
     'src/core/hot_corner_manager.vala',
     'src/core/safe_mode.vala',
     'src/core/hand_control_manager.vala',

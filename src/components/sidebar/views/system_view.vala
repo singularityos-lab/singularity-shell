@@ -405,7 +405,7 @@ namespace Singularity {
                             var gm_tile = new QuickSettingTile("Game Mode", "applications-games-symbolic", gm2.active);
                             gm_tile.subtitle = gm2.active ? _("Active") : _("Inactive");
                             gm_tile.clicked.connect(() => {
-                                if (gm2.active) gm2.deactivate();
+                                if (gm2.requested) gm2.deactivate();
                                 else gm2.activate("manual");
                             });
                             gm2.state_changed.connect(() => {
