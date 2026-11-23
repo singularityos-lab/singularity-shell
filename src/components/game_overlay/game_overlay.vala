@@ -229,6 +229,10 @@ namespace Singularity {
             sliders.append(vol);
             var bri = SystemMonitor.get_default().brightness;
             var bri_box = slider("display-brightness-symbolic", 1, 100, bri.brightness, (v) => bri.set_level(v));
+            bri.changed.connect(() => {
+                var s = (Scale) bri_box.get_last_child();
+                if (Math.fabs(s.get_value() - bri.brightness) > 0.5) s.set_value(bri.brightness);
+            });
             sliders.append(bri_box);
             area.append(sliders);
 
@@ -333,9 +337,8 @@ namespace Singularity {
             Widget? c;
             while ((c = _notes.get_first_child()) != null) _notes.remove(c);
             int n = 0;
-            unowned var history = SystemMonitor.get_default().notifications.get_history();
-            for (unowned List<Notification>? l = history.last(); l != null && n < NOTIFICATION_COUNT; l = l.prev) {
-                var note = l.data;
+            foreach (unowned Notification note in SystemMonitor.get_default().notifications.get_history()) {
+                if (n == NOTIFICATION_COUNT) break;
                 var card = new Box(Orientation.HORIZONTAL, 12);
                 card.add_css_class("game-overlay-note");
                 var img = note.icon.has_prefix("/") ? new Image.from_file(note.icon) : new Image.from_icon_name(note.icon != "" ? note.icon : "preferences-system-notifications-symbolic");
