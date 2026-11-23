@@ -483,6 +483,8 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         Singularity.ClipboardHistory.get_default().start();
         Singularity.StageManager.get_default().start(this);
         Singularity.NearbyBridge.get_default().start();
+        Singularity.Shell.EdgeApproach.get_default(this);
+        Singularity.Shell.EdgeChooser.start(this);
         Singularity.SnapController.get_default().start(this);
         Singularity.SystemMonitor.get_default().shortcuts.clipboard_history_triggered.connect(() => {
             if (clipboard_popup == null) clipboard_popup = new Singularity.ClipboardPopup(this);

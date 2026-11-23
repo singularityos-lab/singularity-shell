@@ -28,6 +28,7 @@ namespace Singularity.SidebarPages {
 
             var card = new Box(Orientation.VERTICAL, 8);
             card.margin_top = 12;
+            card.margin_bottom = 18;
             card.halign = Align.CENTER;
             icon = new Image.from_icon_name("phone");
             icon.pixel_size = Singularity.Widgets.PageHero.ICON_SIZE;

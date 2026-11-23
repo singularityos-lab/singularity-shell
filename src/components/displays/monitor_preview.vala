@@ -4,7 +4,23 @@ using Cairo;
 
 namespace Singularity.Shell {
 
+    public class RemoteTile : Object {
+        public string id;
+        public string name;
+        public string output;
+        public string side;
+        public int start;
+        public int end;
+        public string state;
+    }
+
     public class MonitorPreview : DrawingArea {
+        private const double TILE_SHARE = 0.62;
+        private GenericArray<RemoteTile> remotes = new GenericArray<RemoteTile>();
+        private RemoteTile? dragging_remote = null;
+        private double remote_drag_x;
+        private double remote_drag_y;
+        public signal void remote_moved(string id, string output, string side, int start, int end);
         private DisplayManager display_manager;
         private DisplayManager.Monitor? dragging_monitor = null;
         private double drag_start_x;
@@ -36,6 +52,60 @@ namespace Singularity.Shell {
             add_css_class("monitor-preview");
         }
 
+        public void set_remotes(GenericArray<RemoteTile> tiles) {
+            if (dragging_remote != null) return;
+            remotes = tiles;
+            queue_draw();
+        }
+
+        private static void monitor_size(DisplayManager.Monitor m, out int w, out int h) {
+            w = m.current_mode != null ? m.current_mode.width : 1920;
+            h = m.current_mode != null ? m.current_mode.height : 1080;
+            if (m.transform % 2 != 0) {
+                int t = w;
+                w = h;
+                h = t;
+            }
+        }
+
+        private static int logical(DisplayManager.Monitor m, int pixels) {
+            double scale = m.scale > 0 ? m.scale : 1.0;
+            return (int) Math.round(pixels / scale);
+        }
+
+        private DisplayManager.Monitor? monitor_named(string name) {
+            foreach (var m in display_manager.get_monitors()) {
+                if (m.enabled && m.name == name) return m;
+            }
+            return null;
+        }
+
+        private bool remote_rect(RemoteTile r, out double x, out double y, out double w, out double h) {
+            x = y = w = h = 0;
+            var m = monitor_named(r.output);
+            if (m == null) return false;
+            int mw, mh;
+            monitor_size(m, out mw, out mh);
+            double th = mh * TILE_SHARE;
+            double tw = th * 1.6;
+            bool vertical = r.side == "left" || r.side == "right";
+            double length = vertical ? logical(m, mh) : logical(m, mw);
+            double centre = length > 0 ? ((r.start + r.end) / 2.0) / length : 0.5;
+            switch (r.side) {
+                case "left":
+                    x = m.x - tw; y = m.y + centre.clamp(0, 1) * mh - th / 2; break;
+                case "right":
+                    x = m.x + mw; y = m.y + centre.clamp(0, 1) * mh - th / 2; break;
+                case "top":
+                    x = m.x + centre.clamp(0, 1) * mw - tw / 2; y = m.y - th; break;
+                default:
+                    x = m.x + centre.clamp(0, 1) * mw - tw / 2; y = m.y + mh; break;
+            }
+            w = tw;
+            h = th;
+            return true;
+        }
+
         private void calculate_view_transform(int width, int height) {
             int min_x = int.MAX;
             int min_y = int.MAX;
@@ -55,6 +125,14 @@ namespace Singularity.Shell {
             }
             if (min_x == int.MAX) {
                 return;
+            }
+            foreach (var r in remotes.data) {
+                double rx = 0, ry = 0, rw = 0, rh = 0;
+                if (r == dragging_remote || !remote_rect(r, out rx, out ry, out rw, out rh)) continue;
+                min_x = int.min(min_x, (int) rx);
+                min_y = int.min(min_y, (int) ry);
+                max_x = int.max(max_x, (int) (rx + rw));
+                max_y = int.max(max_y, (int) (ry + rh));
             }
             int total_w = max_x - min_x;
             int total_h = max_y - min_y;
@@ -151,11 +229,118 @@ namespace Singularity.Shell {
 
                 index++;
             }
+            foreach (var r in remotes.data) draw_remote(cr, r);
+        }
+
+        private void draw_remote(Context cr, RemoteTile r) {
+            double x, y, w, h;
+            if (r == dragging_remote) {
+                double rx, ry;
+                if (!remote_rect(r, out rx, out ry, out w, out h)) return;
+                x = remote_drag_x - w * view_scale / 2;
+                y = remote_drag_y - h * view_scale / 2;
+            } else {
+                if (!remote_rect(r, out x, out y, out w, out h)) return;
+                x = x * view_scale + offset_x;
+                y = y * view_scale + offset_y;
+            }
+            double dw = w * view_scale, dh = h * view_scale;
+            bool live = r.state == "connected" || r.state == "active";
+            var accent = get_color();
+            rounded_rect(cr, x + 3, y + 3, dw - 6, dh - 6, 6.0);
+            cr.set_source_rgba(0.14, 0.14, 0.16, live ? 0.95 : 0.6);
+            cr.fill_preserve();
+            cr.set_line_width(r == dragging_remote || r.state == "active" ? 2.0 : 1.0);
+            if (live) cr.set_source_rgba(accent.red, accent.green, accent.blue, 0.9);
+            else cr.set_source_rgba(0.5, 0.5, 0.5, 0.7);
+            cr.set_dash(live ? new double[0] : new double[] { 4.0, 3.0 }, 0);
+            cr.stroke();
+            cr.set_dash(new double[0], 0);
+            var layout = create_pango_layout(r.name);
+            layout.set_width((int) ((dw - 16) * Pango.SCALE));
+            layout.set_ellipsize(Pango.EllipsizeMode.END);
+            layout.set_alignment(Pango.Alignment.CENTER);
+            int tw, th;
+            layout.get_pixel_size(out tw, out th);
+            cr.set_source_rgba(1, 1, 1, live ? 0.92 : 0.55);
+            cr.move_to(x + 8, y + (dh - th) / 2);
+            Pango.cairo_show_layout(cr, layout);
+        }
+
+        private RemoteTile? remote_at(double px, double py) {
+            for (int i = (int) remotes.length - 1; i >= 0; i--) {
+                double x, y, w, h;
+                if (!remote_rect(remotes[i], out x, out y, out w, out h)) continue;
+                x = x * view_scale + offset_x;
+                y = y * view_scale + offset_y;
+                if (px >= x && px <= x + w * view_scale && py >= y && py <= y + h * view_scale) return remotes[i];
+            }
+            return null;
+        }
+
+        private bool side_free(DisplayManager.Monitor m, string side) {
+            int mw, mh;
+            monitor_size(m, out mw, out mh);
+            foreach (var o in display_manager.get_monitors()) {
+                if (o == m || !o.enabled) continue;
+                int ow, oh;
+                monitor_size(o, out ow, out oh);
+                bool overlap_y = o.y < m.y + mh && m.y < o.y + oh;
+                bool overlap_x = o.x < m.x + mw && m.x < o.x + ow;
+                switch (side) {
+                    case "left": if (overlap_y && o.x + ow == m.x) return false; break;
+                    case "right": if (overlap_y && o.x == m.x + mw) return false; break;
+                    case "top": if (overlap_x && o.y + oh == m.y) return false; break;
+                    default: if (overlap_x && o.y == m.y + mh) return false; break;
+                }
+            }
+            return true;
+        }
+
+        private void drop_remote(RemoteTile r, double px, double py) {
+            double lx = (px - offset_x) / view_scale, ly = (py - offset_y) / view_scale;
+            DisplayManager.Monitor? best = null;
+            string best_side = "";
+            double best_distance = double.MAX;
+            foreach (var m in display_manager.get_monitors()) {
+                if (!m.enabled) continue;
+                int mw, mh;
+                monitor_size(m, out mw, out mh);
+                double cx = lx.clamp(m.x, m.x + mw), cy = ly.clamp(m.y, m.y + mh);
+                string[] sides = { "left", "right", "top", "bottom" };
+                double[] gaps = { Math.fabs(lx - m.x) + Math.fabs(ly - cy), Math.fabs(lx - (m.x + mw)) + Math.fabs(ly - cy),
+                                  Math.fabs(ly - m.y) + Math.fabs(lx - cx), Math.fabs(ly - (m.y + mh)) + Math.fabs(lx - cx) };
+                for (int i = 0; i < 4; i++) {
+                    if (gaps[i] < best_distance && side_free(m, sides[i])) {
+                        best = m;
+                        best_side = sides[i];
+                        best_distance = gaps[i];
+                    }
+                }
+            }
+            if (best == null) return;
+            int bw, bh;
+            monitor_size(best, out bw, out bh);
+            int length = best_side == "left" || best_side == "right" ? logical(best, bh) : logical(best, bw);
+            r.output = best.name;
+            r.side = best_side;
+            r.start = 0;
+            r.end = length;
+            remote_moved(r.id, r.output, r.side, r.start, r.end);
         }
 
         private void on_drag_begin(Gtk.GestureDrag gesture, double start_x, double start_y) {
             _is_dragging = false;
             dragging_monitor = null;
+            dragging_remote = remote_at(start_x, start_y);
+            if (dragging_remote != null) {
+                drag_start_x = start_x;
+                drag_start_y = start_y;
+                remote_drag_x = start_x;
+                remote_drag_y = start_y;
+                queue_draw();
+                return;
+            }
             unowned var monitors = display_manager.get_monitors();
             for (int i = (int)monitors.length() - 1; i >= 0; i--) {
                 var m = monitors.nth_data(i);
@@ -180,6 +365,13 @@ namespace Singularity.Shell {
         }
 
         private void on_drag_update(Gtk.GestureDrag gesture, double offset_x, double offset_y) {
+            if (dragging_remote != null) {
+                if ((offset_x * offset_x + offset_y * offset_y) > 25.0) _is_dragging = true;
+                remote_drag_x = drag_start_x + offset_x;
+                remote_drag_y = drag_start_y + offset_y;
+                queue_draw();
+                return;
+            }
             if (dragging_monitor != null) {
                 if ((offset_x * offset_x + offset_y * offset_y) > 25.0) {
                     _is_dragging = true;
@@ -193,6 +385,14 @@ namespace Singularity.Shell {
         }
 
         private void on_drag_end(Gtk.GestureDrag gesture, double offset_x, double offset_y) {
+            if (dragging_remote != null) {
+                var r = dragging_remote;
+                dragging_remote = null;
+                if (_is_dragging) drop_remote(r, drag_start_x + offset_x, drag_start_y + offset_y);
+                _is_dragging = false;
+                queue_draw();
+                return;
+            }
             if (dragging_monitor != null && _is_dragging) {
                 snap_to_grid();
                 layout_changed();
@@ -203,7 +403,7 @@ namespace Singularity.Shell {
         }
 
         private void on_click_pressed(Gtk.GestureClick gesture, int n_press, double click_x, double click_y) {
-            if (_is_dragging) return;
+            if (_is_dragging || remote_at(click_x, click_y) != null) return;
             unowned var monitors = display_manager.get_monitors();
             for (int i = (int)monitors.length() - 1; i >= 0; i--) {
                 var m = monitors.nth_data(i);

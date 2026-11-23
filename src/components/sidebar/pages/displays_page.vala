@@ -8,6 +8,8 @@ namespace Singularity.SidebarPages {
         private Singularity.Shell.MonitorPreview preview;
         private PreferencesGroup monitor_list;
         private PreferencesGroup settings_group;
+        private PreferencesGroup remote_group;
+        private NearbyClient nearby;
         private SelectionRow resolution_row;
         private ActionRow scale_row;
         private Label scale_value;
@@ -64,6 +66,24 @@ namespace Singularity.SidebarPages {
             monitor_list.selectable = true;
             monitor_list.row_selected.connect(on_monitor_selected);
             add_group(monitor_list);
+            remote_group = new PreferencesGroup(_("Other Sinty Devices"));
+            remote_group.description = _("Your pointer and keyboard move onto them when you cross the edge they sit on. Drag one in the picture above, or push the pointer against a free edge.");
+            remote_group.visible = false;
+            add_group(remote_group);
+            nearby = NearbyClient.get_default();
+            preview.remote_moved.connect((id, output, side, start, end) => {
+                nearby.place_input.begin(id, output, side, start, end, (o, r) => {
+                    try {
+                        nearby.place_input.end(r);
+                    } catch (Error e) {
+                        warning("displays: %s", e.message);
+                    }
+                });
+            });
+            ulong nearby_id = nearby.changed.connect(sync_remotes);
+            destroy.connect(() => nearby.disconnect(nearby_id));
+            nearby.start();
+            sync_remotes();
             settings_group = new PreferencesGroup(_("Settings"));
             add_group(settings_group);
             build_settings_ui();
@@ -261,6 +281,109 @@ namespace Singularity.SidebarPages {
             bool is_shell = (selected_monitor.name == display_manager.shell_monitor_name);
             shell_monitor_btn.label = is_shell ? _("Active") : _("Set");
             shell_monitor_btn.sensitive = !is_shell;
+        }
+
+        private void sync_remotes() {
+            var tiles = new GenericArray<Singularity.Shell.RemoteTile>();
+            remote_group.clear();
+            var devices = nearby.input_devices();
+            foreach (var d in devices) {
+                if (d.placed) {
+                    var t = new Singularity.Shell.RemoteTile();
+                    t.id = d.id;
+                    t.name = d.name;
+                    t.output = d.input_output;
+                    t.side = d.input_side;
+                    t.start = d.input_start;
+                    t.end = d.input_end;
+                    t.state = d.input_state;
+                    tiles.add(t);
+                }
+                remote_group.add_row(remote_row(d));
+            }
+            remote_group.visible = devices.size > 0;
+            preview.set_remotes(tiles);
+        }
+
+        private string side_text(NearbyDevice d) {
+            string display = d.input_output;
+            int index = 1;
+            foreach (var m in display_manager.get_monitors()) {
+                if (m.name == d.input_output) {
+                    display = _("Display %d").printf(index);
+                    break;
+                }
+                index++;
+            }
+            switch (d.input_side) {
+                case "left": return _("Left of %s").printf(display);
+                case "right": return _("Right of %s").printf(display);
+                case "top": return _("Above %s").printf(display);
+                default: return _("Below %s").printf(display);
+            }
+        }
+
+        private string state_text(NearbyDevice d) {
+            switch (d.input_state) {
+                case "active": return _("Using this pointer and keyboard");
+                case "connected": return _("Ready");
+                case "connecting": return _("Connecting");
+                case "waiting": return _("Waiting for %s to allow it").printf(d.name);
+                default: return _("Not nearby");
+            }
+        }
+
+        private Widget remote_row(NearbyDevice d) {
+            string subtitle = d.placed ? "%s · %s".printf(side_text(d), state_text(d)) : _("Not placed");
+            var row = new ActionRow(d.name, subtitle, "computer-symbolic");
+            if (d.placed) {
+                var remove = new Button.from_icon_name("list-remove-symbolic");
+                remove.add_css_class("flat");
+                remove.valign = Align.CENTER;
+                remove.tooltip_text = _("Stop Using This Sinty Here");
+                remove.clicked.connect(() => {
+                    nearby.remove_input.begin(d.id, (o, r) => {
+                        try {
+                            nearby.remove_input.end(r);
+                        } catch (Error e) {
+                            warning("displays: %s", e.message);
+                        }
+                    });
+                });
+                row.add_suffix(remove);
+            } else {
+                var place = new Button.with_label(_("Place"));
+                place.valign = Align.CENTER;
+                place.sensitive = d.reachable;
+                place.clicked.connect(() => place_beside(d));
+                row.add_suffix(place);
+            }
+            return row;
+        }
+
+        private void place_beside(NearbyDevice d) {
+            DisplayManager.Monitor? right = null;
+            int right_edge = int.MIN;
+            foreach (var m in display_manager.get_monitors()) {
+                if (!m.enabled) continue;
+                int w = m.current_mode != null ? m.current_mode.width : 1920;
+                if (m.transform % 2 != 0) w = m.current_mode != null ? m.current_mode.height : 1080;
+                if (m.x + w > right_edge) {
+                    right = m;
+                    right_edge = m.x + w;
+                }
+            }
+            if (right == null) return;
+            int h = right.current_mode != null ? right.current_mode.height : 1080;
+            if (right.transform % 2 != 0) h = right.current_mode != null ? right.current_mode.width : 1920;
+            int length = (int) Math.round(h / (right.scale > 0 ? right.scale : 1.0));
+            nearby.place_input.begin(d.id, right.name, "right", 0, length, (o, r) => {
+                try {
+                    nearby.place_input.end(r);
+                } catch (Error e) {
+                    warning("displays: %s", e.message);
+                }
+            });
         }
 
         private void on_monitors_changed() {
