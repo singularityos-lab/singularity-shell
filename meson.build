@@ -509,6 +509,7 @@ singularity_core_sources = files(
     'src/components/hub/hub_peek.vala',
     'src/components/hub/hub_store.vala',
     'src/components/hub/hub_reveal.vala',
+    'src/components/hub/hub_agenda.vala',
     'src/components/hub/hub_card.vala',
     'src/components/hub/hub_view.vala',
     'src/components/form/phone_home.vala',

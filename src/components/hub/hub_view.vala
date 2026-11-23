@@ -30,6 +30,7 @@ namespace Singularity {
         private Widget _list_column;
         private Box? _detail = null;
         private Singularity.Widgets.StatusPage? _detail_empty = null;
+        private HubAgenda _agenda;
 
         public signal void close_requested();
 
@@ -87,6 +88,9 @@ namespace Singularity {
             list_column.add_css_class("hub-sheet");
             list_column.append(header);
             list_column.append(_filter_note);
+            _agenda = new HubAgenda();
+            _agenda.event_activated.connect(open_event);
+            list_column.append(_agenda);
             list_column.append(_scroller);
             _sheet_layers = new Overlay();
             _docked = Singularity.FormFactor.get_default().kind == Singularity.FormFactorKind.TABLET;
@@ -158,6 +162,8 @@ namespace Singularity {
 
         public void reset() {
             drop_card();
+            Singularity.Motion.cancel(_agenda, "reveal");
+            _agenda.reveal = 0;
             _sidebar_open = false;
             _sheet.translate_x = 0;
             _scroller.vadjustment.value = 0;
@@ -213,6 +219,42 @@ namespace Singularity {
             });
             sheet.add_controller(peek);
 
+            var pull = new GestureDrag();
+            pull.propagation_phase = PropagationPhase.CAPTURE;
+            double pull_origin = 0;
+            bool pulling = false;
+            pull.drag_begin.connect((x, y) => {
+                pulling = false;
+                pull_origin = _agenda.reveal;
+                if (_sidebar_open || (pull_origin <= 0 && _scroller.vadjustment.value > 0.5)) {
+                    pull.set_state(EventSequenceState.DENIED);
+                }
+            });
+            pull.drag_update.connect((dx, dy) => {
+                if (!pulling) {
+                    if (Math.fabs(dy) < 12 || Math.fabs(dy) < Math.fabs(dx)) return;
+                    if (pull_origin <= 0 && (dy < 0 || _scroller.vadjustment.value > 0.5)) {
+                        pull.set_state(EventSequenceState.DENIED);
+                        return;
+                    }
+                    pulling = true;
+                    pull.set_state(EventSequenceState.CLAIMED);
+                    Singularity.Motion.cancel(_agenda, "reveal");
+                }
+                double full = _agenda.open_height();
+                double target = pull_origin + dy;
+                if (target > full) target = full + (target - full) * 0.3;
+                _agenda.reveal = double.max(0, target);
+            });
+            pull.drag_end.connect((dx, dy) => {
+                if (!pulling) return;
+                pulling = false;
+                double full = _agenda.open_height();
+                bool open = pull_origin <= 0 ? _agenda.reveal > full * 0.3 : _agenda.reveal > full * 0.7;
+                set_agenda(open);
+            });
+            sheet.add_controller(pull);
+
             var close_tap = new GestureClick();
             close_tap.propagation_phase = PropagationPhase.CAPTURE;
             close_tap.pressed.connect((n, x, y) => {
@@ -234,6 +276,17 @@ namespace Singularity {
                 }
             });
             add_controller(keys);
+        }
+
+        private void set_agenda(bool open) {
+            Singularity.Motion.spring_to(_agenda, "reveal", open ? _agenda.open_height() : 0.0, Singularity.Motion.Spring.SNAPPY);
+        }
+
+        private void open_event(Singularity.Calendar.CalendarEvent evt) {
+            var start = evt.occurrence_start ?? evt.start_time;
+            string arg = ("%s\t%s\t%" + int64.FORMAT).printf(evt.calendar_id ?? "", evt.id ?? "", start.to_unix());
+            HubPeek.get_default().expect("dev.sinty.calendar");
+            AppActions.activate.begin("dev.sinty.calendar", "open-event", new Variant.string(arg));
         }
 
         private void next_unread() {
