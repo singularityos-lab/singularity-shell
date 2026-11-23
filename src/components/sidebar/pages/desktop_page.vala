@@ -1206,6 +1206,14 @@ namespace Singularity {
             });
             app_group.add_row(icons_row);
 
+            if (settings.settings_schema.has_key("animated-icons")) {
+                var animated_icons_row = new SwitchRow(_("Animated Icons"), _("Play short motions in app and desktop icons"), settings.get_boolean("animated-icons"));
+                animated_icons_row.switch_btn.notify["active"].connect(() => {
+                    settings.set_boolean("animated-icons", animated_icons_row.switch_btn.active);
+                });
+                app_group.add_row(animated_icons_row);
+            }
+
             var panel_group = new PreferencesGroup(_("Top Panel"));
             var battery_pct_row = new SwitchRow(_("Show Battery Percentage"), _("Display the charge percentage next to the battery icon"), settings.get_boolean("show-battery-percentage"));
             battery_pct_row.switch_btn.notify["active"].connect(() => {
