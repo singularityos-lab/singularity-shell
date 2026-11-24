@@ -623,6 +623,7 @@ singularity_core_sources = files(
     'src/core/idle_manager.vala',
     'src/core/logind_lock.vala',
     'src/core/logind_lock_shell.vala',
+    'src/core/shell_sealed_log.vala',
     'src/core/parental/screen_time_tracker.vala',
     'src/core/parental/break_reminder.vala',
     'src/core/parental/parental_enforcer.vala',

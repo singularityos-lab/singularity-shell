@@ -27,6 +27,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
 
     protected override void startup() {
         base.startup();
+        Singularity.ShellSealedLog.watch(this);
         Singularity.InputMethodService.keep_local_input();
         new GLib.Settings("dev.sinty.desktop").set_boolean("bar-layout-edit-mode", false);
     }

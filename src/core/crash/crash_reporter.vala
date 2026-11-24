@@ -283,6 +283,7 @@ namespace Singularity.Crash {
             bool known = report.app_name != "";
             message("Crash reporter: %s pid %d signal %d from %s", report.display_name(), report.pid,
                     report.signal_number, report.source.id());
+            Singularity.ShellSealedLog.crashed(report.app_id != "" ? report.app_id : report.executable, report.signal_number);
             if (!known && !config.notify_unknown) {
                 report.mark_seen();
                 return;
