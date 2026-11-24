@@ -371,6 +371,7 @@ namespace Singularity {
                 case "brightness_down":
                 case "kbd_brightness_up":
                 case "kbd_brightness_down":
+                case "kbd_brightness_toggle":
                     return hardware;
                 default:
                     return desktop;
@@ -542,7 +543,8 @@ namespace Singularity {
                 case "brightness_up":
                 case "brightness_down": return "display-brightness-symbolic";
                 case "kbd_brightness_up":
-                case "kbd_brightness_down": return "input-keyboard-symbolic";
+                case "kbd_brightness_down":
+                case "kbd_brightness_toggle": return "input-keyboard-symbolic";
                 default: return "focus-windows-symbolic";
             }
         }

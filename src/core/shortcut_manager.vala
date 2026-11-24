@@ -107,6 +107,7 @@ namespace Singularity {
 
         public ShortcutManager() {
             shortcuts = new List<Shortcut>();
+            SystemMonitor.get_default().kbd_brightness.hardware_changed.connect(() => show_kbd_level("keyboard-brightness-high"));
             settings = new GLib.Settings("dev.sinty.desktop");
             var schema_source = GLib.SettingsSchemaSource.get_default();
             if (schema_source.lookup("org.gnome.desktop.wm.preferences", true) != null) {
@@ -125,8 +126,9 @@ namespace Singularity {
             register_shortcut("Snap Window Right", "Snap the focused window to the right half", "<Super>Right", "snap_right");
             register_shortcut("Snap Window Up", "Snap the focused window to the top half", "<Super>Up", "snap_up");
             register_shortcut("Snap Window Down", "Snap the focused window to the bottom half", "<Super>Down", "snap_down");
-            register_shortcut("Keyboard Light Up", "Increase keyboard backlight", "XF86KbdBrightnessUp", "kbd_brightness_up");
-            register_shortcut("Keyboard Light Down", "Decrease keyboard backlight", "XF86KbdBrightnessDown", "kbd_brightness_down");
+            register_shortcut("Keyboard Light Up", "Increase keyboard backlight", "", "kbd_brightness_up", null, "XF86KbdBrightnessUp");
+            register_shortcut("Keyboard Light Down", "Decrease keyboard backlight", "", "kbd_brightness_down", null, "XF86KbdBrightnessDown");
+            register_shortcut("Keyboard Light", "Change the keyboard backlight", "", "kbd_brightness_toggle", null, "XF86KbdLightOnOff");
             register_shortcut("Launcher", "Open application launcher", "<Super>space", "toggle_launcher", null, "Super_L");
             register_shortcut("Workspaces", "Show workspace overview", "<Super>w", "toggle_workspace_overview");
             register_shortcut("Desktop", "Reveal the desktop", "<Super>d", "toggle_desktop_reveal");
@@ -773,17 +775,12 @@ namespace Singularity {
                         key, dbus_shorts, p_app, p_id);
                 }
             }
-            // XF86 hardware media/brightness keys as aliases
-            xml.append_printf("    <keybind key=\"XF86AudioRaiseVolume\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s volume_up</command></action></keybind>\n", dbus_shorts);
-            xml.append_printf("    <keybind key=\"XF86AudioLowerVolume\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s volume_down</command></action></keybind>\n", dbus_shorts);
-            xml.append_printf("    <keybind key=\"XF86AudioMute\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s volume_mute</command></action></keybind>\n", dbus_shorts);
-            xml.append_printf("    <keybind key=\"XF86AudioMicMute\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s mic_mute</command></action></keybind>\n", dbus_shorts);
-            xml.append_printf("    <keybind key=\"XF86AudioPlay\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s media_play_pause</command></action></keybind>\n", dbus_shorts);
+            foreach (var s in shortcuts) {
+                if (s.secondary_accelerator == null || !s.secondary_accelerator.has_prefix("XF86")) continue;
+                xml.append_printf("    <keybind key=\"%s\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s %s</command></action></keybind>\n",
+                    s.secondary_accelerator, dbus_shorts, s.action_name);
+            }
             xml.append_printf("    <keybind key=\"XF86AudioPause\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s media_play_pause</command></action></keybind>\n", dbus_shorts);
-            xml.append_printf("    <keybind key=\"XF86AudioNext\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s media_next</command></action></keybind>\n", dbus_shorts);
-            xml.append_printf("    <keybind key=\"XF86AudioPrev\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s media_previous</command></action></keybind>\n", dbus_shorts);
-            xml.append_printf("    <keybind key=\"XF86MonBrightnessUp\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s brightness_up</command></action></keybind>\n", dbus_shorts);
-            xml.append_printf("    <keybind key=\"XF86MonBrightnessDown\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s brightness_down</command></action></keybind>\n", dbus_shorts);
             xml.append_printf("    <keybind key=\"XF86PowerOff\" overrideInhibition=\"yes\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s power_button</command></action></keybind>\n", dbus_shorts);
             xml.append_printf("    <keybind key=\"XF86Sleep\" overrideInhibition=\"yes\" allowWhenLocked=\"yes\"><action name=\"Execute\"><command>%s sleep_button</command></action></keybind>\n", dbus_shorts);
             xml.append("  </keyboard>\n");
@@ -1096,6 +1093,7 @@ namespace Singularity {
                     case "brightness_down": brightness_down(); break;
                     case "kbd_brightness_up":   kbd_brightness_up(); break;
                     case "kbd_brightness_down": kbd_brightness_down(); break;
+                    case "kbd_brightness_toggle": kbd_brightness_toggle(); break;
                     case "toggle_launcher": toggle_launcher(); break;
                     case "hide_launcher": launcher_hide_triggered(); break;
                     case "toggle_workspace_overview": workspace_overview_triggered(); break;
@@ -1285,13 +1283,28 @@ namespace Singularity {
         public void kbd_brightness_up() throws Error {
             var k = SystemMonitor.get_default().kbd_brightness;
             k.step_up();
-            Singularity.Shell.OsdOverlay.get_default().show_level("keyboard-brightness-high", k.brightness, _("Keyboard Light"));
+            show_kbd_level("keyboard-brightness-high");
         }
 
         public void kbd_brightness_down() throws Error {
             var k = SystemMonitor.get_default().kbd_brightness;
             k.step_down();
-            Singularity.Shell.OsdOverlay.get_default().show_level("keyboard-brightness-low", k.brightness, _("Keyboard Light"));
+            show_kbd_level("keyboard-brightness-low");
+        }
+
+        public void kbd_brightness_toggle() throws Error {
+            var k = SystemMonitor.get_default().kbd_brightness;
+            double before = k.brightness;
+            k.light_key.begin((obj, res) => {
+                k.light_key.end(res);
+                show_kbd_level(k.brightness < before ? "keyboard-brightness-low" : "keyboard-brightness-high");
+            });
+        }
+
+        private void show_kbd_level(string icon) {
+            var k = SystemMonitor.get_default().kbd_brightness;
+            if (!k.available) return;
+            Singularity.Shell.OsdOverlay.get_default().show_level(icon, k.brightness, _("Keyboard Light"));
         }
 
         public void toggle_launcher() throws Error {

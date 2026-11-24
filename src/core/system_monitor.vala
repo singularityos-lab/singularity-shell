@@ -7,7 +7,7 @@ namespace Singularity {
         public NetworkManagerWrapper network { get { if (_network == null) _network = new NetworkManagerWrapper(); return _network; } }
         public AudioManager audio { get { if (_audio == null) _audio = AudioManager.get_default(); return _audio; } }
         public BrightnessManager brightness { get { if (_brightness == null) _brightness = BrightnessManager.get_default(); return _brightness; } }
-        public KbdBrightnessManager kbd_brightness { get { if (_kbd_brightness == null) _kbd_brightness = new KbdBrightnessManager(); return _kbd_brightness; } }
+        public KbdBrightnessManager kbd_brightness { get { if (_kbd_brightness == null) _kbd_brightness = KbdBrightnessManager.get_default(); return _kbd_brightness; } }
         public NightLightManager night_light { get { if (_night_light == null) create_night_light(); return _night_light; } }
         public ShortcutManager shortcuts { get { if (_shortcuts == null) _shortcuts = new ShortcutManager(); return _shortcuts; } }
         public NotificationManager notifications { get { if (_notifications == null) _notifications = new NotificationManager(); return _notifications; } }
