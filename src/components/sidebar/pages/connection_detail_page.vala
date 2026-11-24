@@ -57,6 +57,8 @@ namespace Singularity {
         private EntryRow dns_entry;
         private SwitchRow only_dns_row;
         private SwitchRow auto_row;
+        private SelectionRow kind_row;
+        private SwitchRow metered_row;
         private Label error_label;
 
         public ConnectionDetailPage(SettingsView view, NetworkManagerWrapper network,
@@ -180,6 +182,17 @@ namespace Singularity {
             auto_row.icon_name = "view-refresh-symbolic";
             group.add_row(auto_row);
 
+            kind_row = new SelectionRow(_("Network Type"), { _("Home or Work"), _("Public") },
+                conn.home_network ? _("Home or Work") : _("Public"));
+            kind_row.subtitle = _("On a home or work network your devices can find each other and share updates.");
+            kind_row.icon_name = "network-workgroup-symbolic";
+            group.add_row(kind_row);
+
+            metered_row = new SwitchRow(_("Limited Data Plan"), _("Hold back large downloads and updates on this network"),
+                conn.metered);
+            metered_row.icon_name = "network-cellular-symbolic";
+            group.add_row(metered_row);
+
             disconnect_row = new ActionRow(_("Disconnect"), null, "network-offline-symbolic");
             disconnect_row.activatable = true;
             var disconnect_click = new GestureClick();
@@ -212,8 +225,17 @@ namespace Singularity {
                 string server = part.strip();
                 if (server != "") servers += server;
             }
+            bool home = kind_row.selected_index == 0;
+            string? failure = null;
+            if (home != conn.home_network || metered_row.active != conn.metered)
+                failure = yield network.save_network_kind(conn, home, metered_row.active);
+            if (failure != null) {
+                error_label.label = failure;
+                error_label.visible = true;
+                return;
+            }
             bool manual = address_entry.visible;
-            string? failure = yield network.save_ipv4(conn, manual, address_entry.text,
+            failure = yield network.save_ipv4(conn, manual, address_entry.text,
                 gateway_entry.text, servers, only_dns_row.active, auto_row.active);
             if (failure != null) {
                 error_label.label = failure;
