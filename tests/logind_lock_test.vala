@@ -292,27 +292,6 @@ int main(string[] args) {
 
         print("== case 16: stop() closes the inhibitor ==\n");
         check(!l3.inhibitor_held && !l.inhibitor_held, "no inhibitor after stop");
-
-        print("== case 17: the lock-client probe sees a singularity-lockscreen process of this user ==\n");
-        string probe_dir = DirUtils.make_tmp("logind-lock-probe-XXXXXX");
-        string fake_bin = Path.build_filename(probe_dir, "singularity-lockscreen");
-        string sleep_bin = Environment.find_program_in_path("sleep");
-        uint8[] sleep_data;
-        FileUtils.get_data(sleep_bin, out sleep_data);
-        FileUtils.set_data(fake_bin, sleep_data);
-        FileUtils.chmod(fake_bin, 0755);
-        check(!Singularity.LockClientProbe.running(Posix.getuid(), Posix.getpid()), "no lock client before");
-        Pid child;
-        Process.spawn_async(null, { fake_bin, "30" }, null, SpawnFlags.DO_NOT_REAP_CHILD, null, out child);
-        check(wait_for(() => Singularity.LockClientProbe.running(Posix.getuid(), Posix.getpid()), 2000), "lock client seen");
-        check(!Singularity.LockClientProbe.running((Posix.uid_t) ((uint) Posix.getuid() + 1), Posix.getpid()), "another user's lock client is not ours");
-        Posix.kill(child, Posix.Signal.TERM);
-        int status;
-        Posix.waitpid(child, out status, 0);
-        Process.close_pid(child);
-        check(!Singularity.LockClientProbe.running(Posix.getuid(), Posix.getpid()), "gone after exit");
-        FileUtils.remove(fake_bin);
-        DirUtils.remove(probe_dir);
     } catch (Error e) {
         print("  FAIL: %s\n", e.message);
         failures++;

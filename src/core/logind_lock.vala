@@ -7,33 +7,6 @@ namespace Singularity {
 
     public delegate bool LockOnSuspendFunc();
 
-    public class LockClientProbe : Object {
-        public static bool running(Posix.uid_t uid, Posix.pid_t self_pid) {
-            Dir dir;
-            try {
-                dir = Dir.open("/proc");
-            } catch (FileError e) {
-                return false;
-            }
-            string? name;
-            while ((name = dir.read_name()) != null) {
-                if (name[0] < '0' || name[0] > '9') continue;
-                if ((Posix.pid_t) int.parse(name) == self_pid) continue;
-                string base_path = "/proc/" + name;
-                Posix.Stat st;
-                if (Posix.stat(base_path, out st) != 0 || st.st_uid != uid) continue;
-                string argv0;
-                try {
-                    if (!FileUtils.get_contents(base_path + "/cmdline", out argv0) || argv0 == "") continue;
-                } catch (FileError e) {
-                    continue;
-                }
-                if (Path.get_basename(argv0).has_prefix("singularity-lockscreen")) return true;
-            }
-            return false;
-        }
-    }
-
     public class LogindLockListener : Object {
         public const string BUS_NAME = "org.freedesktop.login1";
         public const string MANAGER_PATH = "/org/freedesktop/login1";
