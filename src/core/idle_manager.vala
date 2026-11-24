@@ -96,8 +96,6 @@ namespace Singularity {
 
         public void rearm() {
             if (!available) return;
-            // Dropping the watches below also drops the resume events that would
-            // undo a dim or blank in progress, so put the screens back first.
             undim();
             if (blanked) blank_screens(false);
             int[] all = { DIM, BLANK, LOCK, SUSPEND, PROBE };
