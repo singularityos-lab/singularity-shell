@@ -20,20 +20,20 @@ namespace Singularity.Shell {
 
         public static void start(Gtk.Application app) {
             var client = NearbyClient.get_default();
-            client.app_dragged.connect((device_id, app_id, state, movable, output, side, position) => {
+            client.app_dragged.connect((device_id, app_id, state, mode, output, side, position) => {
                 if (state == "entered") {
                     if (!(side in InputSides.ALL)) return;
                     if (current != null) current.dismiss(false);
-                    current = new MoveCard(app, device_id, app_id, movable, output, side, position);
+                    current = new MoveCard(app, device_id, app_id, mode, output, side, position);
                     current.present();
                     return;
                 }
                 if (current == null || current.device_id != device_id || current.app_id != app_id) return;
-                current.dismiss(state == "dropped" && movable);
+                current.dismiss(state == "dropped" && mode != "");
             });
         }
 
-        private MoveCard(Gtk.Application app, string device_id, string app_id, bool movable, string output, string side, double position) {
+        private MoveCard(Gtk.Application app, string device_id, string app_id, string mode, string output, string side, double position) {
             Object(application: app);
             this.device_id = device_id;
             this.app_id = app_id;
@@ -78,8 +78,26 @@ namespace Singularity.Shell {
             var d = NearbyClient.get_default().find(device_id);
             string device = d != null ? d.name : _("the other device");
             string app_name = label_of(app_id);
-            var title = new Label(movable ? _("Let Go to Move %s to %s").printf(app_name, device)
-                                          : _("%s Cannot Move to %s").printf(app_name, device));
+            string heading, detail;
+            switch (mode) {
+                case "move":
+                    heading = _("Let Go to Move %s to %s").printf(app_name, device);
+                    detail = _("It continues there exactly as it is now, and closes here.");
+                    break;
+                case "cast":
+                    heading = _("Let Go to Use %s on %s").printf(app_name, device);
+                    detail = _("It keeps running here and shows there, where you can use it.");
+                    break;
+                case "close":
+                    heading = _("Let Go to Stop Showing %s Here").printf(app_name);
+                    detail = _("It goes on running on the device it came from.");
+                    break;
+                default:
+                    heading = _("%s Cannot Move to %s").printf(app_name, device);
+                    detail = _("This app cannot continue on another device.");
+                    break;
+            }
+            var title = new Label(heading);
             title.add_css_class("heading");
             title.wrap = true;
             title.max_width_chars = 26;
@@ -87,8 +105,7 @@ namespace Singularity.Shell {
             title.margin_start = 6;
             title.margin_end = 6;
             card.append(title);
-            var hint = new Label(movable ? _("It continues there exactly as it is now, and closes here.")
-                                         : _("This app cannot continue on another device."));
+            var hint = new Label(detail);
             hint.add_css_class("dim-label");
             hint.add_css_class("caption");
             hint.wrap = true;
