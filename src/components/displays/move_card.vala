@@ -130,10 +130,13 @@ namespace Singularity.Shell {
                     if (previews.size > 0) {
                         picture.paintable = previews[0].texture;
                         preview.visible_child_name = "picture";
+                        return;
                     }
                 } catch (Error e) {
-                    if (!(e is IOError.CANCELLED)) debug("move card: %s", e.message);
+                    if (e is IOError.CANCELLED) return;
+                    debug("move card: %s", e.message);
                 }
+                show_window(picture, preview);
             });
 
             map.connect(() => {
@@ -183,6 +186,28 @@ namespace Singularity.Shell {
         private static string label_of(string app_id) {
             var info = new GLib.DesktopAppInfo(app_id + ".desktop");
             return info != null ? info.get_display_name() : app_id;
+        }
+
+        private void show_window(Picture picture, Stack preview) {
+            void* handle = dragged_window(app_id);
+            if (handle == null) return;
+            PreviewCache.get_default().request(handle, PICTURE_WIDTH, PICTURE_HEIGHT, (texture) => {
+                if (texture == null || cancellable.is_cancelled()) return;
+                picture.paintable = texture;
+                preview.visible_child_name = "picture";
+            });
+        }
+
+        private static void* dragged_window(string app_id) {
+            var apps = AppSystem.get_default();
+            void* focused = apps.get_focused_window_handle();
+            void* first = null;
+            foreach (var win in apps.get_windows()) {
+                if (!apps.app_ids_match(win.app_id, app_id)) continue;
+                if (win.handle == focused) return focused;
+                if (first == null) first = win.handle;
+            }
+            return first;
         }
 
         private static GLib.Icon icon_of(string app_id) {
