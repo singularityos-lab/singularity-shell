@@ -150,6 +150,7 @@ namespace Singularity {
         }
 
         private void fire_action(string action) {
+            hide_hints();
             if (action == "workspaces") workspaces_triggered();
             else if (action == "overview") overview_triggered();
             else if (action == "settings") settings_triggered();
