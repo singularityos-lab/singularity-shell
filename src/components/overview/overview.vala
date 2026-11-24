@@ -9,6 +9,8 @@ namespace Singularity {
     public class Overview : Gtk.Window {
         private AppLauncherGrid launcher_grid;
         private ScrolledWindow scrolled_window;
+        private Singularity.Widgets.ScrollFade grid_fade;
+        private Overlay floating;
         private Singularity.Widgets.SearchBubble search_entry;
         private AppSystem app_system;
         private SearchManager search_manager;
@@ -107,7 +109,7 @@ namespace Singularity {
             search_manager = SearchManager.get_default();
 
             init_for_window(this);
-            set_layer(this, GtkLayerShell.Layer.OVERLAY);
+            set_layer(this, GtkLayerShell.Layer.TOP);
             set_anchor(this, GtkLayerShell.Edge.TOP, true);
             set_anchor(this, GtkLayerShell.Edge.BOTTOM, true);
             set_anchor(this, GtkLayerShell.Edge.LEFT, true);
@@ -226,7 +228,7 @@ namespace Singularity {
             content_stack.transition_type = StackTransitionType.CROSSFADE;
             content_stack.hexpand = true;
             content_stack.vexpand = true;
-            var floating = new Overlay();
+            floating = new Overlay();
             floating.vexpand = true;
             floating.set_child(content_stack);
             floating.add_overlay(search_entry);
@@ -236,7 +238,8 @@ namespace Singularity {
             scrolled_window = new ScrolledWindow();
             scrolled_window.hscrollbar_policy = PolicyType.NEVER;
             scrolled_window.vscrollbar_policy = PolicyType.AUTOMATIC;
-            content_stack.add_named(scrolled_window, "grid");
+            grid_fade = new Singularity.Widgets.ScrollFade(scrolled_window);
+            content_stack.add_named(grid_fade, "grid");
 
             grid_container = new Box(Orientation.VERTICAL, 0);
             grid_container.margin_bottom = GRID_BOTTOM;
@@ -422,10 +425,9 @@ namespace Singularity {
                         var monitor = surface.get_display().get_monitor_at_surface(surface);
                         if (monitor != null) set_monitor(this, monitor);
                     }
-                    int panel_h = anchor_window.get_height();
-                    if (panel_h > 0) {
-                        search_entry.margin_top = panel_h + 12;
-                    }
+                    int panel_h = int.max(0, anchor_window.get_height());
+                    search_entry.margin_top = panel_h > 0 ? 12 : 48;
+                    floating.margin_top = panel_h;
                 }
                 update_grid_columns();
                 place_under_search();
@@ -437,7 +439,6 @@ namespace Singularity {
                 grid_container.margin_bottom = under_dock
                     ? Singularity.FormShell.dock_icon_size(desktop_settings, grid_mon) + DOCK_CLEARANCE + GRID_BOTTOM
                     : GRID_BOTTOM;
-                set_layer(this, under_dock ? GtkLayerShell.Layer.TOP : GtkLayerShell.Layer.OVERLAY);
                 window_fade.apply(true, Singularity.Motion.Duration.LARGE.ms());
                 present();
                 // Populate AFTER present so the empty overview (background +
@@ -489,6 +490,7 @@ namespace Singularity {
             int clearance = search_clearance();
             grid_container.margin_top = clearance + GRID_TOP;
             list_container.margin_top = clearance + RESULTS_TOP;
+            grid_fade.top_offset = clearance;
         }
 
         private void keep_focus_clear() {
