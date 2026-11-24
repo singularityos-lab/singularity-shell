@@ -45,6 +45,7 @@ namespace Singularity.SidebarPages {
 
         private static KnownProvider[] known() {
             return {
+                KnownProvider() { id = "sinty", name = _("Organization"), description = _("Your organization's Sinty account: files on Sinty Cloud and device administration") },
                 KnownProvider() { id = "nextcloud", name = "Nextcloud", description = _("Calendars, contacts, tasks and files on a Nextcloud server") },
                 KnownProvider() { id = "google", name = "Google", description = _("Mail, calendar, contacts, tasks and Drive") },
                 KnownProvider() { id = "microsoft", name = "Microsoft", description = _("Outlook.com and Microsoft 365 mail, calendar, contacts, To Do and OneDrive") },
@@ -67,6 +68,7 @@ namespace Singularity.SidebarPages {
                 case "jellyfin": case "subsonic": return "singularity-account-media-server";
                 case "listenbrainz": return "singularity-account-listening";
                 case "spotify": return "singularity-account-music-service";
+                case "sinty": return "singularity-account-generic";
                 default: return "singularity-account-" + id;
             }
         }
@@ -193,6 +195,7 @@ namespace Singularity.SidebarPages {
             clear_form();
             form_box.append(provider_header(id, name));
             switch (id) {
+                case "sinty": build_organization_form(); break;
                 case "nextcloud": build_nextcloud_form(); break;
                 case "owncloud": build_server_form(_("ownCloud Server"), _("Use an app password from your ownCloud security settings if two-factor sign-in is on.")); break;
                 case "google": case "microsoft": build_oauth_form(id, name); break;
@@ -213,6 +216,17 @@ namespace Singularity.SidebarPages {
                 load_providers.end(res);
                 if (id == "google" || id == "microsoft" || id == "spotify") refresh_oauth_state();
             });
+        }
+
+        private void build_organization_form() {
+            var group = new PreferencesGroup(_("Organization"),
+                _("Enter the sign-in address your organization gave you. You sign in on its page and may be asked to confirm on one of your devices; your password is never stored here."));
+            server_row = new EntryRow(_("Sign-In Address"));
+            server_row.text = "https://";
+            server_row.entry_activated.connect(on_connect_clicked);
+            group.add_row(server_row);
+            add_group_to_form(group);
+            browser_flow = true;
         }
 
         private void build_nextcloud_form() {
@@ -479,6 +493,14 @@ namespace Singularity.SidebarPages {
             var settings = new HashTable<string, Variant>(str_hash, str_equal);
             string secret = pass_row != null ? pass_row.text : "";
             switch (selected_provider) {
+                case "sinty":
+                    if (server_row.text.strip() == "" || server_row.text.strip() == "https://") {
+                        error_label.label = _("Enter the sign-in address of your organization");
+                        return;
+                    }
+                    settings.insert("server", server_row.text.strip());
+                    start_browser_flow.begin("sinty", settings);
+                    return;
                 case "nextcloud":
                     settings.insert("server", server_row.text.strip());
                     if (user_row.text.strip() != "" && secret != "") {
