@@ -21,6 +21,8 @@ namespace Singularity.SidebarPages {
         private ActionRow firmware_row;
         private ActionRow auto_row;
         private SelectionRow? channel_row = null;
+        private SwitchRow? neighbours_row = null;
+        private bool neighbours_syncing = false;
         private GLib.Settings settings;
         private ulong provider_handler = 0;
         private ulong firmware_handler = 0;
@@ -111,6 +113,14 @@ namespace Singularity.SidebarPages {
                 channel_row.selected.connect((val) => set_channel.begin(val == _("Canary") ? "canary" : "stable"));
                 system_group.add_row(channel_row);
                 load_channel.begin();
+                neighbours_row = new SwitchRow(_("Share Updates Nearby"),
+                    _("Pass downloaded updates to your other devices on home and work networks. Every piece is checked against the signed release."));
+                neighbours_row.visible = false;
+                neighbours_row.switch_btn.notify["active"].connect(() => {
+                    if (!neighbours_syncing) set_neighbours.begin(neighbours_row.switch_btn.active);
+                });
+                system_group.add_row(neighbours_row);
+                load_neighbours.begin();
             }
             add_group(system_group);
 
@@ -120,6 +130,8 @@ namespace Singularity.SidebarPages {
             add_search_action(_("Automatic Updates"), _("Check for and download updates in the background"), open_automatic);
             if (channel_row != null)
                 add_search_action(_("Update Channel"), _("Choose between Stable and Canary builds"), () => channel_row.expanded = true);
+            if (neighbours_row != null)
+                add_search_action(_("Share Updates Nearby"), _("Pass updates to your other devices on the same network"), () => neighbours_row.grab_focus());
             add_search_action(_("Update History"), _("See which updates were installed and when"), open_history);
 
             destroy.connect(() => {
@@ -143,6 +155,31 @@ namespace Singularity.SidebarPages {
             }
             channel_row.visible = has_canary;
             channel_row.current_value = channel_label(state.get_string_member_with_default("channel", "stable"));
+        }
+
+        private void apply_neighbours(Json.Object state) {
+            if (!state.has_member("enabled")) return;
+            neighbours_syncing = true;
+            neighbours_row.switch_btn.active = state.get_boolean_member("enabled");
+            neighbours_syncing = false;
+            neighbours_row.visible = true;
+        }
+
+        private async void load_neighbours() {
+            try {
+                apply_neighbours(yield BootChainGroup.request("GET", "/neighbours", 5));
+            } catch (Error e) {
+                debug("Nearby updates: %s", e.message);
+            }
+        }
+
+        private async void set_neighbours(bool enable) {
+            try {
+                apply_neighbours(yield BootChainGroup.request("POST", "/neighbours?enable=" + (enable ? "1" : "0"), 5));
+            } catch (Error e) {
+                warning("Nearby updates: %s", e.message);
+                yield load_neighbours();
+            }
         }
 
         private async void load_channel() {
