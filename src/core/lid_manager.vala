@@ -18,28 +18,30 @@ namespace Singularity {
 
         private LidManager() {
             settings = new GLib.Settings("dev.sinty.desktop");
-            DBusProxy.for_bus.begin(BusType.SYSTEM, DBusProxyFlags.NONE, null,
-                "org.freedesktop.UPower", "/org/freedesktop/UPower", "org.freedesktop.UPower", null, (obj, res) => {
-                try {
-                    upower = DBusProxy.for_bus.end(res);
-                } catch (Error e) {
-                    warning("LidManager: UPower unavailable: %s", e.message);
-                    return;
-                }
-                var present = upower.get_cached_property("LidIsPresent");
-                lid_present = present != null && present.get_boolean();
-                if (!lid_present) return;
-                take_inhibitor.begin();
-                upower.g_properties_changed.connect((changed, invalidated) => {
-                    var value = changed.lookup_value("LidIsClosed", VariantType.BOOLEAN);
-                    if (value != null) set_closed(value.get_boolean());
-                });
-                var now = upower.get_cached_property("LidIsClosed");
-                if (now != null && now.get_boolean()) set_closed(true);
-            });
+            watch_upower.begin();
             DisplayManager.get_default().monitors_changed.connect(() => {
                 if (closed) schedule();
             });
+        }
+
+        private async void watch_upower() {
+            try {
+                upower = yield new DBusProxy.for_bus(BusType.SYSTEM, DBusProxyFlags.NONE, null,
+                    "org.freedesktop.UPower", "/org/freedesktop/UPower", "org.freedesktop.UPower", null);
+            } catch (Error e) {
+                warning("LidManager: UPower unavailable: %s", e.message);
+                return;
+            }
+            var present = upower.get_cached_property("LidIsPresent");
+            lid_present = present != null && present.get_boolean();
+            if (!lid_present) return;
+            take_inhibitor.begin();
+            upower.g_properties_changed.connect((changed, invalidated) => {
+                var value = changed.lookup_value("LidIsClosed", VariantType.BOOLEAN);
+                if (value != null) set_closed(value.get_boolean());
+            });
+            var now = upower.get_cached_property("LidIsClosed");
+            if (now != null && now.get_boolean()) set_closed(true);
         }
 
         private async void take_inhibitor() {
