@@ -117,7 +117,7 @@ namespace Singularity {
                     GtkLayerShell.set_keyboard_mode(this, GtkLayerShell.KeyboardMode.NONE);
                     height_pinned = false;
                     main_box.height_request = -1;
-                    this.visible = false;
+                    close_layer_window(this);
                     return;
                 }
                 main_box.add_tick_callback(() => {

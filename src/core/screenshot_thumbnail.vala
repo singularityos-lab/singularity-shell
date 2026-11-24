@@ -169,7 +169,7 @@ namespace Singularity {
             }
             _hovered = false;
             _menu_open = false;
-            set_visible(false);
+            close_layer_window(this);
         }
     }
 }

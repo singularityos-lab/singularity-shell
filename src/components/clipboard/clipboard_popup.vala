@@ -324,7 +324,7 @@ namespace Singularity {
             var anim = Singularity.Motion.conceal(card, Singularity.Motion.Preset.SCALE_FADE);
             anim.done.connect(() => {
                 _closing = false;
-                this.visible = false;
+                close_layer_window(this);
             });
         }
     }

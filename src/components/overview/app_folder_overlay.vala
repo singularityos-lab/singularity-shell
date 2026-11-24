@@ -322,7 +322,7 @@ namespace Singularity {
                 app_system.disconnect(_folders_signal_id);
                 _folders_signal_id = 0;
             }
-            visible = false;
+            close_layer_window(this);
             closed();
             destroy();
         }

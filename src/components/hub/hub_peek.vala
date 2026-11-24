@@ -166,7 +166,7 @@ namespace Singularity {
         }
 
         private void hide_strip() {
-            if (_strip != null && !_dragging) _strip.visible = false;
+            if (_strip != null && !_dragging) close_layer_window(_strip);
         }
 
         private void build_strip(Gdk.Monitor monitor) {

@@ -274,7 +274,7 @@ namespace Singularity {
                     Singularity.Motion.Duration.SMALL, Singularity.Motion.Curve.EXIT).done.connect(() => {
                     if (!closing) return;
                     closing = false;
-                    visible = false;
+                    close_layer_window(this);
                     card_motion.reset_transform();
                 });
                 return Source.REMOVE;

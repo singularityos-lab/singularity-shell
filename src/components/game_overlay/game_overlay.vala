@@ -123,7 +123,7 @@ namespace Singularity {
             _bottom.reveal_child = false;
             if (_clock_id != 0) { GLib.Source.remove(_clock_id); _clock_id = 0; }
             GLib.Timeout.add(Singularity.Motion.Duration.LARGE, () => {
-                if (_closing) hide();
+                if (_closing) close_layer_window(this);
                 _closing = false;
                 return GLib.Source.REMOVE;
             });
