@@ -182,9 +182,9 @@ namespace Singularity {
             auto_row.icon_name = "view-refresh-symbolic";
             group.add_row(auto_row);
 
-            kind_row = new SelectionRow(_("Network Type"), { _("Home or Work"), _("Public") },
-                conn.home_network ? _("Home or Work") : _("Public"));
-            kind_row.subtitle = _("On a home or work network your devices can find each other and share updates.");
+            kind_row = new SelectionRow(_("Network Type"), { _("Home"), _("Public") },
+                conn.home_network ? _("Home") : _("Public"));
+            kind_row.subtitle = _("On a home network your devices can find each other and share updates. Work networks are recognised by your organisation.");
             kind_row.icon_name = "network-workgroup-symbolic";
             group.add_row(kind_row);
 
