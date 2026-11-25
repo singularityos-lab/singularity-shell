@@ -220,6 +220,8 @@ namespace Singularity {
             add_group(security_group);
             add_search_action(_("Firewall"), _("Home and Public profiles, allowed apps and ports"),
                 () => view.navigate_to("firewall"));
+            add_search_action(_("Network Type"), _("Home or Public for the network you are on"),
+                () => open_current_connection(view));
             var firewall = FirewallManager.get_default();
             firewall.changed.connect(() => {
                 var st = firewall.current;
@@ -648,10 +650,34 @@ namespace Singularity {
             return button;
         }
 
-        private void open_detail(NmConnection conn, string title, string? iface) {
-            settings_view.open_subpage(
-                new ConnectionDetailPage(settings_view, settings_network, conn, title, iface),
-                "connection-detail");
+        private void open_current_connection(SettingsView view) {
+            string? ssid = settings_network.active_wifi_ssid();
+            if (ssid != null) {
+                var conn = settings_network.saved_wifi_connection(ssid);
+                if (conn != null) {
+                    reveal_network_kind(open_detail(conn, ssid, null));
+                    return;
+                }
+            }
+            foreach (var port in settings_network.ethernet_ports().data) {
+                if (!port.connected) continue;
+                var conn = settings_network.wired_connection(port.iface);
+                if (conn != null) {
+                    reveal_network_kind(open_detail(conn, port.iface, port.iface));
+                    return;
+                }
+            }
+            view.navigate_to("network");
+        }
+
+        private void reveal_network_kind(ConnectionDetailPage page) {
+            settings_view.reveal_widget(page, page.network_kind_row);
+        }
+
+        private ConnectionDetailPage open_detail(NmConnection conn, string title, string? iface) {
+            var page = new ConnectionDetailPage(settings_view, settings_network, conn, title, iface);
+            settings_view.open_subpage(page, "connection-detail");
+            return page;
         }
 
         private static string signal_icon_name(uint8 strength) {

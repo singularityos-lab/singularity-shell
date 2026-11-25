@@ -384,12 +384,22 @@ namespace Singularity {
             highlight(entry, activate);
         }
 
+        public void reveal_widget(SettingsPage page, Widget target) {
+            highlight_in(() => page, target, false);
+        }
+
         private void highlight(SettingsEntry entry, bool activate) {
+            if (entry.widget == null) return;
+            highlight_in(() => _page_cache[entry.page_name] as SettingsPage, entry.widget, activate);
+        }
+
+        private delegate SettingsPage? PageLookup();
+
+        private void highlight_in(owned PageLookup lookup, Widget target, bool activate) {
             int attempts = 0;
             Timeout.add(100, () => {
-                var page = _page_cache[entry.page_name] as SettingsPage;
-                Widget? target = entry.widget;
-                if (page == null || target == null) return Source.REMOVE;
+                var page = lookup();
+                if (page == null) return Source.REMOVE;
                 Graphene.Point point = Graphene.Point() { x = 0, y = 0 };
                 bool placed = target.get_mapped()
                     && target.compute_point(page.content_box, Graphene.Point() { x = 0, y = 0 }, out point);

@@ -61,6 +61,8 @@ namespace Singularity {
         private SwitchRow metered_row;
         private Label error_label;
 
+        public Widget network_kind_row { get { return kind_row; } }
+
         public ConnectionDetailPage(SettingsView view, NetworkManagerWrapper network,
                                     NmConnection conn, string title, string? wired_iface) {
             base(title);
