@@ -202,14 +202,15 @@ namespace Singularity {
             return deserialize(data);
         }
 
+        private DurableFile? writer = null;
+
         public void save(Gee.List<Notification> items, uint next_id = 0) {
-            DirUtils.create_with_parents(Path.get_dirname(path), 0700);
-            try {
-                FileUtils.set_contents_full(path, serialize(items, next_id), -1,
-                    FileSetContentsFlags.CONSISTENT, 0600);
-            } catch (Error e) {
-                warning("notification history: could not save: %s", e.message);
-            }
+            if (writer == null) writer = new DurableFile(path);
+            writer.write(serialize(items, next_id));
+        }
+
+        public void flush() {
+            if (writer != null) writer.flush();
         }
 
         public void clear_icons(Gee.List<Notification> keep) {

@@ -102,9 +102,15 @@ namespace Singularity {
             if (_save_id != 0) return;
             _save_id = Timeout.add(700, () => {
                 _save_id = 0;
-                save_now();
+                write_history();
                 return Source.REMOVE;
             });
+        }
+
+        private void write_history() {
+            var items = retention_days() > 0 ? history_list() : new Gee.ArrayList<Notification>();
+            _file.save(items, next_id);
+            _file.clear_icons(items);
         }
 
         [DBus (visible = false)]
@@ -113,9 +119,8 @@ namespace Singularity {
                 Source.remove(_save_id);
                 _save_id = 0;
             }
-            var items = retention_days() > 0 ? history_list() : new Gee.ArrayList<Notification>();
-            _file.save(items, next_id);
-            _file.clear_icons(items);
+            write_history();
+            _file.flush();
         }
 
         [DBus (visible = false)]

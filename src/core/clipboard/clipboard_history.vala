@@ -13,6 +13,7 @@ namespace Singularity {
 
         private string _dir;
         private uint _save_id = 0;
+        private DurableFile? _pinned_file = null;
         private ulong _gdk_handler = 0;
 
         public static ClipboardHistory get_default() {
@@ -149,12 +150,8 @@ namespace Singularity {
             _save_id = Timeout.add(500, () => {
                 _save_id = 0;
                 DirUtils.create_with_parents(_dir, 0700);
-                try {
-                    FileUtils.set_contents_full(Path.build_filename(_dir, "pinned.json"), model.pinned_to_json(_dir), -1,
-                        FileSetContentsFlags.CONSISTENT, 0600);
-                } catch (FileError e) {
-                    warning("clipboard: could not save pinned items: %s", e.message);
-                }
+                if (_pinned_file == null) _pinned_file = new DurableFile(Path.build_filename(_dir, "pinned.json"));
+                _pinned_file.write(model.pinned_to_json(_dir));
                 prune_images();
                 return Source.REMOVE;
             });

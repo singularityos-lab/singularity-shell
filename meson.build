@@ -1232,7 +1232,7 @@ test('break-reminder', break_reminder_test)
 notification_focus_test = executable('notification-focus-test',
   sources: ['src/core/focus/focus_model.vala', 'src/core/notifications/notification_rules.vala',
             'src/core/notifications/notification_history.vala', 'tests/notification_focus_test.vala'],
-  dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), gee_dep, json_dep],
+  dependencies: [dependency('gobject-2.0'), dependency('gio-2.0'), gee_dep, json_dep, libsingularity_dep],
 )
 test('notification-focus', notification_focus_test)
 

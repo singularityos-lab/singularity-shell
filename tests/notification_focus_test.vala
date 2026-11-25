@@ -215,6 +215,7 @@ private void test_history_file() {
     var items = new Gee.ArrayList<Singularity.Notification>();
     items.add(sample(11, 5));
     file.save(items);
+    file.flush();
     var loaded = file.load();
     assert(loaded.size == 1 && loaded[0].id == 11);
     try {
