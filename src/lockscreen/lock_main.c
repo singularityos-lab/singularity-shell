@@ -1237,7 +1237,7 @@ int main(int argc, char **argv) {
             pfds[i + 1].revents = 0;
         }
 
-        int timeout = loginui_gesture_animating(&gesture) ? 16 : loginui_caret_timeout(1000);
+        int timeout = loginui_next_wakeup(&gesture, keypad_shown, password_len == 0, now_s(), 30.0);
         if (gl_timeout >= 0 && gl_timeout < timeout) timeout = gl_timeout;
 
         int pr = poll(pfds, nf + 1, timeout);
