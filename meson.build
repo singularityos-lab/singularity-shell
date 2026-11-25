@@ -606,6 +606,7 @@ singularity_core_sources = files(
     'src/components/sidebar/pages/firmware_page.vala',
     'src/components/sidebar/pages/graphics_driver_group.vala',
     'src/components/sidebar/pages/device_security_page.vala',
+    'src/components/sidebar/pages/organization_page.vala',
     'src/components/sidebar/pages/sinty_key_page.vala',
     'src/components/sidebar/pages/sinty_rescue_page.vala',
     'src/components/sidebar/pages/storage_page.vala',

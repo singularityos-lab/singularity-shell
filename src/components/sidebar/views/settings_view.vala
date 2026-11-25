@@ -640,6 +640,7 @@ namespace Singularity {
                 case "sharing-remote": page = new Singularity.SidebarPages.RemoteDesktopPage(this); break;
                 case "sharing-collab": page = new Singularity.SidebarPages.CollaborationPage(this); break;
                 case "firewall": page = new Singularity.SidebarPages.FirewallPage(this); break;
+                case "organization": page = new Singularity.SidebarPages.OrganizationPage(this); break;
                 case "quick-unlock": page = new Singularity.SidebarPages.QuickUnlockPage(this, "users"); break;
                 case "apps": page = new Singularity.SidebarPages.AppsPage(app, this); break;
                 case "users": page = new Singularity.SidebarPages.UsersPage(this); break;
@@ -704,7 +705,7 @@ namespace Singularity {
                     // This drill-down page returns to Desktop, not Settings home.
                     if (page_name != "wallpaper-browser" && !page_name.has_prefix("privacy-")
                             && !page_name.has_prefix("sharing-") && !page_name.has_prefix("network-")
-                            && page_name != "firewall" && page_name != "quick-unlock") {
+                            && page_name != "firewall" && page_name != "quick-unlock" && page_name != "organization") {
                         sp.back_clicked.connect(() => { go_home(); });
                     }
                 }

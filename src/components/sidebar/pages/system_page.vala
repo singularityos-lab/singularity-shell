@@ -107,6 +107,21 @@ namespace Singularity.SidebarPages {
             security_row.add_suffix(security_chevron);
             security_row.activated.connect(open_security);
             security_group.add_row(security_row);
+            var org = OrganizationDevice.get_default();
+            var org_row = new ActionRow(_("Organization"), OrganizationPage.summary(), "network-workgroup-symbolic");
+            org_row.activatable = true;
+            var org_chevron = new Image.from_icon_name("go-next-symbolic");
+            org_chevron.add_css_class("dim-label");
+            org_chevron.valign = Align.CENTER;
+            org_row.add_suffix(org_chevron);
+            org_row.activated.connect(() => view.navigate_to("organization"));
+            org.changed.connect(() => {
+                org_row.visible = org.available;
+                org_row.subtitle = OrganizationPage.summary();
+            });
+            org_row.visible = false;
+            org.refresh.begin();
+            security_group.add_row(org_row);
 
             _components = {};
             var comp_group = new PreferencesGroup(null,
