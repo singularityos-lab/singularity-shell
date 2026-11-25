@@ -495,6 +495,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         });
         Singularity.ShortcutCheatsheet.setup(this);
         Singularity.GameOverlay.setup(this);
+        Singularity.SignInConfirm.setup(this);
         Singularity.SystemMonitor.get_default().shortcuts.emoji_picker_triggered.connect(() => {
             ensure_emoji_picker();
             emoji_picker.toggle();

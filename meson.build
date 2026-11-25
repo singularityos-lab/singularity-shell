@@ -709,6 +709,7 @@ singularity_core_sources = files(
     'src/components/emoji_picker/emoji_picker.vala',
     'src/core/aegis_client.vala',
     'src/components/aegis/aegis_dialog.vala',
+    'src/components/identity/sign_in_confirm.vala',
     'src/components/panel/aegis_indicator.vala',
     'src/components/app_switcher/app_switcher.vala',
     'src/core/search/search_manager.vala',
