@@ -323,112 +323,33 @@ namespace Singularity {
 
     private class LedMedia : Object {
         private unowned LedContext context;
-        private DBusConnection? bus = null;
-        private string? player = null;
-        private int64 position_us = 0;
-        private int64 length_us = 0;
-        private int64 sampled = 0;
-        private bool playing = false;
+        private NowPlayingCache player;
 
         public signal void changed();
 
         public LedMedia(LedContext context) {
             this.context = context;
-            setup.begin();
+            player = NowPlayingCache.get_default();
+            player.changed.connect(sync);
+            sync();
         }
 
-        private async void setup() {
-            try {
-                bus = yield Bus.get(BusType.SESSION);
-            } catch (Error e) {
-                return;
-            }
-            bus.signal_subscribe(null, "org.freedesktop.DBus.Properties", "PropertiesChanged",
-                "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player", DBusSignalFlags.NONE,
-                (c, sender, path, iface, signal_name, args) => {
-                    player = sender;
-                    fetch.begin(sender);
-                });
-            bus.signal_subscribe("org.freedesktop.DBus", "org.freedesktop.DBus", "NameOwnerChanged",
-                "/org/freedesktop/DBus", null, DBusSignalFlags.NONE,
-                (c, sender, path, iface, signal_name, args) => {
-                    string name, old_owner, new_owner;
-                    args.get("(sss)", out name, out old_owner, out new_owner);
-                    if (name.has_prefix("org.mpris.MediaPlayer2.") || (player != null && old_owner == player)) scan.begin();
-                });
-            yield scan();
+        ~LedMedia() {
+            player.changed.disconnect(sync);
         }
 
-        private async void scan() {
-            if (bus == null) return;
-            try {
-                var r = yield bus.call("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
-                    "ListNames", null, new VariantType("(as)"), DBusCallFlags.NONE, 2000);
-                string? first = null;
-                foreach (var v in r.get_child_value(0)) {
-                    string name = v.get_string();
-                    if (!name.has_prefix("org.mpris.MediaPlayer2.")) continue;
-                    if (first == null) first = name;
-                    if (yield fetch(name)) return;
-                }
-                if (first == null) {
-                    player = null;
-                    clear();
-                }
-            } catch (Error e) {
-            }
-        }
-
-        private void clear() {
-            playing = false;
-            context.set_value("media", "");
-            context.set_value("playing", "");
-            context.set_value("media_progress", "0");
+        private void sync() {
+            string title = player.title, artist = player.artist;
+            context.set_value("media", artist != "" && title != "" ? "%s - %s".printf(artist, title) : title);
+            context.set_value("playing", player.playing ? "1" : "");
+            update_progress();
             changed();
         }
 
-        private async bool fetch(string name) {
-            try {
-                var r = yield bus.call(name, "/org/mpris/MediaPlayer2", "org.freedesktop.DBus.Properties", "GetAll",
-                    new Variant("(s)", "org.mpris.MediaPlayer2.Player"), new VariantType("(a{sv})"), DBusCallFlags.NONE, 2000);
-                var props = r.get_child_value(0);
-                var status = props.lookup_value("PlaybackStatus", VariantType.STRING);
-                bool now_playing = status != null && status.get_string() == "Playing";
-                if (!now_playing && player != null && player != name) return false;
-                player = name;
-                playing = now_playing;
-                string title = "", artist = "";
-                length_us = 0;
-                var meta = props.lookup_value("Metadata", new VariantType("a{sv}"));
-                if (meta != null) {
-                    var t = meta.lookup_value("xesam:title", VariantType.STRING);
-                    if (t != null) title = t.get_string();
-                    var a = meta.lookup_value("xesam:artist", new VariantType("as"));
-                    if (a != null && a.n_children() > 0) artist = a.get_child_value(0).get_string();
-                    var len = meta.lookup_value("mpris:length", null);
-                    if (len != null && len.is_of_type(VariantType.INT64)) length_us = len.get_int64();
-                    else if (len != null && len.is_of_type(VariantType.UINT64)) length_us = (int64) len.get_uint64();
-                }
-                var pos = props.lookup_value("Position", VariantType.INT64);
-                position_us = pos != null ? pos.get_int64() : 0;
-                sampled = get_monotonic_time();
-                context.set_value("media", artist != "" && title != "" ? "%s - %s".printf(artist, title) : title);
-                context.set_value("playing", playing ? "1" : "");
-                update_progress();
-                changed();
-                return playing;
-            } catch (Error e) {
-                return false;
-            }
-        }
-
         public void update_progress() {
-            if (length_us <= 0) {
-                context.set_value("media_progress", "0");
-                return;
-            }
-            int64 p = position_us + (playing ? get_monotonic_time() - sampled : 0);
-            context.set_value("media_progress", "%d".printf((int) (p.clamp(0, length_us) * 100 / length_us)));
+            int64 length = player.length_us;
+            context.set_value("media_progress", length > 0 ? "%d".printf((int) (player.position_us() * 100 / length)) : "0");
         }
     }
+
 }
