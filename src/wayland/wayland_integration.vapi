@@ -175,6 +175,13 @@ namespace Singularity {
     public void wayland_set_window_output_changed_callback(WindowOutputChangedCallback cb, void* data);
 
     [CCode (has_target = false)]
+    public delegate void WindowGeometryChangedCallback(void* handle, void* data);
+    [CCode (cname = "singularity_wayland_set_window_geometry_changed_callback", cheader_filename = "wayland_integration.h")]
+    public void wayland_set_window_geometry_changed_callback(WindowGeometryChangedCallback cb, void* data);
+    [CCode (cname = "singularity_wayland_set_geometry_updates", cheader_filename = "wayland_integration.h")]
+    public bool wayland_set_geometry_updates(bool enabled);
+
+    [CCode (has_target = false)]
     public delegate void DesktopGestureCallback(uint32 phase, uint32 fingers,
         uint32 direction,
         double dx, double dy, int cancelled, int committed, void* data);

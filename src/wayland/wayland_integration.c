@@ -96,6 +96,10 @@ static GHashTable *group_outputs_map = NULL;
 /* Optional callback fired when a toplevel changes its output */
 static WindowOutputChangedCallback window_output_changed_cb = NULL;
 static void *window_output_changed_user_data = NULL;
+static WindowGeometryChangedCallback window_geometry_changed_cb = NULL;
+static void *window_geometry_changed_user_data = NULL;
+static GHashTable *geometry_dirty = NULL;
+static guint geometry_notify_id = 0;
 static DesktopGestureCallback desktop_gesture_cb = NULL;
 static void *desktop_gesture_user_data = NULL;
 static TilingInteractionCallback tiling_interaction_cb = NULL;
@@ -778,6 +782,8 @@ static void toplevel_handle_closed(void *data, struct zwlr_foreign_toplevel_hand
         g_hash_table_remove(toplevel_output_map, handle);
     if (geometry_map)
         g_hash_table_remove(geometry_map, handle);
+    if (geometry_dirty)
+        g_hash_table_remove(geometry_dirty, handle);
     if (toplevel_title_map)
         g_hash_table_remove(toplevel_title_map, handle);
     /* Mark handle invalid BEFORE notifying Vala so apply_layout can never
@@ -1076,18 +1082,48 @@ static void invalidate_toplevel_tileable(void *handle) {
         ? g_hash_table_lookup(geometry_map, handle) : NULL;
     if (e) e->tileable_got = 0;
 }
+static gboolean notify_geometry_changed(gpointer unused) {
+    geometry_notify_id = 0;
+    if (!geometry_dirty) return G_SOURCE_REMOVE;
+    GHashTable *dirty = geometry_dirty;
+    geometry_dirty = NULL;
+    GHashTableIter iter;
+    gpointer handle;
+    g_hash_table_iter_init(&iter, dirty);
+    while (g_hash_table_iter_next(&iter, &handle, NULL)) {
+        if (window_geometry_changed_cb && ctx.valid_handles
+                && g_hash_table_contains(ctx.valid_handles, handle))
+            window_geometry_changed_cb(handle, window_geometry_changed_user_data);
+    }
+    g_hash_table_unref(dirty);
+    return G_SOURCE_REMOVE;
+}
+
+static void queue_geometry_changed(void *handle) {
+    if (!window_geometry_changed_cb) return;
+    if (!geometry_dirty) geometry_dirty = g_hash_table_new(NULL, NULL);
+    g_hash_table_add(geometry_dirty, handle);
+    if (geometry_notify_id == 0)
+        geometry_notify_id = g_idle_add(notify_geometry_changed, NULL);
+}
+
 static void tiling_handle_geometry(void *data,
         struct zsingularity_tiling_manager_v1 *mgr,
         struct zwlr_foreign_toplevel_handle_v1 *toplevel,
         int32_t x, int32_t y, int32_t width, int32_t height,
         uint32_t maximized, uint32_t fullscreen, const char *output) {
-    if (!geometry_map) return;
+    if (!geometry_map) geometry_map = g_hash_table_new_full(NULL, NULL, NULL, free);
     struct GeomEntry *e = g_hash_table_lookup(geometry_map, toplevel);
     if (!e) { e = calloc(1, sizeof(*e)); g_hash_table_insert(geometry_map, toplevel, e); }
+    const char *connector = output ? output : "";
+    int changed = !e->got || e->x != x || e->y != y || e->w != width || e->h != height
+        || e->maximized != (int) maximized || e->fullscreen != (int) fullscreen
+        || strcmp(e->connector, connector) != 0;
     e->x = x; e->y = y; e->w = width; e->h = height;
     e->maximized = (int) maximized; e->fullscreen = (int) fullscreen;
-    g_strlcpy(e->connector, output ? output : "", sizeof(e->connector));
+    g_strlcpy(e->connector, connector, sizeof(e->connector));
     e->got = 1;
+    if (changed) queue_geometry_changed(toplevel);
 }
 
 static void tiling_handle_workarea(void *data,
@@ -1278,7 +1314,7 @@ static void registry_handle_global(void *data, struct wl_registry *registry, uin
         ctx.output_manager = wl_registry_bind(registry, name, &zwlr_output_manager_v1_interface, 4);
         zwlr_output_manager_v1_add_listener(ctx.output_manager, &output_manager_listener, NULL);
     } else if (strcmp(interface, zsingularity_tiling_manager_v1_interface.name) == 0) {
-        uint32_t v = version < 11 ? version : 11;
+        uint32_t v = version < 12 ? version : 12;
         ctx.tiling_manager = wl_registry_bind(registry, name, &zsingularity_tiling_manager_v1_interface, v);
         if (v >= 2)
             zsingularity_tiling_manager_v1_add_listener(ctx.tiling_manager, &tiling_listener, NULL);
@@ -1885,6 +1921,19 @@ void singularity_wayland_move_to_workspace(void* toplevel_handle, uint32_t works
 void singularity_wayland_set_window_output_changed_callback(WindowOutputChangedCallback cb, void *user_data) {
     window_output_changed_cb = cb;
     window_output_changed_user_data = user_data;
+}
+
+void singularity_wayland_set_window_geometry_changed_callback(WindowGeometryChangedCallback cb, void *user_data) {
+    window_geometry_changed_cb = cb;
+    window_geometry_changed_user_data = user_data;
+}
+
+int singularity_wayland_set_geometry_updates(int enabled) {
+    if (!ctx.tiling_manager || !ctx.display) return 0;
+    if (zsingularity_tiling_manager_v1_get_version(ctx.tiling_manager) < 12) return 0;
+    zsingularity_tiling_manager_v1_set_geometry_updates(ctx.tiling_manager, enabled ? 1 : 0);
+    wl_display_flush(ctx.display);
+    return 1;
 }
 
 void* singularity_wayland_get_window_monitor(void *handle) {

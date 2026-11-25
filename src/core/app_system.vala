@@ -37,6 +37,7 @@ namespace Singularity {
         public signal void apps_changed();
         public signal void running_apps_changed();
         public signal void window_output_changed(void* handle);
+        public signal void window_geometry_changed(void* handle);
         public signal void app_focused(string? app_id);
         public signal void window_focused(void* handle);
         public signal void window_state_changed(void* handle);
@@ -341,6 +342,7 @@ namespace Singularity {
                 this
             );
             Singularity.wayland_set_window_output_changed_callback(on_window_output_changed, this);
+            Singularity.wayland_set_window_geometry_changed_callback(on_window_geometry_changed, this);
             update_workspaces_config();
         }
 
@@ -606,6 +608,10 @@ namespace Singularity {
         private static void on_app_closed(void* handle, void* data) {
             var self = (AppSystem)data;
             self.remove_running_app(handle);
+        }
+
+        private static void on_window_geometry_changed(void* handle, void* data) {
+            ((AppSystem) data).window_geometry_changed(handle);
         }
 
         private static void on_window_output_changed(void* handle, void* data) {

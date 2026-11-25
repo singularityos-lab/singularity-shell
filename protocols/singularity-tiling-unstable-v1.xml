@@ -4,7 +4,7 @@
     Copyright © 2024 Singularity Desktop
   </copyright>
 
-  <interface name="zsingularity_tiling_manager_v1" version="11">
+  <interface name="zsingularity_tiling_manager_v1" version="12">
     <description summary="tiling window management">
       This interface allows a client to manage window geometry for tiling purposes.
     </description>
@@ -20,7 +20,9 @@
 
     <event name="geometry">
       <description summary="reported window geometry">
-        Sent in response to get_geometry. output is the connector name
+        Sent in response to get_geometry, and, after set_geometry_updates
+        enabled them, whenever the position, size, maximized or fullscreen
+        state, or output of a toplevel changes. output is the connector name
         (e.g. "DP-2"); maximized/fullscreen are 0/1.
       </description>
       <arg name="toplevel" type="object" interface="zwlr_foreign_toplevel_handle_v1"/>
@@ -242,6 +244,16 @@
       <arg name="y" type="int"/>
       <arg name="width" type="int"/>
       <arg name="height" type="int"/>
+    </request>
+
+    <request name="set_geometry_updates" since="12">
+      <description summary="receive geometry changes as they happen">
+        When enabled is 1, the compositor sends a geometry event for every
+        mapped toplevel right away, then one each time a toplevel's
+        geometry, state or output changes, so the client never has to poll.
+        When enabled is 0, it stops sending them. Disabled by default.
+      </description>
+      <arg name="enabled" type="uint"/>
     </request>
   </interface>
 </protocol>

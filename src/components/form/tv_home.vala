@@ -779,8 +779,10 @@ namespace Singularity {
             return row;
         }
 
+        public const uint RELEASE_HOLD_SECONDS = 5;
+
         public bool recently_released() {
-            return GLib.get_monotonic_time() - _released_at < 5 * TimeSpan.SECOND;
+            return GLib.get_monotonic_time() - _released_at < RELEASE_HOLD_SECONDS * TimeSpan.SECOND;
         }
 
         private void release_keyboard() {

@@ -81,15 +81,55 @@ namespace Singularity {
                 }));
             }
             sync();
-            app_system.window_state_changed.connect((handle) => sync_tv_keyboard());
-            Timeout.add(SPLIT_POLL_MS, () => {
+            app_system.window_state_changed.connect((handle) => queue_layout_check());
+            app_system.window_geometry_changed.connect((handle) => queue_layout_check());
+            app_system.window_output_changed.connect((handle) => queue_layout_check());
+            app_system.app_opened.connect((handle, app_id) => queue_layout_check());
+            app_system.app_closed.connect((handle) => queue_layout_check());
+            app_system.workspaces_changed.connect(queue_layout_check);
+            watch_geometry();
+        }
+
+        private bool watches_layout() {
+            foreach (var screen in _screens) {
+                if (screen.kind == Singularity.FormFactorKind.TABLET || screen.tv != null) return true;
+            }
+            return false;
+        }
+
+        private void watch_geometry() {
+            bool want = watches_layout();
+            if (want == _watching_geometry) return;
+            _watching_geometry = want;
+            bool pushed = Singularity.wayland_set_geometry_updates(want);
+            if (_layout_poll != 0) {
+                Source.remove(_layout_poll);
+                _layout_poll = 0;
+            }
+            if (want && !pushed) {
+                _layout_poll = Timeout.add(LAYOUT_POLL_MS, () => {
+                    queue_layout_check();
+                    return Source.CONTINUE;
+                });
+            }
+            if (want) queue_layout_check();
+        }
+
+        private void queue_layout_check() {
+            if (_layout_check != 0 || !_watching_geometry) return;
+            _layout_check = Idle.add(() => {
+                _layout_check = 0;
                 update_splits();
                 sync_tv_keyboard();
-                return Source.CONTINUE;
+                return Source.REMOVE;
             });
         }
 
-        private const uint SPLIT_POLL_MS = 400;
+        private const uint LAYOUT_POLL_MS = 400;
+        private bool _watching_geometry = false;
+        private uint _layout_poll = 0;
+        private uint _layout_check = 0;
+        private uint _keyboard_recheck = 0;
         private const uint TV_INTERFACE_RATE = 30;
         private const int SPLIT_MAX_GAP = 40;
         private const double SPLIT_MIN_HEIGHT = 0.6;
@@ -343,6 +383,7 @@ namespace Singularity {
             foreach (var win in AppSystem.get_default().get_windows()) apply_window(win.handle);
             update_companion();
             sync_pacing();
+            watch_geometry();
         }
 
         private void build_surfaces(Screen screen) {
@@ -413,10 +454,22 @@ namespace Singularity {
             foreach (var screen in _screens) {
                 if (screen.tv == null) continue;
                 bool covered = covered_by_app(screen.monitor);
-                if (!covered && screen.tv.recently_released()) continue;
+                if (!covered && screen.tv.recently_released()) {
+                    recheck_keyboard_later();
+                    continue;
+                }
                 screen.tv.own_keyboard(!covered);
             }
             sync_pacing();
+        }
+
+        private void recheck_keyboard_later() {
+            if (_keyboard_recheck != 0) return;
+            _keyboard_recheck = Timeout.add_seconds(TvHome.RELEASE_HOLD_SECONDS, () => {
+                _keyboard_recheck = 0;
+                sync_tv_keyboard();
+                return Source.REMOVE;
+            });
         }
 
         private void sync_pacing() {
