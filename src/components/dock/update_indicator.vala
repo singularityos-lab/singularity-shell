@@ -6,6 +6,8 @@ namespace Singularity {
         private const string SOCKET = "/run/updated.sock";
         private const uint POLL_SECONDS = 5;
         private const uint RETRY_SECONDS = 1;
+        private const uint WAIT_SECONDS = 330;
+        private const uint ABSENT_MAX_SECONDS = 60;
         private const uint APPLY_LIVE_SECONDS = 300;
         public const int RELOAD_EXIT_CODE = 79;
 
@@ -24,6 +26,12 @@ namespace Singularity {
         private bool polling = false;
         private uint poll_id = 0;
         private uint interval = 0;
+        private string tag = "";
+        private bool live = true;
+        private bool refresh_pending = false;
+        private Cancellable? waiting = null;
+        private uint absent_seconds = 0;
+        private FileMonitor? socket_monitor = null;
 
         public signal void restart_requested(string version);
         public signal void live_requested(string version, string live_class);
@@ -49,15 +57,52 @@ namespace Singularity {
             set_child(overlay);
             ((Gtk.Widget) this).visible = false;
             clicked.connect(on_clicked);
-
             poll();
-            arm(want_interval());
         }
 
-        ~UpdateIndicator() {
+        public override void unroot() {
+            live = false;
+            stop_timer();
+            socket_monitor = null;
+            if (waiting != null) waiting.cancel();
+            base.unroot();
+        }
+
+        private void stop_timer() {
             if (poll_id != 0) {
                 Source.remove(poll_id);
+                poll_id = 0;
             }
+            interval = 0;
+        }
+
+        internal static string status_path(string tag) {
+            return tag == "" ? "/status" : "/status?wait=" + Uri.escape_string(tag);
+        }
+
+        internal static uint absent_backoff(uint previous) {
+            return previous == 0 ? RETRY_SECONDS : uint.min(previous * 2, ABSENT_MAX_SECONDS);
+        }
+
+        private void wait_for_agent() {
+            stop_timer();
+            if (socket_monitor == null) {
+                try {
+                    socket_monitor = File.new_for_path(SOCKET).monitor_file(FileMonitorFlags.NONE);
+                    socket_monitor.changed.connect((file, other, event) => {
+                        if (event == FileMonitorEvent.CREATED) {
+                            absent_seconds = 0;
+                            poll();
+                        }
+                    });
+                } catch (Error e) {}
+            }
+            absent_seconds = absent_backoff(absent_seconds);
+            poll_id = Timeout.add_seconds(absent_seconds, () => {
+                poll_id = 0;
+                poll();
+                return Source.REMOVE;
+            });
         }
 
         private uint want_interval() {
@@ -77,6 +122,21 @@ namespace Singularity {
         }
 
         private void adjust_interval() {
+            if (!live) return;
+            if (!agent_available) {
+                wait_for_agent();
+                return;
+            }
+            absent_seconds = 0;
+            socket_monitor = null;
+            if (tag != "") {
+                stop_timer();
+                Idle.add(() => {
+                    poll();
+                    return Source.REMOVE;
+                });
+                return;
+            }
             uint want = want_interval();
             if (want != interval) arm(want);
         }
@@ -92,8 +152,9 @@ namespace Singularity {
             return Source.CONTINUE;
         }
 
-        private async string? request(string method, string path, uint timeout = 2) {
-            var cancellable = new Cancellable();
+        private async string? request(string method, string path, uint timeout = 2,
+                                      Cancellable? outer = null) {
+            var cancellable = outer ?? new Cancellable();
             uint timeout_id = 0;
             timeout_id = Timeout.add_seconds(timeout, () => {
                 timeout_id = 0;
@@ -139,14 +200,30 @@ namespace Singularity {
         }
 
         private void poll() {
-            if (!polling) poll_async.begin();
+            if (!polling) {
+                poll_async.begin();
+            } else if (waiting != null) {
+                refresh_pending = true;
+                waiting.cancel();
+            }
         }
 
         private async void poll_async() {
             polling = true;
-            var body = yield request("GET", "/status");
+            string known = refresh_pending ? "" : tag;
+            refresh_pending = false;
+            waiting = known != "" ? new Cancellable() : null;
+            var body = yield request("GET", status_path(known),
+                known != "" ? WAIT_SECONDS : 2, waiting);
+            waiting = null;
             polling = false;
+            if (!live) return;
+            if (refresh_pending) {
+                poll();
+                return;
+            }
             if (body == null) {
+                tag = "";
                 agent_available = false;
                 ((Gtk.Widget) this).visible = false;
                 adjust_interval();
@@ -157,6 +234,7 @@ namespace Singularity {
                 parser.load_from_data(body);
                 var root = parser.get_root();
                 if (root == null || root.get_node_type() != Json.NodeType.OBJECT) {
+                    tag = "";
                     agent_available = false;
                     ((Gtk.Widget) this).visible = false;
                     adjust_interval();
@@ -173,7 +251,9 @@ namespace Singularity {
                 consent_token = valid_consent_token(token) ? token : "";
                 percent = (int) o.get_int_member_with_default("percent", 0);
                 live_class = latest != "" && latest == live_failed ? "" : parse_live_class(o);
+                tag = o.get_string_member_with_default("tag", "");
             } catch (Error e) {
+                tag = "";
                 agent_available = false;
                 ((Gtk.Widget) this).visible = false;
                 adjust_interval();
@@ -310,7 +390,7 @@ namespace Singularity {
             adjust_interval();
             yield request("POST", "/download?token=" + token);
             poll();
-            arm(RETRY_SECONDS);
+            if (tag == "") arm(RETRY_SECONDS);
         }
 
         private async void retry_check() {

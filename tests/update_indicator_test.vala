@@ -17,6 +17,14 @@ void main() {
     assert(Singularity.UpdateIndicator.poll_interval(true, "downloading") == 1);
     assert(Singularity.UpdateIndicator.poll_interval(true, "idle") == 5);
 
+    assert(Singularity.UpdateIndicator.status_path("") == "/status");
+    assert(Singularity.UpdateIndicator.status_path("c5d11d96e865c6ff") == "/status?wait=c5d11d96e865c6ff");
+    assert(Singularity.UpdateIndicator.status_path("a b") == "/status?wait=a%20b");
+    assert(Singularity.UpdateIndicator.absent_backoff(0) == 1);
+    assert(Singularity.UpdateIndicator.absent_backoff(1) == 2);
+    assert(Singularity.UpdateIndicator.absent_backoff(32) == 60);
+    assert(Singularity.UpdateIndicator.absent_backoff(60) == 60);
+
     assert(Singularity.UpdateIndicator.format_error("") ==
         "Update failed. Click to try again.");
     assert(Singularity.UpdateIndicator.format_error("staging failed") ==
