@@ -115,6 +115,7 @@ namespace Singularity.SidebarPages {
                 load_channel.begin();
                 neighbours_row = new SwitchRow(_("Share Updates Nearby"),
                     _("Pass downloaded updates to your other devices on home and work networks. Every piece is checked against the signed release."));
+                neighbours_row.icon_name = "send-to-symbolic";
                 neighbours_row.visible = false;
                 neighbours_row.switch_btn.notify["active"].connect(() => {
                     if (!neighbours_syncing) set_neighbours.begin(neighbours_row.switch_btn.active);

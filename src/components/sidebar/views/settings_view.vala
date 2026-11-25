@@ -366,8 +366,9 @@ namespace Singularity {
         public void reveal_title(string page_name, string title) {
             string wanted = title.strip().down();
             foreach (var entry in settings_entries()) {
-                if (entry.page_name == page_name && entry.action == null && entry.title.down() == wanted) {
-                    reveal(entry, false);
+                if (entry.page_name == page_name && entry.widget != null && entry.title.down() == wanted) {
+                    navigate_to(page_name);
+                    highlight(entry, false);
                     return;
                 }
             }
@@ -380,6 +381,10 @@ namespace Singularity {
                 entry.action.callback();
                 return;
             }
+            highlight(entry, activate);
+        }
+
+        private void highlight(SettingsEntry entry, bool activate) {
             int attempts = 0;
             Timeout.add(100, () => {
                 var page = _page_cache[entry.page_name] as SettingsPage;
@@ -426,6 +431,7 @@ namespace Singularity {
         private void collect_page_search_items(string page_name, SettingsPage page) {
             string icon_name = get_page_icon(page_name);
             bool has_same_title_child = false;
+            var row_entries = new Gee.HashMap<string, SettingsEntry>();
 
             foreach (Widget group_widget in page.get_groups()) {
                 var group = group_widget as Singularity.Widgets.PreferencesGroup;
@@ -451,8 +457,10 @@ namespace Singularity {
                     string row_title = row.title;
                     if (row_title == "") continue;
                     if (row_title.down() == page.page_title.down()) has_same_title_child = true;
-                    _search_items.add(new SettingsEntry(page_name, page.page_title, icon_name,
-                        row_title, row.subtitle, group_title, row));
+                    var row_entry = new SettingsEntry(page_name, page.page_title, icon_name,
+                        row_title, row.subtitle, group_title, row);
+                    row_entries[row_title.down()] = row_entry;
+                    _search_items.add(row_entry);
                 }
             }
 
@@ -464,6 +472,11 @@ namespace Singularity {
                 }
             }
             foreach (var action in page.get_search_actions()) {
+                var same_row = row_entries[action.title.down()];
+                if (same_row != null) {
+                    if (same_row.kind != SettingsEntryKind.TOGGLE) same_row.set_action(action);
+                    continue;
+                }
                 var entry = new SettingsEntry(page_name, page.page_title, icon_name,
                     action.title, action.subtitle, "");
                 entry.set_action(action);
