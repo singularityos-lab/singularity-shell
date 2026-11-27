@@ -506,6 +506,236 @@ namespace Singularity {
         }
     }
 
+    internal class TvNowPlaying : Box {
+        private const int HEIGHT = 360;
+        private const int COVER = 264;
+
+        private Picture _backdrop;
+        private Singularity.Widgets.MediaArtwork _artwork;
+        private Label _badge;
+        private Label _title;
+        private Label _artist;
+        private ProgressBar _progress;
+        private Label _elapsed;
+        private Label _total;
+        private Box _timeline;
+        private Button _play;
+        private Image _play_icon;
+        private Label _play_label;
+        private ulong _sig_changed = 0;
+        private uint _tick = 0;
+        private uint _cover_serial = uint.MAX;
+
+        public TvNowPlaying() {
+            Object(orientation: Orientation.VERTICAL, spacing: 0);
+            add_css_class("tv-hero");
+            add_css_class("tv-now");
+            overflow = Overflow.HIDDEN;
+            hexpand = true;
+            visible = false;
+
+            var stage = new Overlay();
+            stage.vexpand = true;
+            var frame = new Box(Orientation.VERTICAL, 0);
+            frame.height_request = HEIGHT;
+            frame.hexpand = true;
+            stage.child = frame;
+            _backdrop = new Picture();
+            _backdrop.content_fit = ContentFit.COVER;
+            _backdrop.can_shrink = true;
+            _backdrop.can_target = false;
+            _backdrop.add_css_class("tv-now-backdrop");
+            stage.add_overlay(_backdrop);
+            var scrim = new Box(Orientation.VERTICAL, 0);
+            scrim.add_css_class("tv-now-scrim");
+            scrim.can_target = false;
+            stage.add_overlay(scrim);
+
+            var row = new Box(Orientation.HORIZONTAL, 56);
+            row.add_css_class("tv-now-row");
+            row.valign = Align.CENTER;
+            _artwork = new Singularity.Widgets.MediaArtwork(COVER, 64);
+            _artwork.add_css_class("tv-now-cover");
+            _artwork.valign = Align.CENTER;
+            row.append(_artwork);
+
+            var text = new Box(Orientation.VERTICAL, 0);
+            text.valign = Align.CENTER;
+            text.hexpand = true;
+            _badge = new Label(_("Now Playing"));
+            _badge.add_css_class("tv-hero-badge");
+            _badge.halign = Align.START;
+            text.append(_badge);
+            _title = new Label("");
+            _title.add_css_class("tv-hero-title");
+            _title.xalign = 0;
+            _title.wrap = true;
+            _title.lines = 2;
+            _title.ellipsize = Pango.EllipsizeMode.END;
+            _title.max_width_chars = 28;
+            text.append(_title);
+            _artist = new Label("");
+            _artist.add_css_class("tv-hero-overview");
+            _artist.xalign = 0;
+            _artist.ellipsize = Pango.EllipsizeMode.END;
+            _artist.max_width_chars = 40;
+            text.append(_artist);
+
+            _timeline = new Box(Orientation.HORIZONTAL, 16);
+            _timeline.add_css_class("tv-now-timeline");
+            _elapsed = new Label("0:00");
+            _elapsed.add_css_class("tv-now-time");
+            _elapsed.width_chars = 5;
+            _elapsed.xalign = 0;
+            _progress = new ProgressBar();
+            _progress.add_css_class("tv-now-progress");
+            _progress.hexpand = true;
+            _progress.valign = Align.CENTER;
+            _total = new Label("0:00");
+            _total.add_css_class("tv-now-time");
+            _total.width_chars = 5;
+            _total.xalign = 1;
+            _timeline.append(_elapsed);
+            _timeline.append(_progress);
+            _timeline.append(_total);
+            text.append(_timeline);
+
+            var actions = new Box(Orientation.HORIZONTAL, 20);
+            actions.add_css_class("tv-hero-actions");
+            var previous = round_button("media-skip-backward-symbolic", _("Previous"));
+            previous.clicked.connect(() => NowPlayingCache.get_default().previous.begin());
+            _play_icon = new Image.from_icon_name("media-playback-pause-symbolic");
+            _play_icon.pixel_size = 22;
+            _play_label = new Label(_("Pause"));
+            var play_box = new Box(Orientation.HORIZONTAL, 12);
+            play_box.append(_play_icon);
+            play_box.append(_play_label);
+            _play = new Button();
+            _play.child = play_box;
+            _play.add_css_class("tv-hero-watch");
+            _play.clicked.connect(() => NowPlayingCache.get_default().play_pause.begin());
+            var next = round_button("media-skip-forward-symbolic", _("Next"));
+            next.clicked.connect(() => NowPlayingCache.get_default().next.begin());
+            actions.append(previous);
+            actions.append(_play);
+            actions.append(next);
+            text.append(actions);
+            row.append(text);
+            stage.add_overlay(row);
+            append(stage);
+
+            _sig_changed = NowPlayingCache.get_default().changed.connect(() => update());
+            map.connect(() => update_ticking());
+            unmap.connect(() => stop_ticking());
+            update();
+        }
+
+        private static Button round_button(string icon, string label) {
+            var image = new Image.from_icon_name(icon);
+            image.pixel_size = 24;
+            var button = new Button();
+            button.child = image;
+            button.add_css_class("tv-hero-details");
+            button.add_css_class("tv-now-round");
+            button.tooltip_text = label;
+            button.update_property(Gtk.AccessibleProperty.LABEL, label, -1);
+            return button;
+        }
+
+        public bool focus_primary() {
+            return visible && _play.grab_focus();
+        }
+
+        private void update() {
+            var np = NowPlayingCache.get_default();
+            bool active = np.active && (np.title != "" || np.artist != "");
+            if (visible != active) visible = active;
+            if (!active) {
+                stop_ticking();
+                return;
+            }
+            _title.label = np.title != "" ? np.title : _("Unknown Title");
+            _artist.label = np.artist;
+            _artist.visible = np.artist != "";
+            string app = app_name(np.app_id);
+            _badge.label = app != "" ? _("Now Playing on %s").printf(app) : _("Now Playing");
+            _artwork.set_app(np.app_id);
+            if (np.cover_serial != _cover_serial) {
+                _cover_serial = np.cover_serial;
+                Gdk.Texture? cover = null;
+                if (np.cover_path != "") {
+                    try {
+                        cover = Gdk.Texture.from_filename(np.cover_path);
+                    } catch (Error e) {
+                        cover = null;
+                    }
+                }
+                _artwork.cover = cover;
+                _backdrop.paintable = cover;
+                if (cover != null) remove_css_class("no-cover");
+                else add_css_class("no-cover");
+            }
+            _play_icon.icon_name = np.playing ? "media-playback-pause-symbolic" : "media-playback-start-symbolic";
+            _play_label.label = np.playing ? _("Pause") : _("Play");
+            _play.update_property(Gtk.AccessibleProperty.LABEL, _play_label.label, -1);
+            if (np.playing) add_css_class("playing");
+            else remove_css_class("playing");
+            update_position();
+            update_ticking();
+        }
+
+        private void update_position() {
+            var np = NowPlayingCache.get_default();
+            _timeline.visible = np.length_us > 0;
+            if (np.length_us <= 0) return;
+            int64 position = np.position_us();
+            _progress.fraction = ((double) position / np.length_us).clamp(0.0, 1.0);
+            _elapsed.label = clock_text(position);
+            _total.label = clock_text(np.length_us);
+        }
+
+        private static string clock_text(int64 us) {
+            int64 seconds = us / 1000000;
+            int64 hours = seconds / 3600;
+            if (hours > 0) return "%lld:%02lld:%02lld".printf(hours, (seconds / 60) % 60, seconds % 60);
+            return "%lld:%02lld".printf(seconds / 60, seconds % 60);
+        }
+
+        private static string app_name(string app_id) {
+            if (app_id == "") return "";
+            var info = new GLib.DesktopAppInfo(app_id.has_suffix(".desktop") ? app_id : app_id + ".desktop");
+            return info != null ? info.get_display_name() : "";
+        }
+
+        private void update_ticking() {
+            var np = NowPlayingCache.get_default();
+            if (!get_mapped() || !visible || !np.playing || np.length_us <= 0) {
+                stop_ticking();
+                return;
+            }
+            if (_tick != 0) return;
+            _tick = Timeout.add_seconds(1, () => {
+                update_position();
+                return Source.CONTINUE;
+            });
+        }
+
+        private void stop_ticking() {
+            if (_tick == 0) return;
+            Source.remove(_tick);
+            _tick = 0;
+        }
+
+        public override void dispose() {
+            stop_ticking();
+            if (_sig_changed != 0) {
+                NowPlayingCache.get_default().disconnect(_sig_changed);
+                _sig_changed = 0;
+            }
+            base.dispose();
+        }
+    }
+
     public class TvHome : Gtk.Window {
         private const int APP_SLOTS = 6;
         private const int TILE_WIDTH = 222;
@@ -526,6 +756,7 @@ namespace Singularity {
         private Label _watching_title;
         private ScrolledWindow _watching_scroll;
         private TvHero _hero;
+        private TvNowPlaying _now;
         private TvTitleSheet _sheet;
         private Box _page;
         private Label _greeting;
@@ -594,6 +825,12 @@ namespace Singularity {
             _hero.margin_end = GUTTER;
             _hero.watch.connect((t) => open_title(t, null));
             _hero.details.connect((t) => show_details(t));
+            _now = new TvNowPlaying();
+            _now.margin_start = GUTTER;
+            _now.margin_end = GUTTER;
+            _now.notify["visible"].connect(() => _hero.visible = !_now.visible);
+            _hero.visible = !_now.visible;
+            body.append(_now);
             body.append(_hero);
 
             body.append(section_label(_("Apps")));
@@ -613,7 +850,7 @@ namespace Singularity {
             var rows = new EventControllerKey();
             rows.propagation_phase = PropagationPhase.CAPTURE;
             rows.key_pressed.connect((keyval, code, state) => {
-                if (keyval == Gdk.Key.Up) return _hero.focus_primary();
+                if (keyval == Gdk.Key.Up) return _now.visible ? _now.focus_primary() : _hero.focus_primary();
                 if (keyval != Gdk.Key.Down || !_watching_scroll.visible) return false;
                 var card = nearest(_watching);
                 return card != null && card.grab_focus();
@@ -679,7 +916,7 @@ namespace Singularity {
             notify["focus-widget"].connect(() => {
                 var focus = get_focus();
                 if (focus == null || !focus.is_ancestor(body)) return;
-                if (!focus.is_ancestor(_hero) && !focus.is_ancestor(_apps)) return;
+                if (!focus.is_ancestor(_hero) && !focus.is_ancestor(_now) && !focus.is_ancestor(_apps)) return;
                 Idle.add(() => {
                     scroll.vadjustment.value = 0;
                     return Source.REMOVE;
