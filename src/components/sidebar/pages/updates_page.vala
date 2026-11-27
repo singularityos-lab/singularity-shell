@@ -301,6 +301,18 @@ namespace Singularity.SidebarPages {
             return text;
         }
 
+        private string held_date(int64 seconds) {
+            var when = new DateTime.from_unix_local(seconds);
+            var today = new DateTime.now_local();
+            string time = when.format(settings.get_boolean("clock-use-12h") ? "%l:%M %p" : "%H:%M").strip();
+            if (when.get_year() == today.get_year() && when.get_day_of_year() == today.get_day_of_year())
+                return _("today at %s").printf(time);
+            var tomorrow = today.add_days(1);
+            if (when.get_year() == tomorrow.get_year() && when.get_day_of_year() == tomorrow.get_day_of_year())
+                return _("tomorrow at %s").printf(time);
+            return _("%s at %s").printf(when.format("%A %e %B").replace("  ", " "), time);
+        }
+
         private void update_status() {
             if (provider == null) return;
             string title = _("Updates");
@@ -331,6 +343,13 @@ namespace Singularity.SidebarPages {
                         detail = package_summary();
                     }
                     button = provider.can_download ? _("Download") : _("Install on Restart");
+                    break;
+                case State.HELD:
+                    title = _("Update Scheduled");
+                    detail = provider.held_until > 0
+                        ? _("%s. Your organization makes it available from %s.").printf(provider.available_version, held_date(provider.held_until))
+                        : _("%s. Your organization makes it available later.").printf(provider.available_version);
+                    button = _("Check");
                     break;
                 case State.DOWNLOADING:
                     title = _("Downloading Updates");
