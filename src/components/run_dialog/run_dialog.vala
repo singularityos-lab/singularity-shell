@@ -25,6 +25,7 @@ namespace Singularity {
         private bool ai_direct = false;
         private bool ai_compact = false;
         private Subprocess? ai_process = null;
+        private bool input_locked = false;
         private string ai_conversation = "";
         private Spinner ai_spinner;
         private AgentOrb ai_orb;
@@ -717,8 +718,7 @@ namespace Singularity {
             } else {
                 ai_voice.tooltip_text = _("Send Voice Message");
             }
-            entry.editable = !voice.listening;
-            ai_text.editable = !voice.listening;
+            sync_input_editable();
             if (voice.listening) set_orb(AgentOrbState.LISTEN);
             else if (voice.speaking) set_orb(AgentOrbState.SPEAK);
             else if (ai_process == null && ai_mode) set_orb(AgentOrbState.IDLE);
@@ -767,8 +767,15 @@ namespace Singularity {
         }
 
         private void set_input_sensitive(bool sensitive) {
-            entry.sensitive = sensitive;
-            ai_text.sensitive = sensitive;
+            input_locked = !sensitive;
+            sync_input_editable();
+        }
+
+        private void sync_input_editable() {
+            bool editable = !input_locked && !voice.listening;
+            entry.editable = editable;
+            ai_text.editable = editable;
+            ai_text.cursor_visible = editable;
         }
 
         private void show_ai_input(bool show) {
