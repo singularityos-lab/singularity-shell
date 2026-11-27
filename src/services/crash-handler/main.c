@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -127,7 +128,7 @@ load_config(struct config *cfg)
 	if (cfg->max_cores < 0) {
 		cfg->max_cores = 0;
 	}
-	if (cfg->max_core_mb < 0) {
+	if (cfg->max_core_mb < 0 || cfg->max_core_mb > LONG_MAX / (1024L * 1024L)) {
 		cfg->max_core_mb = 0;
 	}
 }
@@ -310,6 +311,9 @@ prune(int dir, const char *suffix, long keep)
 			continue;
 		}
 		if (count == cap) {
+			if (cap > SIZE_MAX / 2 / sizeof(*list)) {
+				break;
+			}
 			size_t ncap = cap ? cap * 2 : 32;
 			struct entry *grown = realloc(list, ncap * sizeof(*list));
 			if (!grown) {
@@ -442,7 +446,8 @@ main(int argc, char **argv)
 	long pid, uid_l, gid_l, sig, when, dumpable;
 	if (parse_long(argv[1], &pid) < 0 || parse_long(argv[2], &uid_l) < 0 || parse_long(argv[3], &gid_l) < 0 ||
 			parse_long(argv[4], &sig) < 0 || parse_long(argv[5], &when) < 0 ||
-			parse_long(argv[6], &dumpable) < 0 || pid <= 0 || uid_l < 0 || gid_l < 0) {
+			parse_long(argv[6], &dumpable) < 0 || pid <= 0 || uid_l < 0 || gid_l < 0 || when < 0 ||
+			(uintmax_t)uid_l > (uintmax_t)(uid_t)-1 || (uintmax_t)gid_l > (uintmax_t)(gid_t)-1) {
 		fprintf(stderr, "singularity-crash-handler: invalid arguments\n");
 		return 2;
 	}
