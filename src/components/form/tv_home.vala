@@ -509,6 +509,10 @@ namespace Singularity {
     internal class TvNowPlaying : Box {
         private const int HEIGHT = 360;
         private const int COVER = 264;
+        private const double BACKDROP_BLUR = 48.0;
+        private const double BACKDROP_SATURATION = 1.4;
+
+        private int _width;
 
         private Picture _backdrop;
         private Singularity.Widgets.MediaArtwork _artwork;
@@ -526,8 +530,9 @@ namespace Singularity {
         private uint _tick = 0;
         private uint _cover_serial = uint.MAX;
 
-        public TvNowPlaying() {
+        public TvNowPlaying(int width) {
             Object(orientation: Orientation.VERTICAL, spacing: 0);
+            _width = width;
             add_css_class("tv-hero");
             add_css_class("tv-now");
             overflow = Overflow.HIDDEN;
@@ -663,15 +668,18 @@ namespace Singularity {
             if (np.cover_serial != _cover_serial) {
                 _cover_serial = np.cover_serial;
                 Gdk.Texture? cover = null;
+                Gdk.Texture? backdrop = null;
                 if (np.cover_path != "") {
                     try {
                         cover = Gdk.Texture.from_filename(np.cover_path);
+                        var small = Gdk.Texture.for_pixbuf(Singularity.Compute.load_scaled(np.cover_path, 256, 256, true));
+                        backdrop = Singularity.Imaging.backdrop(small, _width, BACKDROP_BLUR, BACKDROP_SATURATION);
                     } catch (Error e) {
                         cover = null;
                     }
                 }
                 _artwork.cover = cover;
-                _backdrop.paintable = cover;
+                _backdrop.paintable = backdrop;
                 if (cover != null) remove_css_class("no-cover");
                 else add_css_class("no-cover");
             }
@@ -825,7 +833,7 @@ namespace Singularity {
             _hero.margin_end = GUTTER;
             _hero.watch.connect((t) => open_title(t, null));
             _hero.details.connect((t) => show_details(t));
-            _now = new TvNowPlaying();
+            _now = new TvNowPlaying(area.width - 2 * GUTTER);
             _now.margin_start = GUTTER;
             _now.margin_end = GUTTER;
             _now.notify["visible"].connect(() => _hero.visible = !_now.visible);
