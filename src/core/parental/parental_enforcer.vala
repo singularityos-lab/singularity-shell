@@ -32,17 +32,26 @@ namespace Singularity {
         }
 
         public bool hides(string? app_id) {
+            if (!KioskMode.get_default().permits(app_id)) return true;
             return _policy.blocks_app(app_id);
         }
 
         public bool allows(AppInfo? info) {
             if (info == null) return true;
+            if (!KioskMode.get_default().permits(info.get_id())) {
+                notify_kiosk(info.get_display_name());
+                return false;
+            }
             if (!_policy.blocks_app(info.get_id())) return true;
             notify_denied(info.get_display_name());
             return false;
         }
 
         public bool allows_command(string command) {
+            if (KioskMode.get_default().active) {
+                notify_kiosk(command);
+                return false;
+            }
             if (_policy.blocked_apps.length == 0) return true;
             string[] argv;
             try {
@@ -69,6 +78,15 @@ namespace Singularity {
             send(_("App Not Allowed"), _("%s is blocked by parental controls on this account.").printf(app_name));
         }
 
+        private void notify_kiosk(string app_name) {
+            message("ParentalEnforcer: launch of %s denied, this device runs %s only", app_name, KioskMode.get_default().app_name);
+            var hints = new HashTable<string, Variant>(str_hash, str_equal);
+            hints.insert("urgency", new Variant.byte(1));
+            SystemMonitor.get_default().notifications.notify(_("Your Organization"), 0,
+                "system-lock-screen-symbolic", _("App Not Available"),
+                _("This device is set up to run %s only.").printf(KioskMode.get_default().app_name), {}, hints, -1);
+        }
+
         private void send(string summary, string body) {
             var hints = new HashTable<string, Variant>(str_hash, str_equal);
             hints.insert("urgency", new Variant.byte(1));
@@ -81,6 +99,11 @@ namespace Singularity {
             AppSystem.get_default().app_opened.connect((handle, app_id) => {
                 var info = AppSystem.get_default().resolve_app_for_id(app_id);
                 string id = info != null && info.get_id() != null ? info.get_id() : app_id;
+                if (!KioskMode.get_default().permits(app_id)) {
+                    message("ParentalEnforcer: closing a window of %s, this device runs %s only", app_id, KioskMode.get_default().app_name);
+                    Singularity.close_window(handle);
+                    return;
+                }
                 if (!_policy.blocks_app(id) && !_policy.blocks_app(app_id)) return;
                 message("ParentalEnforcer: closing a window of blocked app %s", app_id);
                 Singularity.close_window(handle);

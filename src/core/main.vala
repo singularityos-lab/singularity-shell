@@ -222,6 +222,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         Singularity.ScreenTimeTracker.get_default().start();
         Singularity.SystemMonitor.get_default().night_light.refresh();
         Singularity.ParentalEnforcer.get_default().start();
+        Singularity.KioskMode.get_default().start();
         Singularity.PowerKeyManager.get_default();
         Singularity.AccessibilityFeedback.get_default();
         var osd_audio = Singularity.SystemMonitor.get_default().audio;
@@ -324,7 +325,11 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
         hot_corner_manager = new Singularity.HotCornerManager(this);
         hot_corner_manager.overview_triggered.connect(() => toggle_overview());
         hot_corner_manager.workspaces_triggered.connect(() => toggle_workspace_overview());
-        hot_corner_manager.settings_triggered.connect(() => { ensure_sidebar(); sidebar.toggle_system(); });
+        hot_corner_manager.settings_triggered.connect(() => {
+            if (Singularity.KioskMode.get_default().active) return;
+            ensure_sidebar();
+            sidebar.toggle_system();
+        });
         var surfaces = Singularity.ShellSurfaceRegistry.get_default();
         // A plugin can claim the panel / dock role and replace the built-in.
         bool want_panel = Singularity.FormShell.wants_panel();
@@ -865,6 +870,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     }
 
     private void toggle_overview_on_monitor(Gdk.Monitor? monitor) {
+        if (Singularity.KioskMode.get_default().active) return;
         if (monitor == null || Singularity.FormFactor.is_main(monitor)) {
             toggle_overview();
             return;
@@ -1126,6 +1132,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     }
 
     private void toggle_overview() {
+        if (Singularity.KioskMode.get_default().active) return;
         if (form_shell != null && form_shell.go_home()) return;
         // A plugin can claim the overview / launcher role and handle the
         // toggle itself (built-in overview is never constructed).
@@ -1330,6 +1337,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     }
 
     private void toggle_workspace_overview() {
+        if (Singularity.KioskMode.get_default().active) return;
         var active = Singularity.AppSystem.get_default().get_active_monitor();
         if (!Singularity.FormShell.wants_workspaces(active) && form_shell != null) {
             form_shell.show_recents(active);

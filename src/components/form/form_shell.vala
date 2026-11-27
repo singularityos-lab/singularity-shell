@@ -246,15 +246,18 @@ namespace Singularity {
         }
 
         public static bool wants_panel(Gdk.Monitor? monitor = null) {
+            if (KioskMode.get_default().active) return false;
             var kind = kind_on(monitor);
             return kind != Singularity.FormFactorKind.TV && kind != Singularity.FormFactorKind.WATCH;
         }
 
         public static bool wants_desktop_icons(Gdk.Monitor? monitor = null) {
+            if (KioskMode.get_default().active) return false;
             return kind_on(monitor) != Singularity.FormFactorKind.PHONE;
         }
 
         public static bool wants_dock(Gdk.Monitor? monitor = null) {
+            if (KioskMode.get_default().active) return false;
             var kind = kind_on(monitor);
             return kind == Singularity.FormFactorKind.DESKTOP || kind == Singularity.FormFactorKind.TABLET;
         }
@@ -387,6 +390,7 @@ namespace Singularity {
         }
 
         private void build_surfaces(Screen screen) {
+            if (KioskMode.get_default().active) return;
             var monitor = screen.monitor;
             switch (screen.kind) {
                 case Singularity.FormFactorKind.PHONE:
