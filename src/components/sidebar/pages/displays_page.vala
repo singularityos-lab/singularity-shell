@@ -103,6 +103,13 @@ namespace Singularity.SidebarPages {
             });
         }
 
+        private bool another_screen_on(DisplayManager.Monitor monitor) {
+            foreach (var m in display_manager.get_monitors()) {
+                if (m != monitor && m.enabled) return true;
+            }
+            return false;
+        }
+
         private void apply_changes() {
             display_manager.apply_configuration();
             foreach (var m in display_manager.get_monitors()) applied_scales.insert(m.name, m.scale);
@@ -120,12 +127,17 @@ namespace Singularity.SidebarPages {
             enabled_row = new SwitchRow(_("Enabled"), _("Enable or disable this display"));
             enabled_row.switch_btn.notify["active"].connect(() => {
                 if (syncing_controls) return;
-                if (selected_monitor != null) {
-                    selected_monitor.enabled = enabled_row.active;
-                    preview.queue_draw();
-                    update_controls();
-                    set_dirty(true);
+                if (selected_monitor == null) return;
+                if (!enabled_row.active && !another_screen_on(selected_monitor)) {
+                    syncing_controls = true;
+                    enabled_row.active = true;
+                    syncing_controls = false;
+                    return;
                 }
+                selected_monitor.enabled = enabled_row.active;
+                apply_changes();
+                preview.queue_draw();
+                update_controls();
             });
             settings_group.add_row(enabled_row);
             resolution_row = new SelectionRow(_("Resolution"), {});
