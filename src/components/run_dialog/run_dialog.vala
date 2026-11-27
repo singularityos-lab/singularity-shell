@@ -48,6 +48,12 @@ namespace Singularity {
         private Button ai_voice;
         private AgentVoice voice;
         private Label ai_answer;
+        private Box ai_working;
+        private Label ai_question;
+        private Label ai_status;
+        private string ai_status_text = "";
+        private int64 ai_status_since = 0;
+        private uint ai_status_tick = 0;
         private ScrolledWindow ai_scroll;
         private bool updating_text = false;
         private string active_query = "";
@@ -301,6 +307,35 @@ namespace Singularity {
             }
             entry_overlay.add_overlay(ai_controls);
             content_box.append(entry_overlay);
+
+            ai_question = new Label("");
+            ai_question.xalign = 0;
+            ai_question.ellipsize = Pango.EllipsizeMode.END;
+            ai_question.wrap_mode = Pango.WrapMode.WORD_CHAR;
+            ai_question.max_width_chars = 60;
+            ai_question.set_cursor_from_name("pointer");
+            var question_click = new GestureClick();
+            question_click.released.connect(() => {
+                bool expand = ai_question.ellipsize != Pango.EllipsizeMode.NONE;
+                ai_question.ellipsize = expand ? Pango.EllipsizeMode.NONE : Pango.EllipsizeMode.END;
+                ai_question.wrap = expand;
+                queue_resize();
+            });
+            ai_question.add_controller(question_click);
+            ai_status = new Label("");
+            ai_status.xalign = 0;
+            ai_status.ellipsize = Pango.EllipsizeMode.END;
+            ai_status.max_width_chars = 60;
+            ai_status.add_css_class("dim-label");
+            ai_status.add_css_class("caption");
+            ai_working = new Box(Orientation.VERTICAL, 2);
+            ai_working.margin_start = 10;
+            ai_working.margin_end = 10;
+            ai_working.margin_bottom = 6;
+            ai_working.append(ai_question);
+            ai_working.append(ai_status);
+            ai_working.visible = false;
+            content_box.append(ai_working);
 
             error_label = new Label("");
             error_label.add_css_class("run-error");
@@ -624,6 +659,7 @@ namespace Singularity {
             ai_answer.label = "";
             clear_agent_cards();
             ai_scroll.visible = false;
+            ai_working.visible = false;
             set_input_sensitive(true);
             entry.remove_css_class("action-mode");
             entry.placeholder_text = _("Search apps or run a command...");
@@ -793,7 +829,7 @@ namespace Singularity {
         }
 
         private void sync_ai_placeholder() {
-            ai_placeholder.visible = ai_mode && ai_text.buffer.text == "";
+            ai_placeholder.visible = ai_mode && ai_text.buffer.text == "" && ai_status_tick == 0;
         }
 
         private EventControllerKey undo_controller() {
@@ -814,6 +850,137 @@ namespace Singularity {
             ai_process = null;
             ai_spinner.stop();
             ai_spinner.visible = false;
+            end_ai_status();
+        }
+
+        private void begin_ai_status(string question) {
+            ai_question.label = question.replace("\n", " ");
+            ai_question.ellipsize = Pango.EllipsizeMode.END;
+            ai_question.wrap = false;
+            ai_status.visible = true;
+            ai_working.visible = true;
+            set_ai_status(_("Thinking"));
+            if (ai_status_tick == 0) ai_status_tick = Timeout.add_seconds(1, () => {
+                show_ai_status();
+                return GLib.Source.CONTINUE;
+            });
+            sync_ai_placeholder();
+        }
+
+        private void end_ai_status() {
+            if (ai_status_tick != 0) Source.remove(ai_status_tick);
+            ai_status_tick = 0;
+            ai_status.visible = false;
+            sync_ai_placeholder();
+        }
+
+        private void set_ai_status(string text) {
+            ai_status_text = text;
+            ai_status_since = GLib.get_monotonic_time();
+            show_ai_status();
+        }
+
+        private void show_ai_status() {
+            int seconds = (int) ((GLib.get_monotonic_time() - ai_status_since) / 1000000);
+            ai_status.label = seconds < 4 ? ai_status_text : _("%s, %d s").printf(ai_status_text, seconds);
+        }
+
+        private static string app_title(string id) {
+            GLib.DesktopAppInfo? info = new GLib.DesktopAppInfo(id.has_suffix(".desktop") ? id : id + ".desktop");
+            return info != null ? info.get_name() : id;
+        }
+
+        private static string step_text(string tool, string subject) {
+            bool named = subject != "";
+            switch (tool) {
+            case "files_search":
+                return named ? _("Searching files for “%s”").printf(subject) : _("Searching files");
+            case "web_search":
+                return named ? _("Searching the web for “%s”").printf(subject) : _("Searching the web");
+            case "web_read":
+                return named ? _("Reading %s").printf(subject) : _("Reading a web page");
+            case "web_images":
+                return named ? _("Looking for images of “%s”").printf(subject) : _("Looking for images");
+            case "web_download":
+                return named ? _("Downloading %s").printf(subject) : _("Downloading a file");
+            case "app_open":
+                return named ? _("Opening %s").printf(app_title(subject)) : _("Opening an app");
+            case "app_invoke":
+            case "app_action":
+                return named ? _("Working in %s").printf(app_title(subject)) : _("Working in an app");
+            case "app_intents":
+            case "app_context":
+            case "app_settings":
+                return named ? _("Looking at %s").printf(app_title(subject)) : _("Looking at an app");
+            case "apps_list":
+                return _("Looking through the apps");
+            case "mail_compose":
+                return _("Writing an email");
+            case "open_uri":
+                return named ? _("Opening %s").printf(subject) : _("Opening a link");
+            case "notify":
+                return _("Sending a notification");
+            case "screen_capture":
+                return _("Looking at the screen");
+            case "windows_list":
+            case "ui_tree":
+            case "outputs_list":
+                return _("Looking at the windows");
+            case "window_set":
+            case "window_close":
+                return _("Arranging windows");
+            case "pointer":
+            case "ui_act":
+                return _("Clicking in a window");
+            case "keyboard":
+                return _("Typing");
+            case "settings_get":
+            case "settings_pages":
+            case "settings_row":
+            case "settings_schemas":
+                return _("Checking the settings");
+            case "settings_set":
+            case "settings_row_set":
+            case "settings_switch":
+            case "settings_open":
+                return _("Changing the settings");
+            case "wallpaper_set":
+                return _("Changing the wallpaper");
+            case "clipboard_get":
+                return _("Reading the clipboard");
+            case "clipboard_set":
+                return _("Copying to the clipboard");
+            case "docs_search":
+            case "docs_read":
+                return _("Reading the Sinty documentation");
+            case "shell_run":
+            case "host_run":
+            case "dbus_call":
+                return _("Running a command");
+            case "devices":
+                return _("Talking to your devices");
+            case "system_info":
+            case "services_list":
+            case "agent_status":
+                return _("Checking the system");
+            case "conversations":
+                return _("Reading earlier conversations");
+            case "change_undo":
+                return _("Undoing a change");
+            case "tasks_list":
+            case "task_save":
+            case "task_delete":
+            case "plans_list":
+            case "plan_save":
+            case "plan_step":
+            case "goal_start":
+            case "goal_note":
+            case "goal_done":
+            case "goals_list":
+                return _("Planning the next steps");
+            default:
+                return _("Working");
+            }
         }
 
         private void set_ai_compact(bool compact) {
@@ -844,6 +1011,20 @@ namespace Singularity {
                             string app, intent, args, result;
                             parameters.get("(ssss)", out app, out intent, out args, out result);
                             show_agent_card(app, intent, args, result);
+                        });
+                    bus.signal_subscribe("dev.sinty.Agent", "dev.sinty.Agent1", "Step", "/dev/sinty/Agent",
+                        null, DBusSignalFlags.NONE, (conn, sender, path, iface, name, parameters) => {
+                            string who, tool, subject;
+                            parameters.get("(sss)", out who, out tool, out subject);
+                            if (ai_process != null && ai_status_tick != 0) set_ai_status(step_text(tool, subject));
+                        });
+                    bus.signal_subscribe("dev.sinty.Agent", "dev.sinty.Agent1", "ActionDone", "/dev/sinty/Agent",
+                        null, DBusSignalFlags.NONE, (conn, sender, path, iface, name, parameters) => {
+                            string tool, outcome;
+                            parameters.get("(ss)", out tool, out outcome);
+                            if (ai_process == null || ai_status_tick == 0) return;
+                            if (outcome == "denied" || outcome == "refuse") set_ai_status(_("That was not allowed, finding another way"));
+                            else set_ai_status(_("Thinking about the result"));
                         });
                     bus.signal_subscribe("dev.sinty.Agent", "dev.sinty.Agent1", "ChangeRecorded", "/dev/sinty/Agent",
                         null, DBusSignalFlags.NONE, (conn, sender, path, iface, name, parameters) => {
@@ -952,6 +1133,10 @@ namespace Singularity {
             clear_agent_cards();
             ai_scroll.visible = false;
             set_orb(AgentOrbState.THINK);
+            begin_ai_status(text.strip());
+            updating_text = true;
+            set_input_text("");
+            updating_text = false;
             set_input_sensitive(false);
             set_ai_compact(true);
             run_ai.begin(text);
@@ -983,6 +1168,7 @@ namespace Singularity {
             }
             if (ai_process != process) return;
             ai_process = null;
+            end_ai_status();
             ai_spinner.stop();
             ai_spinner.visible = false;
             set_input_sensitive(true);
@@ -1001,15 +1187,16 @@ namespace Singularity {
                 }
                 ai_answer.visible = answer != "";
                 ai_scroll.visible = answer != "" || ai_cards.visible;
-                updating_text = true;
-                set_input_text("");
-                updating_text = false;
                 if (voice.active) voice.reply.begin(answer);
-            } else if (failure.contains("no key for this provider")) {
-                error_label.label = _("No API key saved. Add one in Settings, Sinty AI.");
-                error_label.visible = true;
             } else {
-                error_label.label = failure.strip() != "" ? failure.strip() : _("The request failed");
+                ai_working.visible = false;
+                updating_text = true;
+                set_input_text(text.strip());
+                updating_text = false;
+                if (failure.contains("no key for this provider"))
+                    error_label.label = _("No API key saved. Add one in Settings, Sinty AI.");
+                else
+                    error_label.label = failure.strip() != "" ? failure.strip() : _("The request failed");
                 error_label.visible = true;
             }
             queue_resize();
