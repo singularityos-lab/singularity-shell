@@ -443,7 +443,8 @@ static void buffer_release(void *data, struct wl_buffer *buffer) {
 static const struct wl_buffer_listener buffer_listener = { buffer_release };
 
 void singularity_ime_popup_show(const guint8 *pixels, int width, int height, int stride, int scale) {
-    if (input_method == NULL || pixels == NULL || width <= 0 || height <= 0) return;
+    if (input_method == NULL || pixels == NULL || width <= 0 || height <= 0 || stride <= 0 ||
+        width > INT32_MAX / 4 || stride < width * 4 || height > INT32_MAX / stride) return;
     if (popup_surface == NULL) {
         popup_surface = wl_compositor_create_surface(compositor);
         popup = zwp_input_method_v2_get_input_popup_surface(input_method, popup_surface);
