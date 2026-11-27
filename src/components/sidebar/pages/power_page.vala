@@ -137,7 +137,18 @@ namespace Singularity.SidebarPages {
             return BatteryManager.get_default().primary != null || IdleManager.get_default().on_battery;
         }
 
-        private void build_idle() {
+        private static void show_lock_limit(ActionRow row, ManagedPolicy policy) {
+            int limit = policy.get_int(ManagedPolicy.SCREEN_LOCK_AFTER, 0);
+            if (limit <= 0) {
+                row.subtitle = "";
+                return;
+            }
+            int minutes = (limit + 59) / 60;
+            row.subtitle = ngettext("Your organization locks the screen after %d minute at most",
+                "Your organization locks the screen after %d minutes at most", minutes).printf(minutes);
+        }
+
+                private void build_idle() {
             var group = new PreferencesGroup(_("When Inactive"));
             var dim_row = new SwitchRow(_("Dim the Screen"),
                 _("Dim the screens shortly before they turn off"), settings.get_boolean("idle-dim-screen"));
@@ -160,6 +171,9 @@ namespace Singularity.SidebarPages {
                     int seconds = lock_settings.get_boolean("lock-enabled") ? lock_settings.get_int("idle-delay") : 0;
                     lock_row.current_value = seconds.to_string();
                 });
+                var policy = ManagedPolicy.get_default();
+                policy.changed.connect(() => show_lock_limit(lock_row, policy));
+                show_lock_limit(lock_row, policy);
                 group.add_row(lock_row);
             }
 

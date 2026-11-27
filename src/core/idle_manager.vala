@@ -60,6 +60,7 @@ namespace Singularity {
                 });
             }
             IdleInhibitors.get_default().changed.connect(on_inhibitors_changed);
+            ManagedPolicy.get_default().changed.connect(() => rearm());
         }
 
         public void start() {
@@ -81,8 +82,11 @@ namespace Singularity {
 
         public int lock_seconds {
             get {
-                if (lock_settings == null || !lock_settings.get_boolean("lock-enabled")) return 0;
-                return lock_settings.get_int("idle-delay");
+                int chosen = 0;
+                if (lock_settings != null && lock_settings.get_boolean("lock-enabled")) chosen = lock_settings.get_int("idle-delay");
+                int limit = ManagedPolicy.get_default().get_int(ManagedPolicy.SCREEN_LOCK_AFTER, 0);
+                if (limit <= 0) return chosen;
+                return chosen > 0 ? int.min(chosen, limit) : limit;
             }
         }
 
