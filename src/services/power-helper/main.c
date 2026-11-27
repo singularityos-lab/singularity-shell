@@ -40,7 +40,9 @@ static int
 read_attr(const char *dir, const char *attr, char *buf, size_t size)
 {
 	char path[512];
-	snprintf(path, sizeof(path), "%s/%s", dir, attr);
+	if (size < 2 || snprintf(path, sizeof(path), "%s/%s", dir, attr) >= (int)sizeof(path)) {
+		return -1;
+	}
 	int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
 	if (fd < 0) {
 		return -1;
@@ -62,7 +64,9 @@ write_attr(const char *dir, const char *attr, int value)
 {
 	char path[512];
 	char text[16];
-	snprintf(path, sizeof(path), "%s/%s", dir, attr);
+	if (snprintf(path, sizeof(path), "%s/%s", dir, attr) >= (int)sizeof(path)) {
+		return -1;
+	}
 	int fd = open(path, O_WRONLY | O_CLOEXEC | O_NOFOLLOW | O_TRUNC);
 	if (fd < 0) {
 		return -1;
@@ -79,8 +83,9 @@ static int
 charge_limit(const char *battery, const char *percent_text)
 {
 	char *end = NULL;
+	errno = 0;
 	long percent = strtol(percent_text, &end, 10);
-	if (!end || *end != '\0' || percent < 50 || percent > 100) {
+	if (errno != 0 || end == percent_text || !end || *end != '\0' || percent < 50 || percent > 100) {
 		fprintf(stderr, "The charge limit must be between 50 and 100\n");
 		return 2;
 	}
@@ -90,7 +95,10 @@ charge_limit(const char *battery, const char *percent_text)
 	}
 	char dir[384];
 	char buf[64];
-	snprintf(dir, sizeof(dir), "%s/%s", sysfs_root(), battery);
+	if (snprintf(dir, sizeof(dir), "%s/%s", sysfs_root(), battery) >= (int)sizeof(dir)) {
+		fprintf(stderr, "Battery path is too long\n");
+		return 2;
+	}
 	if (read_attr(dir, "type", buf, sizeof(buf)) != 0 || strcmp(buf, "Battery") != 0) {
 		fprintf(stderr, "%s is not a battery\n", battery);
 		return 2;
@@ -100,7 +108,13 @@ charge_limit(const char *battery, const char *percent_text)
 		return 3;
 	}
 	if (read_attr(dir, "charge_control_start_threshold", buf, sizeof(buf)) == 0) {
-		long start = strtol(buf, NULL, 10);
+		char *end = NULL;
+		errno = 0;
+		long start = strtol(buf, &end, 10);
+		if (errno != 0 || end == buf || *end != '\0') {
+			fprintf(stderr, "Invalid charge start threshold\n");
+			return 2;
+		}
 		if (start >= percent && write_attr(dir, "charge_control_start_threshold", (int)percent - 5) != 0) {
 			fprintf(stderr, "Cannot lower the charge start threshold: %s\n", strerror(errno));
 			return 4;
