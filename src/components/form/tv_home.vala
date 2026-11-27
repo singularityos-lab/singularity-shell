@@ -888,6 +888,7 @@ namespace Singularity {
             scroll.vscrollbar_policy = PolicyType.EXTERNAL;
             scroll.vexpand = true;
             scroll.child = body;
+            ((Viewport) scroll.child).scroll_to_focus = false;
             _page.append(scroll);
 
             _sheet = new TvTitleSheet(area.width, area.height, monitor.scale_factor);
@@ -916,11 +917,19 @@ namespace Singularity {
             notify["focus-widget"].connect(() => {
                 var focus = get_focus();
                 if (focus == null || !focus.is_ancestor(body)) return;
-                if (!focus.is_ancestor(_hero) && !focus.is_ancestor(_now) && !focus.is_ancestor(_apps)) return;
-                Idle.add(() => {
-                    scroll.vadjustment.value = 0;
-                    return Source.REMOVE;
-                });
+                var adj = scroll.vadjustment;
+                double target = 0;
+                if (!focus.is_ancestor(_hero) && !focus.is_ancestor(_now) && !focus.is_ancestor(_apps)) {
+                    Graphene.Rect bounds;
+                    if (!focus.compute_bounds(body, out bounds)) return;
+                    double top = bounds.origin.y - GUTTER;
+                    double bottom = bounds.origin.y + bounds.size.height + GUTTER;
+                    target = adj.value;
+                    if (top < target) target = top;
+                    else if (bottom > target + adj.page_size) target = bottom - adj.page_size;
+                    target = target.clamp(adj.lower, double.max(adj.lower, adj.upper - adj.page_size));
+                }
+                if (target != adj.value) adj.value = target;
             });
 
             var app_system = AppSystem.get_default();
