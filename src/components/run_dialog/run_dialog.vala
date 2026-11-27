@@ -165,6 +165,12 @@ namespace Singularity {
             ai_text_scroll.add_css_class("run-ai-input");
             ai_text_scroll.set_child(ai_text);
             ai_text_scroll.vadjustment.changed.connect(pin_ai_scroll);
+            ai_text.notify["scale-factor"].connect(sync_ai_height);
+            var gtk_settings = Gtk.Settings.get_default();
+            if (gtk_settings != null) {
+                gtk_settings.notify["gtk-font-name"].connect(sync_ai_height);
+                gtk_settings.notify["gtk-xft-dpi"].connect(sync_ai_height);
+            }
             ai_text_scroll.vadjustment.value_changed.connect(pin_ai_scroll);
             ai_text_scroll.visible = false;
             var input_box = new Box(Orientation.VERTICAL, 0);
@@ -177,9 +183,8 @@ namespace Singularity {
             ai_placeholder = new Label(_("Ask Sinty AI"));
             ai_placeholder.add_css_class("run-ai-placeholder");
             ai_placeholder.halign = Align.START;
-            ai_placeholder.valign = Align.START;
+            ai_placeholder.valign = Align.CENTER;
             ai_placeholder.margin_start = 40;
-            ai_placeholder.margin_top = 12;
             ai_placeholder.can_target = false;
             ai_placeholder.visible = false;
             entry_overlay.add_overlay(ai_placeholder);
@@ -193,16 +198,14 @@ namespace Singularity {
             entry_overlay.add_overlay(action_prefix);
             ai_orb = new AgentOrb(16);
             ai_orb.halign = Align.START;
-            ai_orb.valign = Align.START;
+            ai_orb.valign = Align.CENTER;
             ai_orb.margin_start = 8;
-            ai_orb.margin_top = 6;
             ai_orb.visible = false;
             entry_overlay.add_overlay(ai_orb);
 
             ai_controls = new Box(Orientation.HORIZONTAL, 6);
             ai_controls.halign = Align.END;
-            ai_controls.valign = Align.END;
-            ai_controls.margin_bottom = 0;
+            ai_controls.valign = Align.CENTER;
             ai_controls.margin_end = 6;
             ai_voice = new Button.from_icon_name("audio-input-microphone-symbolic");
             ai_voice.add_css_class("flat");
@@ -745,7 +748,10 @@ namespace Singularity {
         }
 
         private void sync_ai_height() {
-            if (!ai_text_scroll.visible) return;
+            if (!ai_text_scroll.visible) {
+                align_ai_row(null);
+                return;
+            }
             int width = int.max(ai_text_scroll.get_width(), ai_text_scroll.width_request)
                 - ai_text.left_margin - ai_text.right_margin;
             if (width <= 0) return;
@@ -758,6 +764,27 @@ namespace Singularity {
             int cap = (int) ai_text_scroll.max_content_height;
             ai_text_scroll.vscrollbar_policy = wanted > cap ? PolicyType.AUTOMATIC : PolicyType.NEVER;
             ai_text_scroll.min_content_height = int.min(wanted, cap);
+            align_ai_row(layout);
+        }
+
+        private void align_ai_row(Pango.Layout? layout) {
+            if (layout == null || layout.get_line_count() <= 1) {
+                ai_orb.valign = Align.CENTER;
+                ai_orb.margin_top = 0;
+                ai_controls.valign = Align.CENTER;
+                ai_controls.margin_bottom = 0;
+                return;
+            }
+            Pango.Rectangle ink, logical;
+            layout.get_line_readonly(0).get_pixel_extents(out ink, out logical);
+            int row = ai_text.top_margin + logical.height + ai_text.bottom_margin;
+            int min, nat, bmin, bnat;
+            ai_orb.measure(Orientation.VERTICAL, -1, out min, out nat, out bmin, out bnat);
+            ai_orb.valign = Align.START;
+            ai_orb.margin_top = int.max((row - nat) / 2, 0);
+            ai_controls.measure(Orientation.VERTICAL, -1, out min, out nat, out bmin, out bnat);
+            ai_controls.valign = Align.END;
+            ai_controls.margin_bottom = int.max((row - nat) / 2, 0);
         }
 
         private void pin_ai_scroll() {
