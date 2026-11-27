@@ -516,6 +516,7 @@ singularity_core_sources = files(
     'src/components/form/screen_chooser.vala',
     'src/components/form/tv_settings.vala',
     'src/components/form/tv_apps_folder.vala',
+    'src/components/form/tv_widgets.vala',
     'src/components/form/tv_home.vala',
     'src/core/proc_stat.vala',
     'src/components/sidebar/widgets/settings_subpages.vala',

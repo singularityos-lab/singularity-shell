@@ -773,6 +773,8 @@ namespace Singularity {
         private unowned Gdk.Monitor _monitor;
         private TvSettings? _settings_screen = null;
         private TvAppsFolder? _folder = null;
+        private TvWidgetPicker? _widget_picker = null;
+        private TvWidgetRow _widgets;
         private ulong _sig_clock = 0;
         private ulong _sig_apps = 0;
         private ulong _sig_pinned = 0;
@@ -859,7 +861,9 @@ namespace Singularity {
             rows.propagation_phase = PropagationPhase.CAPTURE;
             rows.key_pressed.connect((keyval, code, state) => {
                 if (keyval == Gdk.Key.Up) return _now.visible ? _now.focus_primary() : _hero.focus_primary();
-                if (keyval != Gdk.Key.Down || !_watching_scroll.visible) return false;
+                if (keyval != Gdk.Key.Down) return false;
+                var focus = get_focus();
+                if (!_watching_scroll.visible) return focus != null && _widgets.focus_nearest(focus);
                 var card = nearest(_watching);
                 return card != null && card.grab_focus();
             });
@@ -886,10 +890,20 @@ namespace Singularity {
                     var tile = nearest(_apps);
                     return tile != null && tile.grab_focus();
                 }
+                if (keyval == Gdk.Key.Down) return focus != null && _widgets.focus_nearest(focus);
                 return false;
             });
             _watching_scroll.add_controller(edges);
             body.append(_watching_scroll);
+
+            body.append(section_label(_("Widgets")));
+            _widgets = new TvWidgetRow(GUTTER);
+            _widgets.edit.connect(() => open_widget_picker());
+            _widgets.leave_up.connect(() => {
+                var target = nearest(_watching_scroll.visible ? (Widget) _watching : (Widget) _apps);
+                return target != null && target.grab_focus();
+            });
+            body.append(_widgets);
 
             var scroll = new ScrolledWindow();
             scroll.hscrollbar_policy = PolicyType.NEVER;
@@ -992,6 +1006,16 @@ namespace Singularity {
                 });
             }
             _folder.open();
+        }
+
+        public void open_widget_picker() {
+            var app = application;
+            if (app == null) return;
+            if (_widget_picker == null) {
+                _widget_picker = new TvWidgetPicker(app, _monitor);
+                _widget_picker.dismissed.connect(() => _widgets.focus_first());
+            }
+            _widget_picker.open();
         }
 
         public void play_enter() {
@@ -1121,6 +1145,30 @@ namespace Singularity {
             child.focusable = true;
             child.update_property(Gtk.AccessibleProperty.LABEL, label, -1);
             return child;
+        }
+
+        internal static void set_tile_checked(FlowBoxChild child, bool on) {
+            var check = child.get_data<Image>("tv-check");
+            if (check == null) {
+                if (!on) return;
+                var motion = child.child as Singularity.Animation.MotionBin;
+                var box = motion != null ? motion.child as Box : null;
+                var art = box != null ? box.get_first_child() : null;
+                if (art == null) return;
+                box.remove(art);
+                var stack = new Overlay();
+                stack.child = art;
+                check = new Image.from_icon_name("object-select-symbolic");
+                check.add_css_class("tv-tile-check");
+                check.pixel_size = 20;
+                check.halign = Align.END;
+                check.valign = Align.START;
+                check.can_target = false;
+                stack.add_overlay(check);
+                box.prepend(stack);
+                child.set_data<Image>("tv-check", check);
+            }
+            check.visible = on;
         }
 
         private void fill_apps() {
