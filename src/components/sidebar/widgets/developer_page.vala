@@ -584,6 +584,8 @@ namespace Singularity {
                 case FormFactorKind.PHONE: return _("Phone");
                 case FormFactorKind.TV: return _("TV");
                 case FormFactorKind.WATCH: return _("Watch");
+                case FormFactorKind.CAR: return _("Car");
+                case FormFactorKind.HOME: return _("Smart Display");
                 default: return _("Desktop");
             }
         }

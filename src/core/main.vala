@@ -1327,8 +1327,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
     }
 
     private static bool shade_pull(Gdk.Monitor? monitor) {
-        var kind = Singularity.FormFactor.at(monitor ?? Singularity.FormFactor.main_monitor());
-        return kind == Singularity.FormFactorKind.TABLET || phone_shade(monitor);
+        return Singularity.FormFactor.at(monitor ?? Singularity.FormFactor.main_monitor()).is_touch_first();
     }
 
     private static bool phone_shade(Gdk.Monitor? monitor) {

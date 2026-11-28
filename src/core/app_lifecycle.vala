@@ -69,7 +69,8 @@ namespace Singularity {
             get {
                 return IdleManager.get_default().on_battery
                     || SystemMonitor.get_default().power_profiles.active_profile == "power-saver"
-                    || Singularity.FormFactor.current() == Singularity.FormFactorKind.TV;
+                    || Singularity.FormFactor.current() == Singularity.FormFactorKind.TV
+                    || Singularity.FormFactor.current() == Singularity.FormFactorKind.HOME;
             }
         }
 

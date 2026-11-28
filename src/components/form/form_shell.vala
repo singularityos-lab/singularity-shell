@@ -17,6 +17,8 @@ namespace Singularity {
             public WatchFace? watch = null;
             public SplitDivider? split = null;
             public PhoneHome? home = null;
+            public CarHome? car = null;
+            public SmartHome? smart = null;
 
             public void destroy_surfaces() {
                 if (home != null) { home.destroy(); home = null; }
@@ -24,6 +26,8 @@ namespace Singularity {
                 if (nav != null) { nav.destroy(); nav = null; }
                 if (tv != null) { tv.destroy(); tv = null; }
                 if (watch != null) { watch.destroy(); watch = null; }
+                if (car != null) { car.destroy(); car = null; }
+                if (smart != null) { smart.destroy(); smart = null; }
             }
         }
 
@@ -205,7 +209,7 @@ namespace Singularity {
                 developer = new GLib.Settings("dev.sinty.desktop").get_boolean("developer-mode");
             }
             foreach (var kind in Singularity.FormFactorKind.all()) {
-                if (kind == Singularity.FormFactorKind.WATCH && !developer) continue;
+                if ((kind == Singularity.FormFactorKind.WATCH || kind == Singularity.FormFactorKind.CAR) && !developer) continue;
                 kinds.add(kind);
             }
             return kinds;
@@ -217,6 +221,8 @@ namespace Singularity {
                 case Singularity.FormFactorKind.PHONE: return "412x915";
                 case Singularity.FormFactorKind.TV: return "1600x900";
                 case Singularity.FormFactorKind.WATCH: return "396x396";
+                case Singularity.FormFactorKind.CAR: return "1280x720";
+                case Singularity.FormFactorKind.HOME: return "1280x800";
                 default: return "1280x800";
             }
         }
@@ -227,6 +233,8 @@ namespace Singularity {
                 case Singularity.FormFactorKind.PHONE: return "phone";
                 case Singularity.FormFactorKind.TV: return "video-television";
                 case Singularity.FormFactorKind.WATCH: return "watch";
+                case Singularity.FormFactorKind.CAR: return "car";
+                case Singularity.FormFactorKind.HOME: return "go-home";
                 default: return "computer";
             }
         }
@@ -237,6 +245,8 @@ namespace Singularity {
                 case Singularity.FormFactorKind.PHONE: return _("Phone");
                 case Singularity.FormFactorKind.TV: return _("TV");
                 case Singularity.FormFactorKind.WATCH: return _("Watch");
+                case Singularity.FormFactorKind.CAR: return _("Car");
+                case Singularity.FormFactorKind.HOME: return _("Smart Display");
                 default: return _("Desktop");
             }
         }
@@ -248,12 +258,14 @@ namespace Singularity {
         public static bool wants_panel(Gdk.Monitor? monitor = null) {
             if (KioskMode.get_default().active) return false;
             var kind = kind_on(monitor);
-            return kind != Singularity.FormFactorKind.TV && kind != Singularity.FormFactorKind.WATCH;
+            return kind != Singularity.FormFactorKind.TV && kind != Singularity.FormFactorKind.WATCH
+                && kind != Singularity.FormFactorKind.CAR && kind != Singularity.FormFactorKind.HOME;
         }
 
         public static bool wants_desktop_icons(Gdk.Monitor? monitor = null) {
             if (KioskMode.get_default().active) return false;
-            return kind_on(monitor) != Singularity.FormFactorKind.PHONE;
+            var kind = kind_on(monitor);
+            return kind != Singularity.FormFactorKind.PHONE && kind != Singularity.FormFactorKind.CAR && kind != Singularity.FormFactorKind.HOME;
         }
 
         public static bool wants_dock(Gdk.Monitor? monitor = null) {
@@ -322,7 +334,8 @@ namespace Singularity {
             var target = monitor ?? active_monitor();
             var kind = kind_on(target);
             if (kind != Singularity.FormFactorKind.TV && kind != Singularity.FormFactorKind.WATCH
-                    && kind != Singularity.FormFactorKind.PHONE && kind != Singularity.FormFactorKind.TABLET) return false;
+                    && kind != Singularity.FormFactorKind.PHONE && kind != Singularity.FormFactorKind.TABLET
+                    && kind != Singularity.FormFactorKind.CAR && kind != Singularity.FormFactorKind.HOME) return false;
             if (_switcher != null) _switcher.dismiss();
             SnapController.get_default().dismiss_assist();
             foreach (var win in AppSystem.get_default().get_windows()) {
@@ -442,6 +455,14 @@ namespace Singularity {
                     screen.watch.pull_end.connect((dy) => shade_pull_end(monitor, dy));
                     screen.watch.present();
                     break;
+                case Singularity.FormFactorKind.CAR:
+                    screen.car = new CarHome(_app, monitor);
+                    screen.car.present();
+                    break;
+                case Singularity.FormFactorKind.HOME:
+                    screen.smart = new SmartHome(_app, monitor);
+                    screen.smart.present();
+                    break;
                 default:
                     break;
             }
@@ -526,7 +547,7 @@ namespace Singularity {
         private void fill_after_close(void* closed) {
             foreach (var monitor in monitors()) {
                 var kind = kind_on(monitor);
-                if (kind != Singularity.FormFactorKind.TABLET && kind != Singularity.FormFactorKind.TV) continue;
+                if (!kind.is_full_screen() || kind.is_handheld()) continue;
                 AppSystem.Window? last = null;
                 int count = 0;
                 foreach (var win in AppSystem.get_default().get_windows()) {
