@@ -649,7 +649,8 @@ namespace Singularity {
             foreach (var monitor in current) {
                 string connector = connector_of(monitor);
                 seen.add(connector);
-                if (!_known_outputs.contains(connector) && !Singularity.FormFactor.is_main(monitor)) fresh = monitor;
+                if (!_known_outputs.contains(connector) && !Singularity.FormFactor.is_main(monitor)
+                        && !Singularity.FormFactor.is_projection(monitor)) fresh = monitor;
             }
             _known_outputs.clear();
             _known_outputs.add_all(seen);

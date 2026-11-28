@@ -484,6 +484,11 @@ namespace Singularity {
         private Gee.HashMap<string, ToggleButton> _rail_buttons = new Gee.HashMap<string, ToggleButton>();
         private ulong _sig_clock = 0;
         private int _cover;
+        private string _size_class;
+        private ulong _geometry_id = 0;
+        private Gdk.Monitor _monitor;
+        private GlanceMedia _media_card;
+        private GlanceMedia _media_page;
 
         public CarHome(Gtk.Application app, Gdk.Monitor monitor) {
             Object(application: app);
@@ -497,9 +502,7 @@ namespace Singularity {
             add_css_class("singularity");
             add_css_class("singularity-shell");
             add_css_class("car-home");
-            var area = monitor.geometry;
-            add_css_class(size_class(area.height));
-            _cover = area.height < 600 ? 112 : (area.height < 900 ? 168 : 248);
+            _cover = cover_for(monitor.geometry.height);
 
             var root = new Box(Orientation.HORIZONTAL, 0);
             root.append(build_rail());
@@ -512,7 +515,8 @@ namespace Singularity {
             _pages.transition_type = StackTransitionType.CROSSFADE;
             _pages.add_css_class("car-pages");
             _pages.add_named(build_dashboard(), "home");
-            var media = new GlanceMedia(true, _cover * 2, "car-media-page");
+            _media_page = new GlanceMedia(true, _cover * 2, "car-media-page");
+            var media = _media_page;
             _pages.add_named(media, "media");
             _pages.add_named(build_phone(), "phone");
             _pages.add_named(build_apps(), "apps");
@@ -532,9 +536,34 @@ namespace Singularity {
                 sync_rail();
             });
             show_page("home");
+            _size_class = size_class(monitor.geometry.height);
+            add_css_class(_size_class);
+            _geometry_id = monitor.notify["geometry"].connect(() => fit(monitor));
+            _monitor = monitor;
+        }
+
+        private void fit(Gdk.Monitor monitor) {
+            int height = monitor.geometry.height;
+            string wanted = size_class(height);
+            if (wanted != _size_class) {
+                remove_css_class(_size_class);
+                _size_class = wanted;
+                add_css_class(_size_class);
+            }
+            _cover = cover_for(height);
+            _media_card.cover_size = _cover;
+            _media_page.cover_size = _cover * 2;
+        }
+
+        private static int cover_for(int height) {
+            return height < 600 ? 112 : (height < 900 ? 168 : 248);
         }
 
         public override void dispose() {
+            if (_geometry_id != 0) {
+                _monitor.disconnect(_geometry_id);
+                _geometry_id = 0;
+            }
             if (_sig_clock != 0) {
                 SharedClock.get_default().disconnect(_sig_clock);
                 _sig_clock = 0;
@@ -616,7 +645,8 @@ namespace Singularity {
             var side = new Box(Orientation.VERTICAL, 0);
             side.add_css_class("car-side");
             side.hexpand = true;
-            var media = new GlanceMedia(false, _cover, "car-card");
+            _media_card = new GlanceMedia(false, _cover, "car-card");
+            var media = _media_card;
             media.expand.connect(() => show_page("media"));
             side.append(media);
             side.append(new CarMessages());

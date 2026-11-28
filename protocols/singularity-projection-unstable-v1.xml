@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="singularity_projection_unstable_v1">
+  <copyright>
+    Copyright (c) 2026 Singularity Desktop
+  </copyright>
+
+  <interface name="zsingularity_projection_manager_v1" version="1">
+    <description summary="compositor outputs projected to another screen">
+      This privileged interface creates outputs that are not attached to a
+      local display. Their content is captured by a client and shown on
+      another screen, such as a car head unit. Each output lives as long as
+      the object that created it.
+    </description>
+
+    <request name="create_output">
+      <description summary="create a projection output">
+        Creates an output with the given connector name and mode. The name
+        must be unique among projection outputs. The refresh rate is in mHz.
+        The form factor is advertised to clients in the output description
+        as "sinty-projection:" followed by the form factor.
+      </description>
+      <arg name="id" type="new_id" interface="zsingularity_projection_output_v1"/>
+      <arg name="name" type="string"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+      <arg name="refresh" type="int"/>
+      <arg name="form_factor" type="string"/>
+    </request>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager binding">
+        Outputs created through this binding stay until their own objects
+        are destroyed.
+      </description>
+    </request>
+  </interface>
+
+  <interface name="zsingularity_projection_output_v1" version="1">
+    <description summary="a projection output"/>
+
+    <enum name="failure_reason">
+      <entry name="invalid_mode" value="0"/>
+      <entry name="name_taken" value="1"/>
+      <entry name="backend" value="2"/>
+    </enum>
+
+    <request name="map_touch">
+      <description summary="route a touch device to this output">
+        Every touch device whose name matches, present now or added later,
+        reports its contacts on this output.
+      </description>
+      <arg name="device_name" type="string"/>
+    </request>
+
+    <request name="set_mode">
+      <description summary="change the output mode"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+      <arg name="refresh" type="int"/>
+    </request>
+
+    <request name="destroy" type="destructor">
+      <description summary="remove the output"/>
+    </request>
+
+    <event name="ready">
+      <description summary="the output is enabled">
+        Sent once the output is enabled and advertised as wl_output with the
+        given name.
+      </description>
+      <arg name="name" type="string"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+
+    <event name="failed">
+      <description summary="the output could not be created"/>
+      <arg name="reason" type="uint" enum="failure_reason"/>
+    </event>
+  </interface>
+</protocol>

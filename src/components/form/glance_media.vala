@@ -19,6 +19,11 @@ namespace Singularity {
 
         public signal void expand();
 
+        public int cover_size {
+            get { return _artwork.size; }
+            set { _artwork.size = value; }
+        }
+
         public GlanceMedia(bool full, int cover, string card_class) {
             Object(orientation: Orientation.VERTICAL, spacing: 0);
             _full = full;

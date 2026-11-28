@@ -147,6 +147,19 @@ mo_proto_h = custom_target(
   input: mo_proto_xml,
   command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@']
 )
+proj_proto_xml = 'protocols/singularity-projection-unstable-v1.xml'
+proj_proto_c = custom_target(
+  'singularity-projection-unstable-v1-protocol.c',
+  output: 'singularity-projection-unstable-v1-protocol.c',
+  input: proj_proto_xml,
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@']
+)
+proj_proto_h = custom_target(
+  'singularity-projection-unstable-v1-client-protocol.h',
+  output: 'singularity-projection-unstable-v1-client-protocol.h',
+  input: proj_proto_xml,
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@']
+)
 pip_proto_xml = 'protocols/singularity-pip-unstable-v1.xml'
 pip_proto_c = custom_target(
   'singularity-pip-unstable-v1-protocol.c',
@@ -535,6 +548,7 @@ singularity_core_sources = files(
     'src/components/notifications/swipe_dismiss.vala',
     'src/core/notification_manager.vala',
     'src/core/one_time_code_service.vala',
+    'src/core/projection_service.vala',
     'src/core/notifications/notification_rules.vala',
     'src/core/notifications/notification_history.vala',
     'src/core/notifications/app_notification_settings.vala',
@@ -732,6 +746,8 @@ singularity_core_sources = files(
     'src/wayland/motion_hints.c',
     'src/wayland/motion_hints.vapi',
     'src/wayland/stage.c',
+    'src/wayland/projection.c',
+    'src/wayland/projection.vapi',
     'src/wayland/stage.vapi',
     'src/wayland/window_card.c',
     'src/wayland/window_card.vapi',
@@ -804,7 +820,7 @@ subdir('src/lockscreen')
 
 executable('singularity-desktop',
   sources: ['src/core/main.vala'] + singularity_core_sources + [
-    wl_proto_c, wl_proto_h, ws_proto_c, ws_proto_h, sp_proto_c, sp_proto_h, pip_proto_c, pip_proto_h, om_proto_c, om_proto_h, st_proto_c, st_proto_h, sg_proto_c, sg_proto_h, gc_proto_c, gc_proto_h, vk_proto_c, vk_proto_h, vp_proto_c, vp_proto_h, dc_proto_c, dc_proto_h, im_proto_c, im_proto_h, idle_proto_c, idle_proto_h, op_proto_c, op_proto_h, mo_proto_c, mo_proto_h, stg_proto_c, stg_proto_h, proc_proto_c, proc_proto_h, kh_proto_c, kh_proto_h, sb_proto_c, sb_proto_h, pace_proto_c, pace_proto_h, snap_proto_c, snap_proto_h
+    wl_proto_c, wl_proto_h, ws_proto_c, ws_proto_h, sp_proto_c, sp_proto_h, pip_proto_c, pip_proto_h, proj_proto_c, proj_proto_h, om_proto_c, om_proto_h, st_proto_c, st_proto_h, sg_proto_c, sg_proto_h, gc_proto_c, gc_proto_h, vk_proto_c, vk_proto_h, vp_proto_c, vp_proto_h, dc_proto_c, dc_proto_h, im_proto_c, im_proto_h, idle_proto_c, idle_proto_h, op_proto_c, op_proto_h, mo_proto_c, mo_proto_h, stg_proto_c, stg_proto_h, proc_proto_c, proc_proto_h, kh_proto_c, kh_proto_h, sb_proto_c, sb_proto_h, pace_proto_c, pace_proto_h, snap_proto_c, snap_proto_h
   ],
   dependencies: dependencies + [libsingularity_dep, system_dep, gee_dep, json_dep, cc.find_library('m'), cc.find_library('crypt'), dependency('xcb')],
   include_directories: [
